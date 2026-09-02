@@ -423,6 +423,7 @@ export interface ApiResponse<T> {
 export interface OpenPurchaseOrderRow {
   poId: string;
   poNumber: string;
+  vendorBillNo?: string;
   vendorId: string;
   vendorName: string;
   poDate: string;
@@ -489,6 +490,7 @@ export interface Gstr2bRecordRow {
   grand: number;
   status: "MATCHED" | "AMOUNT_MISMATCH" | "MISSING_IN_BOOKS";
   matchedPoNumber: string | null;
+  matchBasis: "BILL_NO" | "AMOUNT" | null;
 }
 
 export interface Gstr2bBooksRow {
@@ -496,6 +498,7 @@ export interface Gstr2bBooksRow {
   poNumber: string;
   vendorName: string;
   gstin: string;
+  vendorBillNo?: string;
   taxable: number;
   igst: number;
   cgst: number;
@@ -512,8 +515,10 @@ export interface Gstr2bResponse {
   books: Gstr2bBooksRow[];
   booksTotal: number;
   summary: {
+    period: string;
     records2b: number;
     matched: number;
+    billMatched: number;
     mismatches: number;
     missingInBooks: number;
     missingIn2b: number;

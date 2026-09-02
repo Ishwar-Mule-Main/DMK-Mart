@@ -24,6 +24,7 @@ import {
   ArrowRight,
   Banknote,
   Boxes,
+  CalendarClock,
   CalendarDays,
   FileCheck2,
   HandCoins,
@@ -41,6 +42,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api-client";
 import { formatINR, formatDate } from "@/lib/format";
 import { useErpStore } from "@/store/erp-store";
+import { requestAgingTab } from "@/lib/settle-bus";
 import { cn } from "@/lib/utils";
 
 type BadgeTone = "success" | "warning" | "danger" | "info" | "dr" | "cr" | "neutral";
@@ -53,7 +55,9 @@ interface DashboardResponse {
   todaySales: number;
   monthSales: number;
   receivables: number;
+  receivablesAdvances: number;
   payables: number;
+  payablesCredits: number;
   cash: number;
   bank: number;
   inventoryValue: number;
@@ -70,6 +74,18 @@ interface DashboardResponse {
     amount: number;
     party: string;
   }>;
+}
+
+/** Slice of GET /ledger/aging-invoices used by the overdue-receivables pulse. */
+interface OverduePulse {
+  openInvoices: number;
+  outstanding: number;
+  overdueInvoices: number;
+  overdue: number;
+  worstOverdueDays: number;
+  topOverdueParty: string | null;
+  nextDueDate: string | null;
+  unappliedReceipts: number;
 }
 
 interface LowStockMini {
@@ -152,6 +168,7 @@ export default function DashboardView() {
   const [data, setData] = React.useState<DashboardResponse | null>(null);
   const [lowStock, setLowStock] = React.useState<LowStockMini[]>([]);
   const [gstPulse, setGstPulse] = React.useState<Gstr2bPulse | null>(null);
+  const [overduePulse, setOverduePulse] = React.useState<OverduePulse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [refreshKey, setRefreshKey] = React.useState(0);
@@ -161,7 +178,7 @@ export default function DashboardView() {
     setLoading(true);
     setError(null);
     try {
-      const [dash, low, gst] = await Promise.all([
+      const [dash, low, gst, aging] = await Promise.all([
         apiGet<DashboardResponse>("/api/v1/dashboard", { firmId: activeFirmId }),
         apiGet<LowStockMini[]>("/api/v1/inventory/low-stock", { firmId: activeFirmId }).catch(
           () => [] as LowStockMini[]
@@ -172,10 +189,35 @@ export default function DashboardView() {
         })
           .then((r) => r.summary ?? null)
           .catch(() => null),
+        apiGet<{
+          totals: { openInvoices: number; outstanding: number; overdueInvoices: number; overdue: number };
+          rows: Array<{ isOverdue: boolean; overdueDays: number; partyName: string; dueDate: string }>;
+          reconciliation?: { unappliedReceipts: number };
+        }>("/api/v1/ledger/aging-invoices", { firmId: activeFirmId }).catch(() => null),
       ]);
       setData(dash);
       setLowStock(Array.isArray(low) ? low : []);
       setGstPulse(gst);
+
+      if (aging) {
+        const overdueRows = aging.rows.filter((r) => r.isOverdue);
+        setOverduePulse({
+          openInvoices: aging.totals.openInvoices,
+          outstanding: aging.totals.outstanding,
+          overdueInvoices: aging.totals.overdueInvoices,
+          overdue: aging.totals.overdue,
+          worstOverdueDays: overdueRows.reduce((m, r) => Math.max(m, r.overdueDays), 0),
+          topOverdueParty:
+            overdueRows.length > 0
+              ? [...overdueRows].sort((a, b) => b.overdueDays - a.overdueDays)[0]?.partyName ?? null
+              : null,
+          nextDueDate:
+            aging.rows.length > 0 ? aging.rows.map((r) => r.dueDate).sort()[0] ?? null : null,
+          unappliedReceipts: aging.reconciliation?.unappliedReceipts ?? 0,
+        });
+      } else {
+        setOverduePulse(null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load dashboard");
     } finally {
@@ -266,7 +308,7 @@ export default function DashboardView() {
               label="Receivables"
               value={formatINR(data.receivables)}
               tone="orange"
-              sub="Dr — owed by customers"
+              sub={data.receivablesAdvances > 0.009 ? `Net · incl. ${formatINR(data.receivablesAdvances)} advances` : "Dr — owed by customers"}
               icon={HandCoins}
               onClick={() => setView("finance/aging")}
               drillHint="AR Aging"
@@ -275,7 +317,7 @@ export default function DashboardView() {
               label="Payables"
               value={formatINR(data.payables)}
               tone="info"
-              sub="Cr — owed to vendors"
+              sub={data.payablesCredits > 0.009 ? `Net · incl. ${formatINR(data.payablesCredits)} credits` : "Cr — owed to vendors"}
               icon={Banknote}
               onClick={() => setView("finance/aging")}
               drillHint="AP Aging"
@@ -300,8 +342,17 @@ export default function DashboardView() {
             />
           </div>
 
-          {/* ── GST compliance pulse (GSTR-2B current period) ── */}
+          {/* ── Compliance + collections pulses (GSTR-2B · overdue AR) ── */}
           {gstPulse && <GstPulseCard pulse={gstPulse} onDrill={() => setView("finance/gstr2b")} />}
+          {overduePulse && (
+            <OverduePulseCard
+              pulse={overduePulse}
+              onDrill={() => {
+                requestAgingTab("inv");
+                setView("finance/aging");
+              }}
+            />
+          )}
 
           {/* ── Trend + AR aging ────────────────────────── */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -655,6 +706,153 @@ function GstPulseCard({ pulse, onDrill }: { pulse: Gstr2bPulse; onDrill: () => v
       {noData && (
         <p className="mt-3 text-[11.5px] text-dmk-text-muted border-t border-dmk-border-subtle pt-2.5">
           No 2B records imported for the current period — import the portal CSV to verify input tax credit before filing.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Overdue receivables pulse — mirror of the GST compliance pulse.
+// Answers "who owes me past their credit terms, how much, how
+// late?" at a glance. Drills into the invoice-wise AR aging tab.
+// ═══════════════════════════════════════════════════════════════
+
+function OverduePulseCard({ pulse, onDrill }: { pulse: OverduePulse; onDrill: () => void }) {
+  const noOpen = pulse.openInvoices === 0;
+  const allClean = !noOpen && pulse.overdueInvoices === 0;
+  // ≥40% of the open book overdue → red, otherwise amber
+  const overdueShare = pulse.outstanding > 0 ? pulse.overdue / pulse.outstanding : 0;
+  const severe = overdueShare >= 0.4;
+
+  const status = noOpen
+    ? { label: "NO OPEN INVOICES", tone: "neutral" as const, dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
+    : allClean
+      ? { label: "ALL WITHIN TERMS", tone: "success" as const, dot: "bg-dmk-success", ring: "border-dmk-success/30" }
+      : severe
+        ? { label: `${pulse.overdueInvoices} OVERDUE`, tone: "danger" as const, dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
+        : { label: `${pulse.overdueInvoices} OVERDUE`, tone: "warning" as const, dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
+
+  const stats = [
+    { label: "Open book", value: formatINR(pulse.outstanding), cls: "text-dmk-text-primary" },
+    {
+      label: "Overdue",
+      value: formatINR(pulse.overdue),
+      cls: pulse.overdueInvoices > 0 ? "text-dmk-danger" : "text-dmk-success",
+    },
+    { label: "Open invoices", value: String(pulse.openInvoices), cls: "text-dmk-text-primary" },
+    {
+      label: pulse.overdueInvoices > 0 ? "Worst past due" : "Next due",
+      value:
+        pulse.overdueInvoices > 0
+          ? `${pulse.worstOverdueDays}d${pulse.topOverdueParty ? ` · ${pulse.topOverdueParty.split(" ")[0]}` : ""}`
+          : pulse.nextDueDate
+            ? formatDate(pulse.nextDueDate)
+            : "—",
+      cls: pulse.overdueInvoices > 0 ? "text-dmk-warning" : "text-dmk-text-secondary",
+    },
+  ];
+
+  const meterPct = Math.min(100, Math.round(overdueShare * 100));
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Collections ${status.label} — open invoice-wise receivables aging`}
+      onClick={onDrill}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onDrill();
+        }
+      }}
+      className={cn(
+        "dmk-card p-4 dmk-kpi-clickable relative overflow-hidden border",
+        status.ring,
+        "dmk-enter"
+      )}
+    >
+      <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+        {/* Status block */}
+        <div className="flex items-center gap-3 min-w-0 lg:w-[280px] shrink-0">
+          <div className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border",
+            noOpen
+              ? "bg-dmk-input-well border-dmk-border-subtle"
+              : allClean
+                ? "bg-[rgba(34,197,94,0.1)] border-dmk-success/30"
+                : severe
+                  ? "bg-[rgba(239,68,68,0.1)] border-dmk-danger/30"
+                  : "bg-[rgba(245,158,11,0.1)] border-dmk-warning/30"
+          )}>
+            {noOpen ? (
+              <HandCoins className="h-5 w-5 text-dmk-text-muted" strokeWidth={1.75} />
+            ) : allClean ? (
+              <CalendarClock className="h-5 w-5 text-dmk-success" strokeWidth={1.75} />
+            ) : (
+              <CalendarClock className={cn("h-5 w-5", severe ? "text-dmk-danger" : "text-dmk-warning")} strokeWidth={1.75} />
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+              Collections · Receivables
+            </p>
+            <p className="text-[14.5px] font-bold text-dmk-text-primary flex items-center gap-2">
+              <span className={cn("h-1.5 w-1.5 rounded-full animate-pulse", status.dot)} />
+              {status.label}
+            </p>
+            <p className="text-[10.5px] text-dmk-text-muted truncate">
+              {allClean && pulse.nextDueDate
+                ? `Next payment due ${formatDate(pulse.nextDueDate)}`
+                : "Aged against posted credit invoices & credit terms"}
+            </p>
+          </div>
+        </div>
+
+        {/* Mini stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 min-w-0">
+          {stats.map((s) => (
+            <div key={s.label} className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/50 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">{s.label}</p>
+              <p className={cn("font-money text-[14px] font-semibold mt-0.5 truncate", s.cls)}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Overdue-share meter + drill */}
+        <div className="lg:w-[190px] shrink-0 flex flex-col gap-1.5">
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+            <span>Overdue share</span>
+            <span className="font-money text-dmk-text-secondary">{meterPct}%</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-dmk-input-well overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500",
+                meterPct === 0 ? "bg-dmk-success" : meterPct < 40 ? "bg-dmk-warning" : "bg-dmk-danger"
+              )}
+              style={{ width: `${Math.max(meterPct, meterPct === 0 ? 0 : 4)}%` }}
+            />
+          </div>
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-dmk-blue/80 mt-0.5">
+            Invoice-wise Aging <ArrowRight className="h-3 w-3" />
+          </span>
+        </div>
+      </div>
+
+      {allClean && (
+        <p className="mt-3 text-[11.5px] text-dmk-text-muted border-t border-dmk-border-subtle pt-2.5">
+          Every open credit invoice is inside its customer's credit terms — collections healthy.
+          {pulse.unappliedReceipts > 0.009 && (
+            <> of which <span className="font-money text-dmk-info">{formatINR(pulse.unappliedReceipts)}</span> sits as on-account receipts awaiting allocation.</>
+          )}
+        </p>
+      )}
+      {severe && (
+        <p className="mt-3 text-[11.5px] text-dmk-warning border-t border-dmk-border-subtle pt-2.5">
+          {Math.round(overdueShare * 100)}% of the open receivables book is past credit terms — chase{" "}
+          {pulse.topOverdueParty ?? "the oldest invoices"} first.
         </p>
       )}
     </div>

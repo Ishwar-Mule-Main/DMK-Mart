@@ -36,7 +36,7 @@ import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { A4PrintPortal, printA4 } from "@/components/erp/print-portal";
-import { requestSettleCustomer, requestSettleVendor } from "@/lib/settle-bus";
+import { consumePendingLedgerParty, requestSettleCustomer, requestSettleVendor } from "@/lib/settle-bus";
 import type { Firm } from "@/types/erp";
 
 type BadgeTone = "success" | "warning" | "danger" | "info" | "dr" | "cr" | "neutral";
@@ -104,6 +104,27 @@ function balanceParts(bal: number, partyType: "CUSTOMER" | "VENDOR"): { amount: 
 const SETTLEABLE = new Set(["SALES", "PURCHASE"]);
 
 export default function PartyLedgersView() {
+  // Controlled tabs so cross-view deep links (aging rows) can preset the tab + party.
+  const [tab, setTab] = React.useState<"customers" | "vendors">("customers");
+  const [preset, setPreset] = React.useState<{ partyType: "CUSTOMER" | "VENDOR"; partyId: string } | null>(null);
+
+  React.useEffect(() => {
+    const pending = consumePendingLedgerParty();
+    if (pending) {
+      setPreset(pending);
+      setTab(pending.partyType === "CUSTOMER" ? "customers" : "vendors");
+    }
+    const onPreset = (e: Event) => {
+      const d = (e as CustomEvent<{ partyType: "CUSTOMER" | "VENDOR"; partyId: string }>).detail;
+      if (d?.partyId) {
+        setPreset(d);
+        setTab(d.partyType === "CUSTOMER" ? "customers" : "vendors");
+      }
+    };
+    window.addEventListener("dmk:ledger-party", onPreset);
+    return () => window.removeEventListener("dmk:ledger-party", onPreset);
+  }, []);
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -111,7 +132,7 @@ export default function PartyLedgersView() {
         subtitle="Opening → transactions → closing statements for every customer and vendor (R7)"
         icon={BookOpenText}
       />
-      <Tabs defaultValue="customers" className="gap-4">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "customers" | "vendors")} className="gap-4">
         <TabsList className="bg-dmk-input-well border border-dmk-border-subtle">
           <TabsTrigger value="customers" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
             <Building2 className="h-4 w-4" /> Customers
@@ -121,10 +142,10 @@ export default function PartyLedgersView() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="customers" className="mt-0">
-          <PartyTab partyType="CUSTOMER" />
+          <PartyTab partyType="CUSTOMER" presetPartyId={tab === "customers" ? preset?.partyId ?? null : null} onPresetConsumed={() => setPreset(null)} />
         </TabsContent>
         <TabsContent value="vendors" className="mt-0">
-          <PartyTab partyType="VENDOR" />
+          <PartyTab partyType="VENDOR" presetPartyId={tab === "vendors" ? preset?.partyId ?? null : null} onPresetConsumed={() => setPreset(null)} />
         </TabsContent>
       </Tabs>
     </div>
@@ -135,7 +156,15 @@ export default function PartyLedgersView() {
 // PARTY TAB — list (left) + ledger statement (right)
 // ═══════════════════════════════════════════════════════════════
 
-function PartyTab({ partyType }: { partyType: "CUSTOMER" | "VENDOR" }) {
+function PartyTab({
+  partyType,
+  presetPartyId,
+  onPresetConsumed,
+}: {
+  partyType: "CUSTOMER" | "VENDOR";
+  presetPartyId?: string | null;
+  onPresetConsumed?: () => void;
+}) {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const activeFirm = useErpStore((s) => s.firms.find((f) => f.id === s.activeFirmId));
   const setView = useErpStore((s) => s.setView);
@@ -208,6 +237,15 @@ function PartyTab({ partyType }: { partyType: "CUSTOMER" | "VENDOR" }) {
     setSelectedId(null);
     setLedger(null);
   }, [activeFirmId, partyType]);
+
+  // Deep-link: auto-select the preset party once the directory arrives
+  React.useEffect(() => {
+    if (!presetPartyId || listLoading || !parties) return;
+    if (parties.some((p) => p.id === presetPartyId)) {
+      setSelectedId(presetPartyId);
+    }
+    onPresetConsumed?.();
+  }, [presetPartyId, listLoading]);
 
   // Ledger statement fetch
   React.useEffect(() => {

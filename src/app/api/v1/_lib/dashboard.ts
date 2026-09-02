@@ -14,7 +14,9 @@ export interface DashboardData {
   todaySales: number;
   monthSales: number;
   receivables: number;
+  receivablesAdvances: number;
   payables: number;
+  payablesCredits: number;
   cash: number;
   bank: number;
   inventoryValue: number;
@@ -58,7 +60,7 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
   const weekStart = startOfDay(addDays(now, -6));
   const month30Start = startOfDay(addDays(now, -29));
 
-  const [todayInvoices, monthAgg, receivablesAgg, payablesAgg, products] = await Promise.all([
+  const [todayInvoices, monthAgg, customerBalances, vendorBalances, products] = await Promise.all([
     db.invoice.aggregate({
       where: { firmId, status: "POSTED", invoiceDate: { gte: todayStart, lt: tomorrowStart } },
       _sum: { grandTotal: true },
@@ -67,13 +69,24 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
       where: { firmId, status: "POSTED", invoiceDate: { gte: monthStart } },
       _sum: { grandTotal: true },
     }),
-    db.customer.aggregate({ where: { firmId, closingBalance: { gt: 0 } }, _sum: { closingBalance: true } }),
-    db.vendor.aggregate({ where: { firmId, closingBalance: { gt: 0 } }, _sum: { closingBalance: true } }),
+    // Full balance lists (NOT positive-only): a negative customer balance is
+    // an advance we hold; a negative vendor balance is a credit note balance.
+    // Netting them matches the GL (Sundry Debtors/Creditors) and the BS —
+    // dropping them overstated the KPIs vs the trial balance.
+    db.customer.findMany({ where: { firmId }, select: { closingBalance: true } }),
+    db.vendor.findMany({ where: { firmId }, select: { closingBalance: true } }),
     db.product.findMany({
       where: { firmId },
       select: { stockQuantity: true, damagedStock: true, purchaseCost: true, lowStockThreshold: true, isActive: true },
     }),
   ]);
+
+  const sumBalances = (rows: Array<{ closingBalance: number }>) => ({
+    net: round2(rows.reduce((s, r) => s + r.closingBalance, 0)),
+    negative: round2(-rows.filter((r) => r.closingBalance < 0).reduce((s, r) => s + r.closingBalance, 0)),
+  });
+  const cust = sumBalances(customerBalances);
+  const vend = sumBalances(vendorBalances);
 
   const inventoryValue = round2(
     products.filter((p) => p.isActive).reduce((s, p) => s + p.stockQuantity * p.purchaseCost, 0)
@@ -221,8 +234,10 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
     firmId,
     todaySales: round2(todayInvoices._sum.grandTotal ?? 0),
     monthSales: round2(monthAgg._sum.grandTotal ?? 0),
-    receivables: round2(receivablesAgg._sum.closingBalance ?? 0),
-    payables: round2(payablesAgg._sum.closingBalance ?? 0),
+    receivables: cust.net,
+    receivablesAdvances: cust.negative,
+    payables: vend.net,
+    payablesCredits: vend.negative,
     cash,
     bank,
     inventoryValue,

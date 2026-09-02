@@ -3,9 +3,10 @@
 // ═══════════════════════════════════════════════════════════════
 // FINANCE — GSTR-2B RECONCILIATION (ITC matching)
 // Import the supplier-reported GSTR-2B rows (CSV) for a return
-// period and match them against CONFIRMED purchase orders (books)
-// by supplier GSTIN + amount proximity. Statuses: MATCHED,
-// AMOUNT_MISMATCH, MISSING_IN_BOOKS, MISSING_IN_2B.
+// period and match them against CONFIRMED purchase orders (books):
+// bill-number-first (vendorBillNo captured on POs), then GSTIN +
+// amount proximity. Statuses: MATCHED, AMOUNT_MISMATCH,
+// MISSING_IN_BOOKS, MISSING_IN_2B.
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
@@ -48,6 +49,29 @@ function statusBadge(s: Gstr2bRecordRow["status"]) {
   if (s === "MATCHED") return <Badge tone="success">MATCHED</Badge>;
   if (s === "AMOUNT_MISMATCH") return <Badge tone="warning">AMOUNT MISMATCH</Badge>;
   return <Badge tone="danger">MISSING IN BOOKS</Badge>;
+}
+
+/** How the row was matched — bill number (exact) vs GSTIN + amount (best-fit). */
+function basisBadge(basis: Gstr2bRecordRow["matchBasis"]) {
+  if (basis === "BILL_NO")
+    return (
+      <span
+        className="dmk-badge bg-dmk-gold/15 text-dmk-gold"
+        title="Matched by the vendor bill number captured on the PO — exact identity"
+      >
+        BILL NO
+      </span>
+    );
+  if (basis === "AMOUNT")
+    return (
+      <span
+        className="dmk-badge bg-dmk-info/15 text-dmk-info"
+        title="Matched by supplier GSTIN + amount proximity — verify manually if unsure"
+      >
+        AMOUNT
+      </span>
+    );
+  return null;
 }
 
 const SAMPLE_CSV = `GSTIN,TradeName,InvoiceNo,InvoiceDate,TaxableValue,IGST,CGST,SGST,ITC,PlaceOfSupply
@@ -95,7 +119,7 @@ export default function Gstr2bView() {
     if (!data) return;
     const out: (string | number)[][] = [
       [`GSTR-2B Reconciliation · ${data.period}`, `Firm ${data.firmName} (${data.firmGstin})`],
-      ["Source", "GSTIN", "Trade Name", "Invoice #", "Date", "Taxable", "IGST", "CGST", "SGST", "Grand", "ITC", "Status", "Matched PO"],
+      ["Source", "GSTIN", "Trade Name", "Invoice #", "Date", "Taxable", "IGST", "CGST", "SGST", "Grand", "ITC", "Status", "Match Basis", "Matched PO"],
       ...data.records.map((r) => [
         "2B",
         r.gstin,
@@ -109,6 +133,7 @@ export default function Gstr2bView() {
         r.grand,
         r.itcAvailable ? "YES" : "NO",
         r.status,
+        r.matchBasis ?? "",
         r.matchedPoNumber ?? "",
       ]),
       ...data.books.map((b) => [
@@ -124,6 +149,7 @@ export default function Gstr2bView() {
         b.grand,
         "YES",
         b.status,
+        "",
         "",
       ]),
     ];
@@ -169,7 +195,7 @@ export default function Gstr2bView() {
         <>
           {/* KPI row */}
           <div className="dmk-enter-stagger grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-            <KpiCard label="2B Records" value={String(s!.records2b)} tone="blue" icon={GitCompareArrows} sub={`${s!.matched} matched automatically`} />
+            <KpiCard label="2B Records" value={String(s!.records2b)} tone="blue" icon={GitCompareArrows} sub={`${s!.matched} matched · ${s!.billMatched} by bill no.`} />
             <KpiCard label="ITC as per 2B" value={formatINR(s!.itc2b)} tone="info" icon={Download} sub="Supplier-reported tax credits" />
             <KpiCard label="ITC as per Books" value={formatINR(s!.itcBooks)} tone="default" icon={Scale} sub={`${data.booksTotal} confirmed bill(s) in period`} />
             <KpiCard label="Matched ITC" value={formatINR(s!.matchedItc)} tone="success" icon={CheckCircle2} sub="Safe to claim in GST return" />
@@ -181,10 +207,11 @@ export default function Gstr2bView() {
           <div className="dmk-well px-3 py-2.5 flex items-start gap-2.5">
             <HelpCircle className="h-4 w-4 text-dmk-info mt-0.5 shrink-0" />
             <p className="text-[12px] text-dmk-text-secondary">
-              <span className="font-semibold text-dmk-text-primary">How matching works:</span> each 2B row is matched to a
-              CONFIRMED purchase order dated inside the period by <span className="font-medium text-dmk-text-primary">supplier GSTIN</span> and
-              amount proximity (±₹1 or ±0.5%). A GSTIN match with no amount fit flags an <Badge tone="warning">AMOUNT MISMATCH</Badge>;
-              period cuts (bill in Aug, GRN in Sep) are the usual culprit. Rows with a GSTIN absent from books flag{" "}
+              <span className="font-semibold text-dmk-text-primary">How matching works:</span> when a PO carries the supplier's
+              bill number it is matched <Badge tone="success">BILL NO</Badge> first — exact identity, immune to amount tweaks.
+              Remaining rows match by <Badge tone="info">AMOUNT</Badge> — supplier GSTIN plus ±₹1/±0.5% proximity on grand or
+              taxable value. A GSTIN match with no amount fit flags an <Badge tone="warning">AMOUNT MISMATCH</Badge> (period
+              cuts — bill in Aug, GRN in Sep — are the usual culprit). Rows with a GSTIN absent from books flag{" "}
               <Badge tone="danger">MISSING IN BOOKS</Badge>. Books-only bills appear under <Badge tone="info">MISSING IN 2B</Badge>.
             </p>
           </div>
@@ -251,8 +278,9 @@ export default function Gstr2bView() {
                             )}
                           >
                             <td>
-                              <div className="flex flex-col gap-1">
+                              <div className="flex flex-col gap-1 items-start">
                                 {statusBadge(r.status)}
+                                {basisBadge(r.matchBasis)}
                                 {r.matchedPoNumber && (
                                   <span className="font-money text-[10px] text-dmk-text-muted">{r.matchedPoNumber}</span>
                                 )}
@@ -303,12 +331,13 @@ export default function Gstr2bView() {
                       </p>
                     </div>
                   ) : (
-                    <table className="dmk-table min-w-[760px]">
+                    <table className="dmk-table min-w-[860px]">
                       <thead>
                         <tr>
                           <th>PO #</th>
                           <th>Vendor</th>
                           <th>GSTIN</th>
+                          <th>Vendor Bill</th>
                           <th className="num text-right">Taxable (₹)</th>
                           <th className="num text-right">Tax (₹)</th>
                           <th className="num text-right">Grand (₹)</th>
@@ -318,9 +347,15 @@ export default function Gstr2bView() {
                       <tbody>
                         {data.books.map((b) => (
                           <tr key={b.poId}>
-                            <td className="font-money text-[12px] font-semibold text-dmk-text-primary">{b.poNumber}</td>
+                            <td className="font-money text-[12px] font-semibold text-dmk-text-primary">
+                              {b.poNumber}
+                              {b.vendorBillNo && (
+                                <span className="block text-[10px] font-normal text-dmk-text-muted">Bill {b.vendorBillNo}</span>
+                              )}
+                            </td>
                             <td className="text-[13px] max-w-[220px] truncate">{b.vendorName}</td>
                             <td className="font-money text-[11px] text-dmk-text-muted">{b.gstin || "—"}</td>
+                            <td className="font-money text-[11.5px] text-dmk-text-secondary">{b.vendorBillNo || "—"}</td>
                             <td className="num text-right font-money text-dmk-text-secondary">{formatINR(b.taxable)}</td>
                             <td className="num text-right font-money text-dmk-text-secondary">{formatINR(b.igst + b.cgst + b.sgst)}</td>
                             <td className="num text-right font-money font-semibold text-dmk-text-primary">{formatINR(b.grand)}</td>

@@ -176,6 +176,8 @@ model PurchaseOrder {
   totalIgst    Float    @default(0)
   grandTotal   Float    @default(0)
   receivedNote String   @default("") // GRN remarks
+  vendorBillNo   String   @default("") // supplier's sales-invoice number (GSTR-2B bill-first matching)
+  vendorBillDate DateTime?
   notes        String   @default("")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -186,6 +188,7 @@ model PurchaseOrder {
 
   @@unique([firmId, poNumber])
   @@index([firmId, status])
+  @@index([firmId, vendorBillNo])
 }
 
 model PurchaseOrderItem {

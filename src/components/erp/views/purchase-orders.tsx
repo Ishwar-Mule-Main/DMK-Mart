@@ -103,6 +103,8 @@ interface PoRow {
   totalIgst: number;
   grandTotal: number;
   receivedNote: string;
+  vendorBillNo: string;
+  vendorBillDate: string | null;
   notes: string;
   items: PoItemRow[];
   createdAt: string;
@@ -280,7 +282,14 @@ export default function PurchaseOrdersView() {
                   const tax = po.totalCgst + po.totalSgst + po.totalIgst;
                   return (
                     <tr key={po.id}>
-                      <td className="font-money text-[12px] text-dmk-text-primary">{po.poNumber}</td>
+                      <td className="font-money text-[12px] text-dmk-text-primary">
+                        {po.poNumber}
+                        {po.vendorBillNo && (
+                          <span className="block text-[10px] text-dmk-text-muted" title="Vendor bill no.">
+                            Bill {po.vendorBillNo}
+                          </span>
+                        )}
+                      </td>
                       <td className="text-[12.5px] text-dmk-text-secondary whitespace-nowrap">{formatDate(po.poDate)}</td>
                       <td className="max-w-[200px] truncate text-[12.5px]">
                         <span className="font-medium">{po.vendor?.vendorName ?? "—"}</span>{" "}
@@ -413,6 +422,8 @@ function PoFormDialog({
   const [products, setProducts] = React.useState<Product[]>([]);
   const [vendorId, setVendorId] = React.useState("");
   const [poDate, setPoDate] = React.useState(toISODate(new Date()));
+  const [vendorBillNo, setVendorBillNo] = React.useState("");
+  const [vendorBillDate, setVendorBillDate] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [lines, setLines] = React.useState<PoLine[]>([]);
   const [pickQuery, setPickQuery] = React.useState("");
@@ -439,6 +450,8 @@ function PoFormDialog({
     if (editing) {
       setVendorId(editing.vendorId);
       setPoDate(toISODate(editing.poDate));
+      setVendorBillNo(editing.vendorBillNo ?? "");
+      setVendorBillDate(editing.vendorBillDate ? toISODate(editing.vendorBillDate) : "");
       setNotes(editing.notes ?? "");
       setLines(
         editing.items.map((it) => ({
@@ -453,6 +466,8 @@ function PoFormDialog({
     } else {
       setVendorId("");
       setPoDate(toISODate(new Date()));
+      setVendorBillNo("");
+      setVendorBillDate("");
       setNotes("");
       setLines([]);
     }
@@ -527,6 +542,8 @@ function PoFormDialog({
     const body = {
       poDate,
       notes: notes.trim(),
+      vendorBillNo: vendorBillNo.trim(),
+      vendorBillDate: vendorBillDate || null,
       items: lines.map((l) => ({ productId: l.productId, quantity: num(l.qty), unitCost: num(l.cost) })),
     };
     try {
@@ -539,6 +556,8 @@ function PoFormDialog({
           vendorId,
           poDate,
           notes: notes.trim(),
+          vendorBillNo: vendorBillNo.trim(),
+          vendorBillDate: vendorBillDate || null,
           items: body.items,
         });
         toast({ title: `PO ${created.poNumber} created`, description: "Status PENDING — receive it via GRN to book stock." });
@@ -603,6 +622,30 @@ function PoFormDialog({
           <Field label="PO date">
             <Input type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} className={inputCls} />
           </Field>
+        </div>
+
+        {/* Vendor bill identity — powers bill-first GSTR-2B matching */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Field label="Vendor bill no." hint="Supplier's sales-invoice number">
+            <Input
+              value={vendorBillNo}
+              onChange={(e) => setVendorBillNo(e.target.value)}
+              className={inputCls}
+              placeholder="e.g. SB/26-27/4512"
+            />
+          </Field>
+          <Field label="Vendor bill date">
+            <Input
+              type="date"
+              value={vendorBillDate}
+              onChange={(e) => setVendorBillDate(e.target.value)}
+              className={inputCls}
+            />
+          </Field>
+          <div className="hidden sm:block self-end pb-1 text-[10.5px] text-dmk-text-muted leading-snug">
+            Optional — capturing the supplier's bill no. lets GSTR-2B matching
+            key on the bill itself instead of amount guesses.
+          </div>
         </div>
 
         {isManufacturer && vendor && (
@@ -809,6 +852,8 @@ function GrnDialog({
   const { toast } = useToast();
   const [lines, setLines] = React.useState<GrnLine[]>([]);
   const [receivedDate, setReceivedDate] = React.useState(toISODate(new Date()));
+  const [billNo, setBillNo] = React.useState("");
+  const [billDate, setBillDate] = React.useState("");
   const [note, setNote] = React.useState("");
   const [saving, setSaving] = React.useState(false);
 
@@ -826,6 +871,8 @@ function GrnDialog({
       }))
     );
     setReceivedDate(toISODate(new Date()));
+    setBillNo(po.vendorBillNo ?? "");
+    setBillDate(po.vendorBillDate ? toISODate(po.vendorBillDate) : "");
     setNote("");
   }, [po]);
 
@@ -875,10 +922,14 @@ function GrnDialog({
         received: lines.map((l) => ({ itemId: l.itemId, acceptedQty: l.accepted, damagedQty: l.damaged })),
         receivedDate,
         note: note.trim(),
+        vendorBillNo: billNo.trim(),
+        vendorBillDate: billDate || null,
       });
       toast({
         title: `GRN confirmed — ${po.poNumber}`,
-        description: "Stock updated · Vendor payable increased · Journal posted",
+        description: billNo.trim()
+          ? `Stock updated · Vendor payable increased · Journal posted · Bill ${billNo.trim()} recorded`
+          : "Stock updated · Vendor payable increased · Journal posted",
       });
       onConfirmed();
       onClose();
@@ -983,7 +1034,13 @@ function GrnDialog({
             <Input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)} className={inputCls} />
           </Field>
           <Field label="GRN note">
-            <Input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls} placeholder="Optional — invoice ref, vehicle no…" />
+            <Input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls} placeholder="Optional — vehicle no., remarks…" />
+          </Field>
+          <Field label="Vendor bill no." hint="From the supplier's invoice — powers GSTR-2B bill matching">
+            <Input value={billNo} onChange={(e) => setBillNo(e.target.value)} className={inputCls} placeholder="e.g. SB/26-27/4512" />
+          </Field>
+          <Field label="Vendor bill date">
+            <Input type="date" value={billDate} onChange={(e) => setBillDate(e.target.value)} className={inputCls} />
           </Field>
         </div>
 
@@ -1061,6 +1118,18 @@ function ViewPoDialog({ po, onClose }: { po: PoRow | null; onClose: () => void }
           </DialogDescription>
         </DialogHeader>
 
+        {d?.vendorBillNo && (
+          <div className="dmk-well px-3 py-2 text-[12px] text-dmk-text-secondary flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span>
+              <span className="text-dmk-text-muted font-semibold uppercase tracking-wider text-[10.5px] mr-2">Vendor bill</span>
+              <span className="font-money text-dmk-text-primary">{d.vendorBillNo}</span>
+            </span>
+            {d.vendorBillDate && (
+              <span className="text-dmk-text-muted">dated {formatDate(d.vendorBillDate)}</span>
+            )}
+            <span className="text-[10.5px] text-dmk-gold">used for GSTR-2B bill-first matching</span>
+          </div>
+        )}
         {d?.receivedNote && (
           <div className="dmk-well px-3 py-2 text-[12px] text-dmk-text-secondary">
             <span className="text-dmk-text-muted font-semibold uppercase tracking-wider text-[10.5px] mr-2">Received note</span>

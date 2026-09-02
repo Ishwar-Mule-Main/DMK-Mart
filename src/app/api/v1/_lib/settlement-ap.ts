@@ -14,6 +14,7 @@ import type { AllocationInput } from "./settlement";
 export interface OpenPurchaseOrderRow {
   poId: string;
   poNumber: string;
+  vendorBillNo: string;
   vendorId: string;
   vendorName: string;
   poDate: string;
@@ -101,6 +102,7 @@ export async function computeOpenPurchaseOrders(
     rows.push({
       poId: po.id,
       poNumber: po.poNumber,
+      vendorBillNo: po.vendorBillNo ?? "",
       vendorId: po.vendorId,
       vendorName: po.vendor?.vendorName ?? "—",
       poDate: po.poDate.toISOString(),

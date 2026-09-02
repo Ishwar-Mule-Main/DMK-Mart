@@ -9,6 +9,7 @@ import {
   asRecord,
   asRecordArray,
   getDate,
+  getDateOrNull,
   getNum,
   getStr,
   handleApiError,
@@ -34,6 +35,13 @@ export async function POST(
       received,
       receivedDate: getDate(body.receivedDate),
       note: getStr(body.note),
+      // Optional bill identity captured at goods-receipt time
+      ...(body.vendorBillNo !== undefined || body.vendorBillDate !== undefined
+        ? {
+            vendorBillNo: getStr(body.vendorBillNo),
+            vendorBillDate: getDateOrNull(body.vendorBillDate),
+          }
+        : {}),
     });
 
     return ok(result);

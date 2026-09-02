@@ -686,6 +686,9 @@ function RecordPaymentDialog({
                         <tr key={po.poId} className={cn("border-t border-dmk-border-subtle/60", v > 0 && "bg-dmk-info/5")}>
                           <td className="px-3 py-1.5">
                             <span className="font-money text-[11.5px] text-dmk-text-primary">{po.poNumber}</span>
+                            {po.vendorBillNo && (
+                              <span className="ml-2 text-[10px] text-dmk-text-muted" title="Vendor bill no.">Bill {po.vendorBillNo}</span>
+                            )}
                             <span className="ml-2 text-[10.5px] text-dmk-text-muted">{formatDate(po.poDate)}</span>
                             {(po.settled > 0.009 || po.credited > 0.009) && (
                               <span className="ml-2 text-[10px] text-dmk-text-muted">

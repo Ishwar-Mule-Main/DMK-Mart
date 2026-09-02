@@ -110,6 +110,8 @@ export async function createPurchaseOrder(input: {
   vendorId: string;
   poDate: Date;
   notes?: string;
+  vendorBillNo?: string;
+  vendorBillDate?: Date | null;
   items: PoItemInput[];
   invoicePrefix: string;
   financialYear: string;
@@ -143,6 +145,8 @@ export async function createPurchaseOrder(input: {
       totalIgst: totals.totalIgst,
       grandTotal: totals.grandTotal,
       notes: input.notes ?? "",
+      vendorBillNo: (input.vendorBillNo ?? "").trim(),
+      vendorBillDate: input.vendorBillDate ?? null,
       items: {
         create: totals.items.map((i) => ({
           productId: i.productId,
@@ -174,7 +178,13 @@ export interface ReceivedInput {
 
 export async function confirmPurchaseOrder(
   poId: string,
-  opts: { received?: ReceivedInput[]; receivedDate?: Date; note?: string } = {}
+  opts: {
+    received?: ReceivedInput[];
+    receivedDate?: Date;
+    note?: string;
+    vendorBillNo?: string;
+    vendorBillDate?: Date | null;
+  } = {}
 ) {
   const po = await db.purchaseOrder.findUnique({
     where: { id: poId },
@@ -265,7 +275,13 @@ export async function confirmPurchaseOrder(
 
     await tx.purchaseOrder.update({
       where: { id: po.id },
-      data: { status: "CONFIRMED", receivedNote: note },
+      data: {
+        status: "CONFIRMED",
+        receivedNote: note,
+        // Bill identity can be captured at GRN time (bill arrives with goods)
+        ...(opts.vendorBillNo !== undefined ? { vendorBillNo: opts.vendorBillNo.trim() } : {}),
+        ...(opts.vendorBillDate !== undefined ? { vendorBillDate: opts.vendorBillDate } : {}),
+      },
     });
   });
 

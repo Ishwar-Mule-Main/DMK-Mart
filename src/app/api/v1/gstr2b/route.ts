@@ -2,7 +2,8 @@
 // /api/v1/gstr2b — GSTR-2B IMPORT + ITC RECONCILIATION
 // POST /import  — replace a period's 2B rows (CSV or JSON rows)
 // GET           — 2B rows matched against CONFIRMED purchase orders
-//                 (books side) by supplier GSTIN + amount proximity.
+//                 (books side): pass 0 = vendor bill number captured on
+//                 the PO (bill-first), pass 1/2 = GSTIN + amount proximity.
 // Statuses: MATCHED · AMOUNT_MISMATCH · MISSING_IN_BOOKS ·
 //           MISSING_IN_2B (books PO with no 2B row).
 // ═══════════════════════════════════════════════════════════════
@@ -251,6 +252,7 @@ export async function GET(request: NextRequest) {
       poNumber: string;
       vendorName: string;
       gstin: string;
+      vendorBillNo: string;
       taxable: number;
       igst: number;
       cgst: number;
@@ -263,6 +265,7 @@ export async function GET(request: NextRequest) {
       poNumber: po.poNumber,
       vendorName: po.vendor?.vendorName ?? "—",
       gstin: (po.vendor?.gstin ?? "").toUpperCase(),
+      vendorBillNo: (po.vendorBillNo ?? "").trim(),
       taxable: round2(po.subtotal),
       igst: round2(po.totalIgst),
       cgst: round2(po.totalCgst),
@@ -276,6 +279,9 @@ export async function GET(request: NextRequest) {
     const within = (a: number, b: number) => Math.abs(a - b) <= Math.max(TOL_ABS, TOL_PCT * Math.max(a, b));
 
     const gstinsInBooks = new Set(books.map((b) => b.gstin).filter(Boolean));
+
+    /** Bill-number normalizer: uppercase, strip separators (SB/26-27/4512 → SB26274512). */
+    const normBill = (s: string) => (s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
     interface Matched2b {
       id: string;
@@ -292,6 +298,7 @@ export async function GET(request: NextRequest) {
       grand: number;
       status: "MATCHED" | "AMOUNT_MISMATCH" | "MISSING_IN_BOOKS";
       matchedPoNumber: string | null;
+      matchBasis: "BILL_NO" | "AMOUNT" | null;
     }
     const makeRow = (rec: (typeof records)[number]): Matched2b => ({
       id: rec.id,
@@ -308,19 +315,43 @@ export async function GET(request: NextRequest) {
       grand: round2(rec.taxableValue + rec.igst + rec.cgst + rec.sgst),
       status: "MISSING_IN_BOOKS",
       matchedPoNumber: null,
+      matchBasis: null,
     });
 
     const byId = new Map<string, Matched2b>();
     for (const rec of records) byId.set(rec.id, makeRow(rec));
 
+    // pass 0: BILL-FIRST — vendor bill number captured on the PO equals the
+    // 2B invoice number (separator-insensitive). GSTIN must agree when both
+    // sides know it; the amount need not (freight/tax tweaks don't break it).
+    for (const rec of records) {
+      const row = byId.get(rec.id)!;
+      const recBill = normBill(rec.invoiceNo);
+      if (!recBill) continue;
+      const candidate = books.find(
+        (b) =>
+          !b.claimedBy &&
+          b.vendorBillNo &&
+          normBill(b.vendorBillNo) === recBill &&
+          (!b.gstin || !rec.gstin || b.gstin === rec.gstin)
+      );
+      if (candidate) {
+        candidate.claimedBy = rec.id;
+        row.status = "MATCHED";
+        row.matchedPoNumber = candidate.poNumber;
+        row.matchBasis = "BILL_NO";
+      }
+    }
     // pass 1: exact GSTIN + grand-total proximity
     for (const rec of records) {
       const row = byId.get(rec.id)!;
+      if (row.status === "MATCHED") continue;
       const candidate = books.find((b) => !b.claimedBy && b.gstin === rec.gstin && within(b.grand, row.grand));
       if (candidate) {
         candidate.claimedBy = rec.id;
         row.status = "MATCHED";
         row.matchedPoNumber = candidate.poNumber;
+        row.matchBasis = "AMOUNT";
       }
     }
     // pass 2: GSTIN + taxable-value proximity (tolerates freight/tax tweaks)
@@ -334,6 +365,7 @@ export async function GET(request: NextRequest) {
         candidate.claimedBy = rec.id;
         row.status = "MATCHED";
         row.matchedPoNumber = candidate.poNumber;
+        row.matchBasis = "AMOUNT";
       } else if (gstinsInBooks.has(rec.gstin)) {
         row.status = "AMOUNT_MISMATCH";
       }
@@ -342,17 +374,20 @@ export async function GET(request: NextRequest) {
 
     const unmatchedBooks = books
       .filter((b) => !b.claimedBy)
-      .map((b) => ({ ...b, status: "MISSING_IN_2B" as const }));
+      .map((b) => ({
+        ...b,
+        status: "MISSING_IN_2B" as const,
+        claimedBy: undefined,
+      }));
 
     // ── Summary KPIs ─────────────────────────────────────────────
     const itcOf = (r: { igst: number; cgst: number; sgst: number; itcAvailable?: boolean }) =>
       r.itcAvailable === false ? 0 : round2(r.igst + r.cgst + r.sgst);
 
+    const matchedRows = matched.filter((m) => m.status === "MATCHED");
     const itc2b = round2(records.reduce((s, r) => s + itcOf(r), 0));
     const itcBooks = round2(books.reduce((s, b) => s + itcOf(b), 0));
-    const matchedItc = round2(
-      matched.filter((m) => m.status === "MATCHED").reduce((s, m) => s + itcOf(m), 0)
-    );
+    const matchedItc = round2(matchedRows.reduce((s, m) => s + itcOf(m), 0));
     const missingItc = round2(
       matched.filter((m) => m.status !== "MATCHED").reduce((s, m) => s + itcOf(m), 0)
     );
@@ -366,8 +401,10 @@ export async function GET(request: NextRequest) {
       books: unmatchedBooks,
       booksTotal: books.length,
       summary: {
+        period,
         records2b: records.length,
-        matched: matched.filter((m) => m.status === "MATCHED").length,
+        matched: matchedRows.length,
+        billMatched: matchedRows.filter((m) => m.matchBasis === "BILL_NO").length,
         mismatches: matched.filter((m) => m.status === "AMOUNT_MISMATCH").length,
         missingInBooks: matched.filter((m) => m.status === "MISSING_IN_BOOKS").length,
         missingIn2b: unmatchedBooks.length,

@@ -53,10 +53,12 @@ export async function PATCH(
     }
 
     const body = asRecord(await request.json().catch(() => ({})));
-    const data: Record<string, string | Date> = {};
+    const data: Record<string, string | Date | null> = {};
     const poDate = getDateOrNull(body.poDate);
     if (poDate) data.poDate = poDate;
     if (body.notes !== undefined) data.notes = getStr(body.notes);
+    if (body.vendorBillNo !== undefined) data.vendorBillNo = getStr(body.vendorBillNo);
+    if (body.vendorBillDate !== undefined) data.vendorBillDate = getDateOrNull(body.vendorBillDate);
 
     const rawItems = asRecordArray(body.items);
     if (rawItems.length > 0) {

@@ -21,4 +21,5 @@
 | 18 | Cycle 12: ⌘K palette, KPI drill-downs, WAC valuation report, motion polish | ✅ |
 | 19 | Cycle 13: per-invoice AR settlement (ReceiptAllocation) + precise invoice aging + sparklines | ✅ |
 | 20 | Cycle 14: per-PO AP settlement (PaymentAllocation) + PO-wise aging + GSTR-2B reconciliation view | ✅ |
+| 21 | Cycle 16: vendor bill capture on POs + bill-first GSTR-2B matching + overdue-AR dashboard pulse + aging→ledger drill-throughs + net KPI fix | ✅ |
 | 17 | Worklog + cron webDevReview every 15 min | ✅ |

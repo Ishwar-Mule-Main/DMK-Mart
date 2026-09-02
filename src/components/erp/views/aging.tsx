@@ -7,7 +7,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { Download, Hourglass, Package, ReceiptText, RefreshCw, Scale, ShieldAlert } from "lucide-react";
+import { ArrowUpRight, Download, Hourglass, Package, ReceiptText, RefreshCw, Scale, ShieldAlert } from "lucide-react";
 
 import { Badge, EmptyState, ErrorText, LoadingRows, PageHeader } from "../shared";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import {
 import { apiGet } from "@/lib/api-client";
 import { downloadCSV, formatINR, formatDate } from "@/lib/format";
 import { useErpStore } from "@/store/erp-store";
+import { consumePendingAgingTab, requestLedgerParty } from "@/lib/settle-bus";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { InvoiceAgingResponse, OpenInvoiceRow, PoAgingResponse, OpenPurchaseOrderRow } from "@/types/erp";
@@ -56,7 +57,62 @@ const BUCKETS: Array<{ key: keyof AgingBuckets; label: string; cls: string }> = 
   { key: "d90plus", label: "90+ days", cls: "text-dmk-danger" },
 ];
 
+/** Party name → deep link into the preselected party ledger statement. */
+function PartyLink({
+  partyType,
+  partyId,
+  name,
+  className,
+}: {
+  partyType: "CUSTOMER" | "VENDOR";
+  partyId: string | null;
+  name: string;
+  className?: string;
+}) {
+  const setView = useErpStore((s) => s.setView);
+  if (!partyId) return <span className={className}>{name}</span>;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        requestLedgerParty(partyType, partyId);
+        setView("finance/ledgers");
+      }}
+      title={`Open ${name}'s ledger statement`}
+      className={cn(
+        "group/party inline-flex items-center gap-0.5 rounded text-left transition-colors",
+        "hover:text-dmk-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dmk-blue/60",
+        className
+      )}
+    >
+      <span className="truncate">{name}</span>
+      <ArrowUpRight className="h-3 w-3 opacity-0 group-hover/party:opacity-100 transition-opacity shrink-0" />
+    </button>
+  );
+}
+
+const AGING_TABS = ["ar", "inv", "ap", "po"] as const;
+
+type AgingTabId = (typeof AGING_TABS)[number];
+
 export default function AgingView() {
+  // Controlled tabs so other views (dashboard pulses, ⌘K) can preset the tab.
+  const [tab, setTab] = React.useState<AgingTabId>("ar");
+
+  React.useEffect(() => {
+    const pending = consumePendingAgingTab();
+    if (pending && (AGING_TABS as readonly string[]).includes(pending)) {
+      setTab(pending as AgingTabId);
+    }
+    const onPreset = (e: Event) => {
+      const t = (e as CustomEvent<{ tab: string }>).detail?.tab;
+      if (t && (AGING_TABS as readonly string[]).includes(t)) setTab(t as AgingTabId);
+    };
+    window.addEventListener("dmk:aging-tab", onPreset);
+    return () => window.removeEventListener("dmk:aging-tab", onPreset);
+  }, []);
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -64,7 +120,7 @@ export default function AgingView() {
         subtitle="Outstanding balances bucketed by document age — party summary, precise invoice-wise AR and PO-wise AP"
         icon={Hourglass}
       />
-      <Tabs defaultValue="ar" className="gap-4">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as AgingTabId)} className="gap-4">
         <TabsList className="bg-dmk-input-well border border-dmk-border-subtle">
           <TabsTrigger value="ar" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
             Receivables (AR)
@@ -245,9 +301,12 @@ function AgingTab({ type }: { type: "AR" | "AP" }) {
                           <div className="flex items-center gap-2">
                             {severe && <span className="h-1.5 w-1.5 rounded-full bg-dmk-danger shrink-0" aria-label="90+ overdue" />}
                             <div className="min-w-0">
-                              <p className={cn("text-[13px] font-medium truncate", severe ? "text-dmk-danger" : "text-dmk-text-primary")}>
-                                {r.partyName}
-                              </p>
+                              <PartyLink
+                                partyType={isAR ? "CUSTOMER" : "VENDOR"}
+                                partyId={r.partyId}
+                                name={r.partyName}
+                                className={cn("text-[13px] font-medium max-w-[220px]", severe ? "text-dmk-danger hover:text-dmk-blue" : "text-dmk-text-primary")}
+                              />
                               <p className="text-[10.5px] text-dmk-text-muted truncate">
                                 State {r.stateCode || "—"}
                                 {r.oldestDocNo && ` · oldest ${r.oldestDocNo}`}
@@ -485,19 +544,44 @@ function InvoiceAgingTab() {
           {data.parties.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted mr-1">By party:</span>
-              {data.parties.slice(0, 6).map((p) => (
-                <span
-                  key={p.customerId || p.partyName}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-dmk-border-subtle bg-dmk-input-well px-2 py-1 text-[11px]"
-                  title={`${p.invoiceCount} open invoice(s) · oldest ${p.oldestInvoiceNo || "—"}`}
-                >
-                  <span className="text-dmk-text-secondary max-w-[180px] truncate">{p.partyName}</span>
-                  <span className="font-money font-semibold text-dmk-orange">{formatINR(p.outstanding)}</span>
-                  {!!p.unapplied && p.unapplied > 0.009 && (
-                    <span className="font-money text-[10px] text-dmk-info" title="Unapplied on-account receipts">−{formatINR(p.unapplied)} unapplied</span>
-                  )}
-                </span>
-              ))}
+              {data.parties.slice(0, 6).map((p) => {
+                const isFiltered = partyFilter === p.customerId;
+                const chip = (
+                  <>
+                    <span className="text-dmk-text-secondary max-w-[150px] truncate">{p.partyName}</span>
+                    <span className="font-money font-semibold text-dmk-orange">{formatINR(p.outstanding)}</span>
+                    {!!p.unapplied && p.unapplied > 0.009 && (
+                      <span className="font-money text-[10px] text-dmk-info" title="Unapplied on-account receipts">−{formatINR(p.unapplied)} unapplied</span>
+                    )}
+                  </>
+                );
+                if (!p.customerId) {
+                  return (
+                    <span
+                      key={p.partyName}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-dmk-border-subtle bg-dmk-input-well px-2 py-1 text-[11px]"
+                      title={`${p.invoiceCount} open invoice(s) · oldest ${p.oldestInvoiceNo || "—"}`}
+                    >
+                      {chip}
+                    </span>
+                  );
+                }
+                return (
+                  <button
+                    key={p.customerId}
+                    type="button"
+                    onClick={() => setPartyFilter(isFiltered ? "all" : p.customerId)}
+                    title={`${p.invoiceCount} open invoice(s) · click to filter${isFiltered ? " (click again to clear)" : ""}`}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
+                      "hover:border-dmk-blue/50 hover:bg-dmk-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dmk-blue/60",
+                      isFiltered ? "border-dmk-blue/60 bg-dmk-hover" : "border-dmk-border-subtle bg-dmk-input-well"
+                    )}
+                  >
+                    {chip}
+                  </button>
+                );
+              })}
               {data.parties.length > 6 && (
                 <span className="text-[10.5px] text-dmk-text-muted">+{data.parties.length - 6} more</span>
               )}
@@ -572,7 +656,12 @@ function InvoiceAgingTab() {
                             </div>
                           </td>
                           <td className="max-w-[220px]">
-                            <p className="text-[13px] font-medium text-dmk-text-primary truncate">{r.partyName}</p>
+                            <PartyLink
+                              partyType="CUSTOMER"
+                              partyId={r.customerId}
+                              name={r.partyName}
+                              className="text-[13px] font-medium text-dmk-text-primary max-w-[200px]"
+                            />
                             {partial && (
                               <p className="text-[10.5px] text-dmk-text-muted">
                                 {r.settled > 0.009 && <>receipts {formatINR(r.settled)} </>}
@@ -799,19 +888,41 @@ function PoAgingTab() {
           {data.vendors.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted mr-1">By vendor:</span>
-              {data.vendors.slice(0, 6).map((v) => (
-                <span
-                  key={v.vendorId}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-dmk-border-subtle bg-dmk-input-well px-2 py-1 text-[11px]"
-                  title={`${v.poCount} open bill(s) · oldest ${v.oldestPoNo || "—"}`}
-                >
-                  <span className="text-dmk-text-secondary max-w-[180px] truncate">{v.vendorName}</span>
-                  <span className="font-money font-semibold text-dmk-orange">{formatINR(v.outstanding)}</span>
-                  {!!v.unapplied && v.unapplied > 0.009 && (
-                    <span className="font-money text-[10px] text-dmk-info" title="Unapplied on-account payments">−{formatINR(v.unapplied)} unapplied</span>
-                  )}
-                </span>
-              ))}
+              {data.vendors.slice(0, 6).map((v) => {
+                const isFiltered = vendorFilter === v.vendorId;
+                const chip = (
+                  <>
+                    <span className="text-dmk-text-secondary max-w-[150px] truncate">{v.vendorName}</span>
+                    <span className="font-money font-semibold text-dmk-orange">{formatINR(v.outstanding)}</span>
+                    {!!v.unapplied && v.unapplied > 0.009 && (
+                      <span className="font-money text-[10px] text-dmk-info" title="Unapplied on-account payments">−{formatINR(v.unapplied)} unapplied</span>
+                    )}
+                  </>
+                );
+                if (!v.vendorId) {
+                  return (
+                    <span key={v.vendorName} className="inline-flex items-center gap-1.5 rounded-md border border-dmk-border-subtle bg-dmk-input-well px-2 py-1 text-[11px]"
+                      title={`${v.poCount} open bill(s) · oldest ${v.oldestPoNo || "—"}`}>
+                      {chip}
+                    </span>
+                  );
+                }
+                return (
+                  <button
+                    key={v.vendorId}
+                    type="button"
+                    onClick={() => setVendorFilter(isFiltered ? "all" : v.vendorId)}
+                    title={`${v.poCount} open bill(s) · click to filter${isFiltered ? " (click again to clear)" : ""}`}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
+                      "hover:border-dmk-blue/50 hover:bg-dmk-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dmk-blue/60",
+                      isFiltered ? "border-dmk-blue/60 bg-dmk-hover" : "border-dmk-border-subtle bg-dmk-input-well"
+                    )}
+                  >
+                    {chip}
+                  </button>
+                );
+              })}
               {data.vendors.length > 6 && (
                 <span className="text-[10.5px] text-dmk-text-muted">+{data.vendors.length - 6} more</span>
               )}
@@ -878,7 +989,12 @@ function PoAgingTab() {
                             <div className="flex items-center gap-2">
                               {severe && <span className="h-1.5 w-1.5 rounded-full bg-dmk-danger shrink-0" aria-label="90+ days old" />}
                               <div className="min-w-0">
-                                <p className="font-money text-[12px] font-semibold text-dmk-text-primary">{r.poNumber}</p>
+                                <p className="font-money text-[12px] font-semibold text-dmk-text-primary">
+                                  {r.poNumber}
+                                  {r.vendorBillNo && (
+                                    <span className="ml-2 font-normal text-[10px] text-dmk-text-muted" title="Vendor bill no.">Bill {r.vendorBillNo}</span>
+                                  )}
+                                </p>
                                 <p className="text-[10.5px] text-dmk-text-muted">
                                   {formatDate(r.poDate)} · {formatINR(r.grandTotal)} billed
                                 </p>
@@ -886,7 +1002,12 @@ function PoAgingTab() {
                             </div>
                           </td>
                           <td className="max-w-[220px]">
-                            <p className="text-[13px] font-medium text-dmk-text-primary truncate">{r.vendorName}</p>
+                            <PartyLink
+                              partyType="VENDOR"
+                              partyId={r.vendorId}
+                              name={r.vendorName}
+                              className="text-[13px] font-medium text-dmk-text-primary max-w-[200px]"
+                            />
                             {partial && (
                               <p className="text-[10.5px] text-dmk-text-muted">
                                 {r.settled > 0.009 && <>payments {formatINR(r.settled)} </>}
