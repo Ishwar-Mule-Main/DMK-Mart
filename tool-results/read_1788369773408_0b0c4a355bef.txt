@@ -1,0 +1,2002 @@
+     1→# DMK MART ERP — MASTER PRODUCT SPECIFICATION (SOW + PRD + TECH + DESIGN + WORKFLOWS)
+     2→
+     3→**Document Version:** 5.0.0-FINAL
+     4→**Classification:** Client Delivery Grade — Production Blueprint
+     5→**Product Name:** DMK Mart ERP — AI-Native Trading, Distribution & Bookkeeping Platform
+     6→**Client:** Kunal Dnyaneshwar Kolapkar (Sole Owner)
+     7→**Business Entity:** DMK Mart (and sister firms DMK Traders, DMK Polymers, DMK Plastics Pvt Ltd)
+     8→**Industry:** Indian Plastics Manufacturing & Wholesale/Retail Distribution
+     9→**Prepared By:** Domain Expansion (Senior Principal Solutions Architect — Expert/God Mode)
+    10→
+    11→---
+    12→
+    13→## 📋 MASTER TABLE OF CONTENTS
+    14→
+    15→- **PART A — STATEMENT OF WORK (SOW)**
+    16→- **PART B — PRODUCT REQUIREMENTS DOCUMENT (PRD)**
+    17→- **PART C — BACKEND TECHNICAL SPECIFICATION**
+    18→- **PART D — FRONTEND DESIGN SYSTEM (MIDNIGHT LEDGER)**
+    19→- **PART E — AREA-WISE WORKFLOW MANUAL**
+    20→- **PART F — MISCELLANEOUS (Glossary, Errors, Formulas, Compliance, Roadmap)**
+    21→
+    22→---
+    23→
+    24→---
+    25→
+    26→# 🅰️ PART A — STATEMENT OF WORK (SOW)
+    27→
+    28→## A.1 Document Control
+    29→
+    30→| Field | Value |
+    31→|---|---|
+    32→| SOW Reference | DE/SOW/2026/DMK-ERP-001 |
+    33→| Version | 5.0.0 |
+    34→| Effective Date | Current Sprint |
+    35→| Vendor | Domain Expansion |
+    36→| Client | DMK Mart — Kunal Dnyaneshwar Kolapkar |
+    37→| Delivery Model | Fixed Scope, Milestone-Based SaaS Development |
+    38→| Warranty | 90-Day Post-Launch Bug Fix Warranty |
+    39→
+    40→---
+    41→
+    42→## A.2 Project Background
+    43→
+    44→DMK Mart is a **trading and distribution firm** that **purchases finished products from manufacturers or distributors** and **sells them to B2B buyers and B2C walk-in customers** in bulk, packets, pieces, sets, or single units. The product range is focused on **plastic-manufactured goods** — chairs, buckets, kitchenware, household items, and industrial goods — currently 500+ SKUs and growing.
+    45→
+    46→The client currently operates with fragmented tools (spreadsheets, manual ledgers, paper orders) and requires a **single dedicated software platform** to manage:
+    47→
+    48→- All **orders** (purchase + sales)
+    49→- All **finance** (double-entry bookkeeping, journals, ledgers, P&L, balance sheet)
+    50→- All **inventory** (dual-stock: sellable vs. damaged/broken)
+    51→- All **firm/company data** (multiple firms, each fully isolated)
+    52→- **AI-assisted operations** (copilot, low-stock alerts, decision support)
+    53→
+    54→**Critical Architecture Constraint (NEW):** This software is for **a single owner only**. There is **NO multi-user system, NO roles, NO permissions matrix**. The **firm/company is the account**. The owner logs in once and switches between firms.
+    55→
+    56→---
+    57→
+    58→## A.3 Scope of Work
+    59→
+    60→### A.3.1 IN SCOPE
+    61→
+    62→| # | Module | Description |
+    63→|---|---|---|
+    64→| 1 | Firm/Company Account System | Create/manage multiple firms, each with isolated data (products, stock, customers, vendors, orders, finance). Firm = account. |
+    65→| 2 | Product Catalog & Bulk Upload | Product master with 5-tier pricing, HSN, GST, dual-stock fields. CSV/Excel bulk upload with validation. |
+    66→| 3 | Inventory Management | Dual-stock (sellable + damaged), low-stock alerts, stock movement ledger, reorder logic. |
+    67→| 4 | Purchase Workflow | Vendor accounts (Manufacturer/Distributor), PO lifecycle (Pending→Confirmed), GRN inward, purchase returns (debit notes). |
+    68→| 5 | Sales Workflow (B2B) | Customer accounts (location-first naming), sales orders, GST invoices, sales returns (credit notes → damaged stock). |
+    69→| 6 | B2C Counter Sales | Walk-in counter with customer directory (name+phone), instant billing, no credit limits. |
+    70→| 7 | Pricing Engine | 5-tier pricing + quantity-based bulk/packaging discounts (sales side only). |
+    71→| 8 | Financial Accounting | Double-entry journals, chart of accounts, party ledgers, trial balance, P&L, balance sheet, daybook. |
+    72→| 9 | GST Compliance | CGST/SGST/IGST splits, HSN, A4 statutory tax invoices, GSTR-ready data. |
+    73→| 10 | AI Copilot | AI assistant with full-platform data access, low-stock alerts, decision support. |
+    74→| 11 | Dashboard & Reports | Real-time KPIs, charts, reports, CSV/Excel export. |
+    75→| 12 | Frontend Design System | Navy "Midnight Ledger" theme per specified palette. |
+    76→
+    77→### A.3.2 OUT OF SCOPE (Hidden for Future)
+    78→
+    79→| Item | Status |
+    80→|---|---|
+    81→| User management, roles, permissions | **Excluded** (single owner) |
+    82→| Multi-user approval workflows | Excluded |
+    83→| Operations & Supply Chain advanced modules | Hidden |
+    84→| Manufacturing/MRP-II (BOM, work orders, OEE) | Hidden |
+    85→| HRMS & Payroll | Hidden |
+    86→| Enterprise Asset Management | Hidden |
+    87→| Quality Management (QMS/CAPA) | Hidden |
+    88→| BPMN Workflow Engine | Hidden |
+    89→| Loyalty programs, marketing automation | Excluded |
+    90→
+    91→> These hidden modules are retained in the architecture for future activation upon client request.
+    92→
+    93→---
+    94→
+    95→## A.4 Deliverables
+    96→
+    97→| # | Deliverable | Format | Milestone |
+    98→|---|---|---|---|
+    99→| D1 | Production Web Application (Frontend + Backend) | Deployed SaaS | M3 |
+   100→| D2 | Database with seeded firm + chart of accounts | Production DB | M1 |
+   101→| D3 | Bulk product upload template (CSV/Excel) | Downloadable file | M2 |
+   102→| D4 | A4 GST invoice print engine | PDF output | M3 |
+   103→| D5 | Admin/Owner Dashboard | Web UI | M3 |
+   104→| D6 | AI Copilot interface | Web UI | M4 |
+   105→| D7 | Documentation (this SOW/PRD + user guide) | MD/PDF | M4 |
+   106→| D8 | Deployment configuration | Vercel + DB config | M4 |
+   107→
+   108→---
+   109→
+   110→## A.5 Milestones & Timeline
+   111→
+   112→| Milestone | Name | Duration | Key Outputs |
+   113→|---|---|---|---|
+   114→| **M1** | Foundation | Week 1–2 | Firm account system, DB schema, auth (owner), chart of accounts seed, design system tokens |
+   115→| **M2** | Catalog & Inventory | Week 3–4 | Product master, bulk upload, dual-stock, low-stock alerts |
+   116→| **M3** | Orders & Finance Core | Week 5–7 | Purchase workflow, sales workflow, B2C counter, pricing engine, double-entry ledger, financial statements, invoice printing |
+   117→| **M4** | Intelligence & Polish | Week 8–9 | AI copilot, dashboard, reports, exports, responsive QA, deployment |
+   118→
+   119→**Total Estimated Duration:** 9 Weeks (Single Developer Track)
+   120→
+   121→---
+   122→
+   123→## A.6 Acceptance Criteria (Master)
+   124→
+   125→The project is accepted when:
+   126→
+   127→1. ✅ Owner can create multiple firms and switch between them; data is fully isolated per firm.
+   128→2. ✅ Bulk product upload accepts a well-formed CSV/Excel and creates/updates products with validation errors reported per row.
+   129→3. ✅ Purchase order → Confirm → stock increase → journal posting → vendor payable increase works atomically.
+   130→4. ✅ Purchase return decrements damaged stock and vendor payable, posts debit-note journal.
+   131→5. ✅ Sales order decrements sellable stock, posts revenue + GST + receivable, and updates customer ledger/closing balance.
+   132→6. ✅ Sales return increments damaged stock (NOT sellable) and posts credit-note journal.
+   133→7. ✅ B2C counter creates/reuses customer records by phone, posts to finance, no credit-lock.
+   134→8. ✅ Trial balance balances (ΣDr = ΣCr); P&L and balance sheet generate correctly.
+   135→9. ✅ Every party (customer/vendor) shows opening & closing balance.
+   136→10. ✅ A4 GST invoice prints/exports correctly, multi-page safe.
+   137→11. ✅ UI follows the navy design system exactly; responsive on desktop/laptop/tablet/mobile.
+   138→12. ✅ AI copilot answers from firm data; low-stock alerts fire.
+   139→
+   140→---
+   141→
+   142→## A.7 Assumptions & Constraints
+   143→
+   144→| # | Item |
+   145→|---|---|
+   146→| 1 | Single owner operator; no concurrent multi-user writes expected. |
+   147→| 2 | Firm/company is the account; owner authenticates once and switches firms. |
+   148→| 3 | All monetary values in Indian Rupees (₹), 2 decimal places. |
+   149→| 4 | GST registration assumed for all firms (GSTIN provided per firm). |
+   150→| 5 | Internet connectivity assumed; offline POS is a future phase. |
+   151→| 6 | Product catalog size up to ~5,000 SKUs per firm in near term. |
+   152→
+   153→---
+   154→
+   155→---
+   156→
+   157→# 🅱️ PART B — PRODUCT REQUIREMENTS DOCUMENT (PRD)
+   158→
+   159→## B.1 Product Vision
+   160→
+   161→Build a **single, reliable, intelligent platform** where the owner can run multiple trading firms, tracking every rupee, every product unit, every order, and every party balance in real time — closing books instantly and making fast decisions with AI assistance.
+   162→
+   163→---
+   164→
+   165→## B.2 The Single-Owner Model (CRITICAL UPDATE)
+   166→
+   167→### B.2.1 Design Principle
+   168→
+   169→> **There is NO user management. There are NO roles. There are NO permissions. The FIRM is the account. One owner operates everything.**
+   170→
+   171→### B.2.2 Implications
+   172→
+   173→| Traditional ERP | DMK Mart ERP |
+   174→|---|---|
+   175→| Users, roles, RBAC matrix | **Removed** |
+   176→| User login per employee | **Single owner session** |
+   177→| Approval hierarchies | **Owner approves everything implicitly** |
+   178→| Firm + User scoping | **Firm scoping only** |
+   179→| `created_by` user tracking | **Replaced by firm context** |
+   180→
+   181→### B.2.3 Authentication Model
+   182→
+   183→- The owner has a **single credential set** (email + password) OR a session-based owner token.
+   184→- After authentication, the owner sees a **Firm Switcher** in the header.
+   185→- The active firm ID is stored in the session/global store and injected into every data query.
+   186→- There is **no login screen per firm**; switching is instant.
+   187→
+   188→### B.2.4 Data Isolation Rule
+   189→
+   190→Every business entity is scoped by `firm_id` (company_id):
+   191→
+   192→```
+   193→products, inventory, customers, vendors,
+   194→purchase_orders, sales_orders, invoices, returns,
+   195→journal_entries, ledger, chart_of_accounts, financial_year
+   196→```
+   197→→ All carry `firm_id`. The owner's active firm filters every query.
+   198→
+   199→---
+   200→
+   201→## B.3 Firm / Company Account System
+   202→
+   203→### B.3.1 Firm Profile Fields
+   204→
+   205→| Field | Type | Required | Notes |
+   206→|---|---|---|---|
+   207→| Firm Name | Text | Yes | Legal/trading name |
+   208→| Firm Code | Text | Yes | Short code for invoice prefix (e.g., `DMK`) |
+   209→| GSTIN | Text(15) | Yes | For GST calculation & invoice |
+   210→| State | Select | Yes | Determines intra/inter-state tax |
+   211→| State Code | Text(2) | Auto | Derived from GSTIN prefix |
+   212→| Registered Address | Text | Yes | Printed on invoice |
+   213→| Contact Phone | Text | Yes | |
+   214→| Contact Email | Text | Yes | |
+   215→| Bank Name | Text | No | Printed on invoice |
+   216→| Bank Account No | Text | No | |
+   217→| IFSC | Text | No | |
+   218→| Financial Year | Select | Yes | e.g., 2025–26 (Apr–Mar) |
+   219→| Invoice Prefix | Text | Auto | e.g., `DMK/26-27/` |
+   220→| Logo | Image | No | Shown on invoice |
+   221→| Opening Cash | Decimal | Yes | Opening balance |
+   222→| Opening Bank | Decimal | Yes | Opening balance |
+   223→
+   224→### B.3.2 Firm Creation Flow
+   225→
+   226→```
+   227→Owner Dashboard → [+ Create New Firm]
+   228→  → Step 1: Firm details (name, code, GSTIN, state, address)
+   229→  → Step 2: Bank & contact
+   230→  → Step 3: Financial year + invoice prefix
+   231→  → Step 4: Logo upload
+   232→  → Step 5: Opening balances (cash, bank)
+   233→  → Done → Empty isolated firm ready to load products/parties
+   234→```
+   235→
+   236→### B.3.3 Firm Switcher
+   237→
+   238→- Located in the **top header bar** (left side).
+   239→- Shows current firm name + code.
+   240→- Dropdown lists all firms; selecting switches context instantly.
+   241→- All screens reload with that firm's data.
+   242→
+   243→### B.3.4 Financial Year Switcher
+   244→
+   245→- Next to firm switcher in header.
+   246→- Shows active FY (e.g., `FY 2026-27`).
+   247→- Switching filters all transactional data by FY.
+   248→
+   249→---
+   250→
+   251→## B.4 Product Catalog & Bulk Upload
+   252→
+   253→### B.4.1 Product Master Fields
+   254→
+   255→| Field | Type | Required | Notes |
+   256→|---|---|---|---|
+   257→| SKU | Text | Yes | Unique within firm |
+   258→| Product Name | Text | Yes | Commercial name |
+   259→| Category | Text | Yes | Grouping (Chairs, Buckets, Kitchenware, etc.) |
+   260→| Brand/Manufacturer | Text | No | For brand-scoped procurement |
+   261→| Unit of Measure | Enum | Yes | Pcs / Set / Packet / Box / Crate |
+   262→| HSN Code | Text | Yes | GST classification |
+   263→| GST Rate | Enum | Yes | 0 / 5 / 12 / 18 / 28 |
+   264→| Purchase Cost | Decimal | Yes | Base cost per unit |
+   265→| Price Tier 1 — Distributor | Decimal | Yes | Lowest wholesale |
+   266→| Price Tier 2 — Wholesale | Decimal | Yes | |
+   267→| Price Tier 3 — Semi-Wholesale | Decimal | Yes | |
+   268→| Price Tier 4 — Retailer | Decimal | Yes | |
+   269→| Price Tier 5 — MRP | Decimal | Yes | Max retail |
+   270→| Opening Stock (Sellable) | Decimal | Yes | Starting sellable qty |
+   271→| Opening Damaged Stock | Decimal | No | Starting damaged qty |
+   272→| Low Stock Threshold | Decimal | Yes | Alert trigger |
+   273→| Weight (grams) | Decimal | No | For freight |
+   274→| Barcode | Text | No | For scanning |
+   275→| Active Status | Boolean | Yes | Available for billing |
+   276→
+   277→**Pricing Invariant (enforced):**
+   278→`Tier1 ≤ Tier2 ≤ Tier3 ≤ Tier4 ≤ Tier5`
+   279→
+   280→### B.4.2 Bulk Product Upload (CSV/Excel)
+   281→
+   282→**Template Columns:**
+   283→
+   284→| Column | Required | Example |
+   285→|---|---|---|
+   286→| SKU | Yes | `DMK-CH-001` |
+   287→| Product Name | Yes | `Comfort Supreme Armchair` |
+   288→| Category | Yes | `Chairs` |
+   289→| Brand/Manufacturer | No | `DMK Plastics` |
+   290→| Unit | Yes | `Pcs` |
+   291→| HSN Code | Yes | `3924` |
+   292→| GST Rate (%) | Yes | `18` |
+   293→| Purchase Cost | Yes | `210.00` |
+   294→| Price_Tier1_Distributor | Yes | `210.00` |
+   295→| Price_Tier2_Wholesale | Yes | `235.00` |
+   296→| Price_Tier3_SemiWholesale | Yes | `260.00` |
+   297→| Price_Tier4_Retailer | Yes | `295.00` |
+   298→| Price_Tier5_MRP | Yes | `399.00` |
+   299→| Opening Stock | Yes | `120` |
+   300→| Opening Damaged Stock | No | `0` |
+   301→| Low Stock Threshold | Yes | `30` |
+   302→| Weight (g) | No | `2400` |
+   303→| Barcode | No | `8901234567890` |
+   304→
+   305→**Upload Flow:**
+   306→
+   307→```
+   308→[Products] → [Bulk Upload]
+   309→  → 1. Download template (CSV or Excel)
+   310→  → 2. Fill product list offline
+   311→  → 3. Upload file
+   312→  → 4. System validates every row:
+   313→       • Required fields present?
+   314→       • Numeric fields valid?
+   315→       • GST rate in allowed set?
+   316→       • SKU unique within firm?
+   317→       • Price tier order valid (Tier1 ≤ Tier2 ≤ ... ≤ Tier5)?
+   318→  → 5. Preview screen shows:
+   319→       • Total rows
+   320→       • Valid rows (ready to import)
+   321→       • Invalid rows (with row-by-row error reasons)
+   322→  → 6. Owner confirms → Valid rows imported
+   323→       • New SKUs → created
+   324→       • Existing SKUs → updated (price/stock/threshold)
+   325→  → 7. Import summary (created / updated / failed counts)
+   326→```
+   327→
+   328→**Validation Rules:**
+   329→
+   330→| Rule | Behavior |
+   331→|---|---|
+   332→| Missing required field | Row flagged invalid with clear message |
+   333→| Duplicate SKU in file | Row flagged invalid |
+   334→| SKU already exists in firm | Treated as **update** |
+   335→| Invalid GST rate | Row flagged invalid |
+   336→| Price tier order violation | Row flagged invalid ("Tier1 cannot be greater than Tier2") |
+   337→| Negative stock | Row flagged invalid |
+   338→| Empty file | Rejected with guidance |
+   339→
+   340→---
+   341→
+   342→## B.5 Inventory Management (Dual-Stock)
+   343→
+   344→### B.5.1 The Dual-Stock Model
+   345→
+   346→Every product tracks **two separate stock pools**:
+   347→
+   348→| Pool | Meaning | Can Be Sold? |
+   349→|---|---|---|
+   350→| **Sellable Stock** | Good-condition, approved stock available for sale | ✅ Yes |
+   351→| **Damaged / Broken Stock** | Cracked, broken, transit-damaged, defective items in quarantine | ❌ No |
+   352→
+   353→**Hard Invariant:** Billing can only draw from **Sellable Stock**. The system must never allow selling from Damaged Stock.
+   354→
+   355→### B.5.2 Stock Movement Rules (Complete Matrix)
+   356→
+   357→| Event | Sellable Stock | Damaged Stock | Voucher |
+   358→|---|---|---|---|
+   359→| Purchase received (good qty) | ↑ increases | — | Purchase |
+   360→| Purchase received (damaged qty) | — | ↑ increases | Purchase (quarantine) |
+   361→| Purchase Return (damaged returned to vendor) | — | ↓ decreases | Debit Note |
+   362→| Sales Order / Invoice | ↓ decreases | — | Sales + COGS |
+   363→| Sales Return (customer returns broken items) | — | ↑ increases | Credit Note |
+   364→| Internal damage (warehouse breakage) | ↓ decreases | ↑ increases | Stock Adjustment |
+   365→| Write-off / disposal of damaged | — | ↓ decreases | Journal |
+   366→
+   367→### B.5.3 Low Stock Alert System
+   368→
+   369→- Every product has a **Low Stock Threshold**.
+   370→- When sellable stock ≤ threshold, the system raises an alert.
+   371→- Alerts appear as:
+   372→  - **Dashboard notification/badge**
+   373→  - **Popup / notification center alert**
+   374→  - **AI copilot proactive alert**
+   375→- Alerts show: product name, current stock, threshold, and suggested reorder quantity.
+   376→- Optional one-click **"Create Purchase Order"** from the alert.
+   377→
+   378→### B.5.4 Stock Valuation
+   379→
+   380→- **Valuation method:** Weighted Average Cost (default).
+   381→- Every stock movement is logged in an **Inventory Movement Ledger** (date, product, qty, direction, source document) for full auditability.
+   382→
+   383→---
+   384→
+   385→## B.6 Purchase Workflow
+   386→
+   387→### B.6.1 Vendor Accounts (Manufacturer vs Distributor)
+   388→
+   389→When creating a **vendor account**, the owner selects the vendor type:
+   390→
+   391→| Vendor Type | Behavior |
+   392→|---|---|
+   393→| **Manufacturer** | Shows **only that manufacturer's own brand products** when selecting items for a PO. Brand-scoped selection. |
+   394→| **Distributor** | Shows **all available products** (multi-brand), searchable by keyword. |
+   395→
+   396→**Vendor profile fields:** Vendor name, type (Manufacturer/Distributor), GSTIN, state code, address, phone, payment terms (e.g., Net 30), opening balance, outstanding payable.
+   397→
+   398→### B.6.2 Purchase Order (PO) Lifecycle
+   399→
+   400→```
+   401→Create PO (select vendor, add products, qty, unit cost)
+   402→   │
+   403→   ▼
+   404→PO Status: PENDING  ← can be edited or cancelled here
+   405→   │
+   406→   ▼
+   407→Goods arrive at warehouse → Receive (GRN)
+   408→   │
+   409→   ├─ Enter received quantity
+   410→   ├─ Split into: Accepted (good) vs Damaged
+   411→   │
+   412→   ▼
+   413→PO Status: CONFIRMED / RECEIVED
+   414→   │
+   415→   ▼
+   416→Auto-post to Accounting & Finance (with date):
+   417→   • Inventory ↑ (accepted qty)
+   418→   • Damaged stock ↑ (damaged qty)
+   419→   • Vendor Payable ↑
+   420→   • Purchase Journal + ITC (Input Tax Credit) recorded
+   421→```
+   422→
+   423→**Key Rules:**
+   424→- While **PENDING**, the PO can be **re-edited** (add/remove products, change qty) or **cancelled**.
+   425→- Once **confirmed/received**, editing is locked; changes go through Purchase Return.
+   426→- Every confirmation updates **inventory and finance with the transaction date**.
+   427→
+   428→### B.6.3 Purchase Return (Debit Note)
+   429→
+   430→When products are damaged or rejected:
+   431→
+   432→```
+   433→Select PO / products → Create Purchase Return
+   434→   │
+   435→   ├─ Enter damaged quantity being returned
+   436→   ├─ Reason (transit damage / defective / wrong item)
+   437→   │
+   438→   ▼
+   439→Effects:
+   440→   • Damaged Stock ↓ decreases
+   441→   • Vendor Payable ↓ decreases
+   442→   • Debit Note generated
+   443→   • ITC reversed
+   444→   • Journal posted (dated)
+   445→```
+   446→
+   447→### B.6.4 Vendor Payments
+   448→
+   449→- Record payments to vendors (Bank/NEFT/UPI/Cheque/Cash).
+   450→- Each payment: reduces Vendor Payable, posts Payment journal, updates vendor ledger running balance.
+   451→- Supports **partial payments** and tracks outstanding.
+   452→
+   453→---
+   454→
+   455→## B.7 Sales & Customer Workflow
+   456→
+   457→### B.7.1 B2B Customer Accounts (Location-First Naming)
+   458→
+   459→B2B customers are named with a **location-first convention** for easy identification:
+   460→
+   461→> Format: `[City/Location] [Firm Name]`
+   462→> Example: **"Latur Ishwar Mule"**, "Solapur Balaji Plastics", "Nanded Mahadev Enterprises"
+   463→
+   464→**Customer profile fields:** Party name (location-first), firm name, city, state code, GSTIN, phone, price tier assigned (Distributor/Wholesale/Semi-Wholesale/Retailer), credit limit, credit days, opening balance, outstanding receivable.
+   465→
+   466→### B.7.2 B2C Counter Sales & Customer Directory
+   467→
+   468→A dedicated **B2C Walk-In Counter** handles fast over-the-counter sales.
+   469→
+   470→**B2C Customer Directory feature:**
+   471→- The counter maintains a **directory of walk-in customers** (name + phone number).
+   472→- When a customer comes to buy:
+   473→  - Search by **name keyword** or **phone number**.
+   474→  - If found → auto-fill their details.
+   475→  - If not found → a **"Create New Customer" popup** opens; the owner enters name + phone and saves to the directory.
+   476→- The B2C counter account shows a **separate Buyers List** section with all such customers.
+   477→- Every B2C order updates the **finance and accounting** area (sales revenue, cash/UPI receipt).
+   478→- **B2C customers have NO credit limit** (instant payment only).
+   479→
+   480→**B2C Checkout Flow:**
+   481→```
+   482→Add products → Select/add customer from directory → Choose payment
+   483→   (Cash / UPI / Card)
+   484→   → Confirm → Receipt printed → Sale posted to books
+   485→```
+   486→
+   487→### B.7.3 Sales Order / Invoice Lifecycle
+   488→
+   489→```
+   490→Create Sale (select customer, add products, qty, pricing tier)
+   491→   │
+   492→   ▼
+   493→System checks:
+   494→   • Sellable stock available?
+   495→   • Credit limit OK? (for B2B credit sales only)
+   496→   │
+   497→   ▼
+   498→GST calculated (CGST+SGST intra-state / IGST inter-state)
+   499→   │
+   500→   ▼
+   501→Invoice generated (A4 statutory format, downloadable/printable)
+   502→   │
+   503→   ▼
+   504→Auto-post to Accounting & Finance (dated):
+   505→   • Sellable Stock ↓
+   506→   • Receivable ↑ (credit) OR Cash/Bank ↑ (paid)
+   507→   • Sales Revenue recorded
+   508→   • Output GST liability recorded
+   509→   • COGS posted
+   510→```
+   511→
+   512→### B.7.4 Sales Return (Credit Note)
+   513→
+   514→When a customer returns products:
+   515→
+   516→```
+   517→Select invoice / products → Create Sales Return
+   518→   │
+   519→   ├─ Enter returned quantity
+   520→   ├─ Mark condition (broken/damaged)
+   521→   │
+   522→   ▼
+   523→Effects:
+   524→   • Returned qty → added to DAMAGED STOCK (not sellable)
+   525→   • Customer Receivable ↓ OR refund
+   526→   • Credit Note generated
+   527→   • Output GST reversed
+   528→   • Sales Returns contra-revenue posted
+   529→```
+   530→
+   531→**Critical Rule:** Sales returns of broken/damaged items go to **Damaged Stock**, never back to Sellable Stock.
+   532→
+   533→---
+   534→
+   535→## B.8 Pricing Engine
+   536→
+   537→### B.8.1 Five-Tier Pricing
+   538→
+   539→Every product has five price tiers (defined in B.4.1). The customer's assigned tier determines the base price used in B2B billing.
+   540→
+   541→### B.8.2 Quantity-Based Bulk / Packaging Pricing (Sales Only)
+   542→
+   543→This applies **only to the Sales / Customer / Buyers section**. Prices change automatically based on quantity and packaging format:
+   544→
+   545→**Packaging Format Discount Table:**
+   546→
+   547→| Packaging Format | Unit Multiplier | Discount |
+   548→|---|---|---|
+   549→| PIECE (single) | 1 unit | 0% |
+   550→| PACKET | 5 units | 5% |
+   551→| SET | 10 units | 8% |
+   552→| BOX | 12 units | 12% |
+   553→| CRATE | 24 units | 15% |
+   554→| MASTER LOT | 50+ units | 20% |
+   555→
+   556→**Effective Price Formula:**
+   557→```
+   558→Effective Unit Price = Tier Price × (1 − Packaging Discount) × (1 − Manual Discount)
+   559→Line Taxable Amount  = Round(Effective Unit Price × Quantity, 2)
+   560→```
+   561→
+   562→**Example:**
+   563→- Product base (Wholesale tier): ₹235.00
+   564→- Customer orders 24 units (2 boxes) → BOX_12 format → 12% discount
+   565→- Effective price = 235 × (1 − 0.12) = ₹206.80
+   566→- Line amount = 206.80 × 24 = ₹4,963.20
+   567→- Customer saves ₹676.80 by buying in bulk
+   568→
+   569→---
+   570→
+   571→## B.9 Financial Accounting & Bookkeeping
+   572→
+   573→### B.9.1 The Double-Entry Foundation
+   574→
+   575→Every monetary event posts a **balanced journal entry** where:
+   576→
+   577→```
+   578→Σ Debits = Σ Credits   (always, for every transaction)
+   579→```
+   580→
+   581→This is the core invariant. The system never allows an unbalanced entry.
+   582→
+   583→### B.9.2 Chart of Accounts (Per Firm)
+   584→
+   585→Each firm has its own chart of accounts, grouped by class:
+   586→
+   587→| Class | Examples |
+   588→|---|---|
+   589→| **Assets** | Cash in Hand, Bank Accounts, Accounts Receivable (Sundry Debtors), Inventory Asset, GST Input Tax Credit (ITC) |
+   590→| **Liabilities** | Accounts Payable (Sundry Creditors), GST Output Payable (CGST/SGST/IGST), TDS Payable |
+   591→| **Equity** | Owner's Capital, Retained Earnings |
+   592→| **Revenue** | Domestic Sales Revenue, Sales Returns (contra) |
+   593→| **Expenses** | Cost of Goods Sold (COGS), Purchases, Freight, Operating Expenses |
+   594→
+   595→### B.9.3 Journal Voucher Types
+   596→
+   597→| Voucher | Trigger |
+   598→|---|---|
+   599→| **Sales** | Sales invoice posted |
+   600→| **Purchase** | Purchase / GRN confirmed |
+   601→| **Receipt** | Money received from customer |
+   602→| **Payment** | Money paid to vendor |
+   603→| **Journal** | Manual adjustments, opening balances |
+   604→| **Contra** | Cash ↔ Bank transfers |
+   605→| **Credit Note** | Sales return |
+   606→| **Debit Note** | Purchase return |
+   607→
+   608→### B.9.4 Party Ledgers with Opening & Closing Balances
+   609→
+   610→Every **customer and vendor account** maintains:
+   611→
+   612→- **Opening Balance** (as of FY start)
+   613→- **Running transaction history** (invoices, payments, notes)
+   614→- **Closing Balance** (live, real-time)
+   615→- **Balance type** — `Dr` (they owe us / receivable) or `Cr` (we owe them / payable)
+   616→
+   617→**This applies to ALL accounts** — every party shows opening and closing balances, updated by every order, return, and payment.
+   618→
+   619→### B.9.5 Financial Statements (Real-Time)
+   620→
+   621→| Statement | Description |
+   622→|---|---|
+   623→| **Trial Balance** | All account balances; Σ Debits must equal Σ Credits |
+   624→| **Profit & Loss** | Revenue − COGS = Gross Profit; − Expenses = Net Profit |
+   625→| **Balance Sheet** | Assets = Liabilities + Equity |
+   626→| **Day Book** | Chronological list of all vouchers for a date |
+   627→
+   628→### B.9.6 Financial Year Management
+   629→
+   630→- Each firm operates on a financial year (e.g., 2025–26, April–March).
+   631→- Year switching; opening balances carried forward.
+   632→- Period closing to lock completed periods.
+   633→
+   634→### B.9.7 Accounts Receivable / Payable Aging
+   635→
+   636→- **AR Aging** — buckets 0–30, 31–60, 61–90, 90+ days for receivables.
+   637→- **AP Aging** — same buckets for payables.
+   638→- Supports credit control and cash-flow planning.
+   639→
+   640→---
+   641→
+   642→## B.10 GST & Statutory Compliance
+   643→
+   644→### B.10.1 GST Calculation Logic
+   645→
+   646→**Place of Supply determines the tax split:**
+   647→
+   648→```
+   649→If Seller State Code = Buyer State Code  →  INTRA-STATE
+   650→    CGST = Taxable × (GST Rate / 2)
+   651→    SGST = Taxable × (GST Rate / 2)
+   652→    IGST = 0
+   653→
+   654→If Seller State Code ≠ Buyer State Code  →  INTER-STATE
+   655→    IGST = Taxable × GST Rate
+   656→    CGST = 0, SGST = 0
+   657→```
+   658→
+   659→State codes are derived from the GSTIN prefix.
+   660→
+   661→### B.10.2 Invoice Requirements
+   662→
+   663→Every tax invoice includes:
+   664→- Firm GSTIN, name, address
+   665→- Customer GSTIN (for B2B), name, address
+   666→- Invoice number (sequential, firm-specific) and date
+   667→- HSN code per item
+   668→- Taxable value, CGST/SGST/IGST breakdown
+   669→- Total, round-off, and **Amount in Words** (Indian numbering: Lakhs/Crores)
+   670→
+   671→### B.10.3 Round-Off (Rule 545)
+   672→
+   673→Invoice totals are rounded to the nearest rupee; the difference is posted to a **Round-Off account**.
+   674→
+   675→### B.10.4 Input Tax Credit (ITC)
+   676→
+   677→- Purchases record ITC as an asset.
+   678→- Purchase returns reverse ITC.
+   679→- Support for GSTR-2B reconciliation (matching vendor filings).
+   680→
+   681→---
+   682→
+   683→## B.11 AI Intelligence Layer
+   684→
+   685→### B.11.1 AI Copilot with Full Platform Authority
+   686→
+   687→The AI assistant has **full authority across the platform** and can analyze all data within the active firm to give the best possible answers.
+   688→
+   689→**Capabilities:**
+   690→- Answer natural-language questions about any firm data (sales, stock, finance, parties).
+   691→- Example: "What is my top-selling product this month?" / "Who owes me the most?" / "What's my gross profit this week?"
+   692→- Grounded strictly in the **active firm's data** (no cross-firm leakage).
+   693→
+   694→### B.11.2 AI Alerts & Notifications
+   695→
+   696→| Alert Type | Trigger |
+   697→|---|---|
+   698→| **Low Stock Alert** | Sellable stock ≤ threshold |
+   699→| **Sales Operation Notifications** | Large orders, credit-limit breaches, overdue receivables |
+   700→| **Damaged Stock Alert** | Damaged stock accumulating, suggesting a Purchase Return |
+   701→| **Overdue Receivables** | Customer invoices past due |
+   702→| **Payables Due** | Vendor payments approaching due date |
+   703→
+   704→### B.11.3 AI Decision Support
+   705→
+   706→- Reorder suggestions (reorder point + suggested qty).
+   707→- Pricing insights (which products/tiers drive margin).
+   708→- Cash-flow outlook (receivables vs payables).
+   709→- Damaged-goods trend analysis (which vendors/products break most).
+   710→
+   711→### B.11.4 AI Governance
+   712→
+   713→- AI actions that modify data (e.g., creating a PO) require owner confirmation.
+   714→- AI answers are **read-grounded** — based only on actual firm data, no hallucination of figures.
+   715→
+   716→---
+   717→
+   718→## B.12 Dashboard & Reports
+   719→
+   720→### B.12.1 Dashboard (Home)
+   721→
+   722→Visual, chart-driven overview showing:
+   723→
+   724→| Widget | Content |
+   725→|---|---|
+   726→| KPI Cards | Today's Sales, Receivables, Payables, Cash/Bank, Low-Stock Count |
+   727→| Sales Trend Chart | Daily/weekly sales line chart |
+   728→| Top Products | Best sellers by qty and value |
+   729→| Low Stock Alerts | List with reorder action |
+   730→| Receivables Aging | Bucket breakdown |
+   731→| Damaged Stock Summary | Qty + value in quarantine |
+   732→| Recent Transactions | Latest invoices, POs, payments |
+   733→
+   734→### B.12.2 Reports
+   735→
+   736→| Report | Purpose |
+   737→|---|---|
+   738→| Sales Report | By date, product, customer |
+   739→| Purchase Report | By date, product, vendor |
+   740→| Stock Report | Current sellable + damaged per product |
+   741→| Stock Movement Ledger | Full in/out history |
+   742→| AR / AP Aging | Receivables & payables buckets |
+   743→| Party Statement | Customer/vendor transaction history |
+   744→| Trial Balance / P&L / Balance Sheet | Financial statements |
+   745→| Day Book | Daily voucher list |
+   746→| GST Summary | Output vs Input tax |
+   747→
+   748→All reports support **export to CSV/Excel** and are filtered by date range.
+   749→
+   750→### B.12.3 Navigation / Information Architecture
+   751→
+   752→Left sidebar grouped into clear sections (with sub-sections):
+   753→
+   754→```
+   755→Dashboard
+   756→Sales            → Fast Billing, Sales Orders, Sales Returns, Customers & Buyers
+   757→Purchase         → Purchase Orders, Purchase Returns, Vendor Payments, Vendors
+   758→Inventory        → Products, Stock Levels, Stock Movements, Bulk Upload, Low Stock
+   759→Finance & Acct.  → Journals, Chart of Accounts, Party Ledgers, Statements
+   760→Invoices & Docs  → Tax Invoices, Credit/Debit Notes
+   761→Reports          → All reports
+   762→AI Assistant     → Copilot chat
+   763→Settings         → Firm Profile, Firms, Financial Year
+   764→```
+   765→
+   766→---
+   767→
+   768→## B.13 Non-Functional Requirements
+   769→
+   770→| Category | Requirement |
+   771→|---|---|
+   772→| **Performance** | Billing search < 50ms; dashboard loads < 2s; statements generate instantly |
+   773→| **Availability** | High uptime; cloud-hosted SaaS |
+   774→| **Data Integrity** | Double-entry invariant enforced; stock can never go negative |
+   775→| **Security** | Secure owner login, firm isolation, encrypted passwords |
+   776→| **Auditability** | All financial mutations logged with timestamp |
+   777→| **Scalability** | Supports 500+ SKUs per firm, growing; multiple firms |
+   778→| **Backup** | Regular automated backups |
+   779→| **Compliance** | GST-compliant invoices and records |
+   780→| **Responsive** | Desktop, laptop, tablet, mobile |
+   781→
+   782→---
+   783→
+   784→---
+   785→
+   786→# 🅲 PART C — BACKEND TECHNICAL SPECIFICATION
+   787→
+   788→## C.1 Architecture Overview
+   789→
+   790→```
+   791→┌─────────────────────────────────────────────────────────────┐
+   792→│                      CLIENT LAYER                            │
+   793→│   Next.js 15 SPA (React 19 + TypeScript + Tailwind)         │
+   794→│   Midnight Ledger Design System (Navy)                      │
+   795→└─────────────────────────┬───────────────────────────────────┘
+   796→                          │ HTTPS
+   797→                          ▼
+   798→┌─────────────────────────────────────────────────────────────┐
+   799→│              API GATEWAY / NEXT.JS RUNTIME                   │
+   800→│   Auth (Owner Session) + Firm Context Injection             │
+   801→│                                                              │
+   802→│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐           │
+   803→│  │ Auth/Firm   │ │ Sales/Billing│ │ Purchase/SCM│           │
+   804→│  └─────────────┘ └─────────────┘ └─────────────┘           │
+   805→│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐           │
+   806→│  │ Inventory   │ │ Finance/Ledger│ │ AI Copilot  │          │
+   807→│  └─────────────┘ └─────────────┘ └─────────────┘           │
+   808→└─────────────────────────┬───────────────────────────────────┘
+   809→                          │
+   810→                          ▼
+   811→┌─────────────────────────────────────────────────────────────┐
+   812→│              DATA PERSISTENCE LAYER                          │
+   813→│   Prisma ORM (Type-Safe Client)                             │
+   814→│   SQLite (Local/Edge) | PostgreSQL 16+ (Production)         │
+   815→└─────────────────────────────────────────────────────────────┘
+   816→```
+   817→
+   818→## C.2 Technology Stack
+   819→
+   820→| Layer | Technology | Justification |
+   821→|---|---|---|
+   822→| Frontend Framework | Next.js 15 (App Router) + React 19 | SSR, API routes, production-ready |
+   823→| Language | TypeScript 5.7 (strict) | Type safety |
+   824→| Styling | Tailwind CSS v4 | Utility-first, design tokens |
+   825→| State Management | Zustand (persist) | Lightweight global store for firm context |
+   826→| ORM | Prisma | Type-safe DB access, migrations |
+   827→| Database (Dev) | SQLite | Zero-config local |
+   828→| Database (Prod) | PostgreSQL 16+ | Production grade, RLS ready |
+   829→| Auth | NextAuth.js (owner session) | Single-owner session |
+   830→| AI | OpenRouter API (LLM) | Copilot, alerts |
+   831→| PDF/Print | html2canvas + jsPDF / CSS print | A4 invoice |
+   832→| Export | CSV/Excel generation | Reports |
+   833→
+   834→## C.3 Database Schema (Complete)
+   835→
+   836→### C.3.1 Firm / Company
+   837→
+   838→```sql
+   839→CREATE TABLE firms (
+   840→    id              TEXT PRIMARY KEY,
+   841→    owner_id        TEXT NOT NULL,           -- single owner
+   842→    firm_name       TEXT NOT NULL,
+   843→    firm_code       TEXT NOT NULL,
+   844→    gstin           TEXT,
+   845→    state           TEXT,
+   846→    state_code      TEXT,
+   847→    address         TEXT,
+   848→    phone           TEXT,
+   849→    email           TEXT,
+   850→    bank_name       TEXT,
+   851→    bank_account    TEXT,
+   852→    ifsc            TEXT,
+   853→    financial_year  TEXT,
+   854→    invoice_prefix  TEXT,
+   855→    logo_url        TEXT,
+   856→    opening_cash    REAL DEFAULT 0,
+   857→    opening_bank    REAL DEFAULT 0,
+   858→    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+   859→);
+   860→```
+   861→
+   862→### C.3.2 Products
+   863→
+   864→```sql
+   865→CREATE TABLE products (
+   866→    id                  TEXT PRIMARY KEY,
+   867→    firm_id             TEXT NOT NULL REFERENCES firms(id),
+   868→    sku                 TEXT NOT NULL,
+   869→    name                TEXT NOT NULL,
+   870→    category            TEXT,
+   871→    brand               TEXT,
+   872→    unit                TEXT DEFAULT 'Pcs',
+   873→    hsn_code            TEXT,
+   874→    gst_rate            REAL DEFAULT 18,
+   875→    purchase_cost       REAL DEFAULT 0,
+   876→    tier1_distributor   REAL,
+   877→    tier2_wholesale     REAL,
+   878→    tier3_semi_wholesale REAL,
+   879→    tier4_retailer      REAL,
+   880→    tier5_mrp           REAL,
+   881→    stock_quantity      REAL DEFAULT 0,      -- sellable
+   882→    damaged_stock       REAL DEFAULT 0,      -- quarantined
+   883→    low_stock_threshold REAL DEFAULT 0,
+   884→    weight_grams        REAL,
+   885→    barcode             TEXT,
+   886→    is_active           INTEGER DEFAULT 1,
+   887→    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+   888→    UNIQUE(firm_id, sku)
+   889→);
+   890→```
+   891→
+   892→### C.3.3 Customers & Vendors
+   893→
+   894→```sql
+   895→CREATE TABLE customers (
+   896→    id              TEXT PRIMARY KEY,
+   897→    firm_id         TEXT NOT NULL REFERENCES firms(id),
+   898→    party_name      TEXT NOT NULL,           -- location-first
+   899→    firm_name       TEXT,
+   900→    city            TEXT,
+   901→    state_code      TEXT,
+   902→    gstin           TEXT,
+   903→    phone           TEXT,
+   904→    email           TEXT,
+   905→    customer_type   TEXT DEFAULT 'B2B',      -- B2B | B2C_COUNTER
+   906→    assigned_tier   TEXT DEFAULT 'tier4_retailer',
+   907→    credit_limit    REAL DEFAULT 0,
+   908→    credit_days     INTEGER DEFAULT 30,
+   909→    opening_balance REAL DEFAULT 0,
+   910→    closing_balance REAL DEFAULT 0,
+   911→    balance_type    TEXT DEFAULT 'Dr',
+   912→    is_active       INTEGER DEFAULT 1,
+   913→    is_archived     INTEGER DEFAULT 0,
+   914→    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+   915→);
+   916→
+   917→CREATE TABLE vendors (
+   918→    id              TEXT PRIMARY KEY,
+   919→    firm_id         TEXT NOT NULL REFERENCES firms(id),
+   920→    vendor_name     TEXT NOT NULL,
+   921→    vendor_type     TEXT DEFAULT 'DISTRIBUTOR',  -- MANUFACTURER | DISTRIBUTOR
+   922→    brand           TEXT,                        -- for manufacturer scoping
+   923→    gstin           TEXT,
+   924→    state_code      TEXT,
+   925→    phone           TEXT,
+   926→    email           TEXT,
+   927→    payment_terms   TEXT DEFAULT 'NET_30',
+   928→    opening_balance REAL DEFAULT 0,
+   929→    closing_balance REAL DEFAULT 0,
+   930→    balance_type    TEXT DEFAULT 'Cr',
+   931→    is_active       INTEGER DEFAULT 1,
+   932→    is_archived     INTEGER DEFAULT 0,
+   933→    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+   934→);
+   935→```
+   936→
+   937→### C.3.4 Purchase Orders & Items
+   938→
+   939→```sql
+   940→CREATE TABLE purchase_orders (
+   941→    id              TEXT PRIMARY KEY,
+   942→    firm_id         TEXT NOT NULL REFERENCES firms(id),
+   943→    vendor_id       TEXT NOT NULL REFERENCES vendors(id),
+   944→    po_number       TEXT NOT NULL,
+   945→    po_date         DATE NOT NULL,
+   946→    status          TEXT DEFAULT 'PENDING',   -- PENDING|CONFIRMED|CANCELLED
+   947→    subtotal        REAL DEFAULT 0,
+   948→    total_cgst      REAL DEFAULT 0,
+   949→    total_sgst      REAL DEFAULT 0,
+   950→    total_igst      REAL DEFAULT 0,
+   951→    grand_total     REAL DEFAULT 0,
+   952→    notes           TEXT,
+   953→    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+   954→);
+   955→
+   956→CREATE TABLE purchase_order_items (
+   957→    id              TEXT PRIMARY KEY,
+   958→    po_id           TEXT NOT NULL REFERENCES purchase_orders(id),
+   959→    product_id      TEXT NOT NULL REFERENCES products(id),
+   960→    sku             TEXT,
+   961→    product_name    TEXT,
+   962→    hsn_code        TEXT,
+   963→    quantity        REAL NOT NULL,
+   964→    unit_cost       REAL NOT NULL,
+   965→    taxable_amount  REAL,
+   966→    gst_rate        REAL,
+   967→    cgst_amount     REAL DEFAULT 0,
+   968→    sgst_amount     REAL DEFAULT 0,
+   969→    igst_amount     REAL DEFAULT 0,
+   970→    total_amount    REAL
+   971→);
+   972→```
+   973→
+   974→### C.3.5 Sales Invoices & Items
+   975→
+   976→```sql
+   977→CREATE TABLE invoices (
+   978→    id              TEXT PRIMARY KEY,
+   979→    firm_id         TEXT NOT NULL REFERENCES firms(id),
+   980→    invoice_number  TEXT NOT NULL,
+   981→    invoice_date    DATE NOT NULL,
+   982→    customer_id     TEXT REFERENCES customers(id),
+   983→    is_counter_sale INTEGER DEFAULT 0,
+   984→    walk_in_name    TEXT,
+   985→    walk_in_phone   TEXT,
+   986→    subtotal        REAL DEFAULT 0,
+   987→    total_cgst      REAL DEFAULT 0,
+   988→    total_sgst      REAL DEFAULT 0,
+   989→    total_igst      REAL DEFAULT 0,
+   990→    round_off       REAL DEFAULT 0,
+   991→    grand_total     REAL DEFAULT 0,
+   992→    amount_in_words TEXT,
+   993→    payment_mode    TEXT DEFAULT 'CREDIT',    -- CREDIT|CASH|UPI|CARD|NEFT
+   994→    status          TEXT DEFAULT 'POSTED',
+   995→    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+   996→);
+   997→
+   998→CREATE TABLE invoice_line_items (
+   999→    id              TEXT PRIMARY KEY,
+  1000→    invoice_id      TEXT NOT NULL REFERENCES invoices(id),
+  1001→    product_id      TEXT NOT NULL REFERENCES products(id),
+  1002→    sku             TEXT,
+  1003→    product_name    TEXT,
+  1004→    hsn_code        TEXT,
+  1005→    selected_tier   TEXT,
+  1006→    packaging_format TEXT DEFAULT 'PIECE',
+  1007→    base_tier_price REAL,
+  1008→    bulk_discount_pct REAL DEFAULT 0,
+  1009→    unit_price      REAL,
+  1010→    quantity        REAL NOT NULL,
+  1011→    taxable_amount  REAL,
+  1012→    gst_rate        REAL,
+  1013→    cgst_amount     REAL DEFAULT 0,
+  1014→    sgst_amount     REAL DEFAULT 0,
+  1015→    igst_amount     REAL DEFAULT 0,
+  1016→    total_amount    REAL
+  1017→);
+  1018→```
+  1019→
+  1020→### C.3.6 Returns
+  1021→
+  1022→```sql
+  1023→CREATE TABLE sales_returns (
+  1024→    id              TEXT PRIMARY KEY,
+  1025→    firm_id         TEXT NOT NULL REFERENCES firms(id),
+  1026→    credit_note_no  TEXT NOT NULL,
+  1027→    invoice_ref     TEXT,
+  1028→    customer_id     TEXT REFERENCES customers(id),
+  1029→    return_date     DATE NOT NULL,
+  1030→    grand_total     REAL,
+  1031→    notes           TEXT,
+  1032→    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+  1033→);
+  1034→
+  1035→CREATE TABLE sales_return_items (
+  1036→    id              TEXT PRIMARY KEY,
+  1037→    return_id       TEXT NOT NULL REFERENCES sales_returns(id),
+  1038→    product_id      TEXT NOT NULL REFERENCES products(id),
+  1039→    damaged_qty     REAL NOT NULL,
+  1040→    unit_price      REAL,
+  1041→    gst_rate        REAL,
+  1042→    total_amount    REAL,
+  1043→    defect_type     TEXT
+  1044→);
+  1045→
+  1046→CREATE TABLE purchase_returns (
+  1047→    id              TEXT PRIMARY KEY,
+  1048→    firm_id         TEXT NOT NULL REFERENCES firms(id),
+  1049→    debit_note_no   TEXT NOT NULL,
+  1050→    po_ref          TEXT,
+  1051→    vendor_id       TEXT REFERENCES vendors(id),
+  1052→    return_date     DATE NOT NULL,
+  1053→    grand_total     REAL,
+  1054→    notes           TEXT,
+  1055→    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+  1056→);
+  1057→
+  1058→CREATE TABLE purchase_return_items (
+  1059→    id              TEXT PRIMARY KEY,
+  1060→    return_id       TEXT NOT NULL REFERENCES purchase_returns(id),
+  1061→    product_id      TEXT NOT NULL REFERENCES products(id),
+  1062→    damaged_qty     REAL NOT NULL,
+  1063→    unit_cost       REAL,
+  1064→    gst_rate        REAL,
+  1065→    total_amount    REAL,
+  1066→    reason          TEXT
+  1067→);
+  1068→```
+  1069→
+  1070→### C.3.7 Chart of Accounts & Journals
+  1071→
+  1072→```sql
+  1073→CREATE TABLE chart_of_accounts (
+  1074→    id              TEXT PRIMARY KEY,
+  1075→    firm_id         TEXT NOT NULL REFERENCES firms(id),
+  1076→    account_code    TEXT NOT NULL,
+  1077→    account_name    TEXT NOT NULL,
+  1078→    account_group   TEXT,
+  1079→    account_class   TEXT NOT NULL,   -- ASSET|LIABILITY|EQUITY|REVENUE|EXPENSE
+  1080→    is_active       INTEGER DEFAULT 1,
+  1081→    UNIQUE(firm_id, account_code)
+  1082→);
+  1083→
+  1084→CREATE TABLE journal_entries (
+  1085→    id              TEXT PRIMARY KEY,
+  1086→    firm_id         TEXT NOT NULL REFERENCES firms(id),
+  1087→    voucher_number  TEXT NOT NULL,
+  1088→    voucher_type    TEXT NOT NULL,   -- SALES|PURCHASE|PAYMENT|RECEIPT|JOURNAL|CONTRA|CREDIT_NOTE|DEBIT_NOTE
+  1089→    posting_date    DATE NOT NULL,
+  1090→    reference_doc_id TEXT,
+  1091→    narration       TEXT,
+  1092→    total_debit     REAL NOT NULL,
+  1093→    total_credit    REAL NOT NULL,
+  1094→    status          TEXT DEFAULT 'POSTED',
+  1095→    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  1096→    CHECK (total_debit = total_credit)
+  1097→);
+  1098→
+  1099→CREATE TABLE journal_lines (
+  1100→    id              TEXT PRIMARY KEY,
+  1101→    journal_id      TEXT NOT NULL REFERENCES journal_entries(id),
+  1102→    account_id      TEXT NOT NULL REFERENCES chart_of_accounts(id),
+  1103→    account_name    TEXT,
+  1104→    entry_side      TEXT NOT NULL,   -- DEBIT|CREDIT
+  1105→    debit_amount    REAL DEFAULT 0,
+  1106→    credit_amount   REAL DEFAULT 0,
+  1107→    narration       TEXT
+  1108→);
+  1109→```
+  1110→
+  1111→### C.3.8 Inventory Movements
+  1112→
+  1113→```sql
+  1114→CREATE TABLE inventory_movements (
+  1115→    id              TEXT PRIMARY KEY,
+  1116→    firm_id         TEXT NOT NULL REFERENCES firms(id),
+  1117→    product_id      TEXT NOT NULL REFERENCES products(id),
+  1118→    movement_type   TEXT NOT NULL,   -- PURCHASE_INWARD|SALES_OUTWARD|DAMAGE_QUARANTINE|SALES_RETURN_DAMAGE|PURCHASE_RETURN_DAMAGE|STOCK_ADJUSTMENT
+  1119→    quantity        REAL NOT NULL,
+  1120→    target_pool     TEXT NOT NULL,   -- SELLABLE|DAMAGED
+  1121→    reference_doc_id TEXT,
+  1122→    notes           TEXT,
+  1123→    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+  1124→);
+  1125→```
+  1126→
+  1127→## C.4 Business Logic Engines
+  1128→
+  1129→### C.4.1 GST Calculation Engine
+  1130→
+  1131→```typescript
+  1132→function calculateGST(taxable: number, gstRate: number,
+  1133→                      sellerState: string, buyerState: string) {
+  1134→  if (sellerState === buyerState) {
+  1135→    // Intra-state
+  1136→    const cgst = round2(taxable * (gstRate / 200));
+  1137→    const sgst = round2(taxable * (gstRate / 200));
+  1138→    return { cgst, sgst, igst: 0 };
+  1139→  } else {
+  1140→    // Inter-state
+  1141→    const igst = round2(taxable * (gstRate / 100));
+  1142→    return { cgst: 0, sgst: 0, igst };
+  1143→  }
+  1144→}
+  1145→```
+  1146→
+  1147→### C.4.2 Pricing Engine
+  1148→
+  1149→```typescript
+  1150→function calculateBulkPricing(tierPrice: number, quantity: number,
+  1151→                              manualDiscountPct: number = 0) {
+  1152→  let format = 'PIECE', discountPct = 0;
+  1153→  if (quantity >= 50)      { format = 'MASTER_LOT_50'; discountPct = 20; }
+  1154→  else if (quantity >= 24) { format = 'CRATE_24';      discountPct = 15; }
+  1155→  else if (quantity >= 12) { format = 'BOX_12';        discountPct = 12; }
+  1156→  else if (quantity >= 10) { format = 'SET_10';        discountPct = 8; }
+  1157→  else if (quantity >= 5)  { format = 'PACKET_5';      discountPct = 5; }
+  1158→
+  1159→  const unitPrice = round2(tierPrice * (1 - discountPct/100)
+  1160→                                       * (1 - manualDiscountPct/100));
+  1161→  const taxable   = round2(unitPrice * quantity);
+  1162→  const savings   = round2((tierPrice * quantity) - taxable);
+  1163→  return { format, unitPrice, discountPct, taxable, savings };
+  1164→}
+  1165→```
+  1166→
+  1167→### C.4.3 Double-Entry Journal Posting
+  1168→
+  1169→Every transaction posts a balanced journal. Example — Sales Invoice:
+  1170→
+  1171→```
+  1172→Dr. Customer A/R (or Cash/Bank)    = grand_total
+  1173→Cr. Sales Revenue                  = taxable
+  1174→Cr. CGST Output Payable            = cgst
+  1175→Cr. SGST Output Payable            = sgst
+  1176→Cr. IGST Output Payable            = igst
+  1177→Dr/Cr. Round-Off                   = round_off delta
+  1178→```
+  1179→Plus COGS companion:
+  1180→```
+  1181→Dr. Cost of Goods Sold             = cost
+  1182→Cr. Inventory Asset                = cost
+  1183→```
+  1184→
+  1185→### C.4.4 Stock Update Logic
+  1186→
+  1187→```typescript
+  1188→// On Sales Invoice
+  1189→product.stock_quantity -= quantity;   // sellable only
+  1190→
+  1191→// On Sales Return
+  1192→product.damaged_stock += quantity;    // NOT sellable
+  1193→
+  1194→// On Purchase Confirm
+  1195→product.stock_quantity += acceptedQty;
+  1196→product.damaged_stock  += damagedQty;
+  1197→
+  1198→// On Purchase Return
+  1199→product.damaged_stock  -= quantity;
+  1200→```
+  1201→
+  1202→## C.5 API Contract Directory
+  1203→
+  1204→| Route | Method | Purpose |
+  1205→|---|---|---|
+  1206→| `/api/v1/auth/login` | POST | Owner login, session |
+  1207→| `/api/v1/firms` | GET/POST | List/create firms |
+  1208→| `/api/v1/firms/:id` | GET/PATCH | Firm detail/update |
+  1209→| `/api/v1/firms/:id/switch` | POST | Set active firm |
+  1210→| `/api/v1/products` | GET/POST | List/create products |
+  1211→| `/api/v1/products/bulk-upload` | POST | Bulk CSV/Excel import |
+  1212→| `/api/v1/products/:id` | GET/PATCH/DELETE | Product CRUD |
+  1213→| `/api/v1/customers` | GET/POST | List/create customers |
+  1214→| `/api/v1/customers/:id` | GET/PATCH/DELETE | Customer CRUD |
+  1215→| `/api/v1/vendors` | GET/POST | List/create vendors |
+  1216→| `/api/v1/vendors/:id` | GET/PATCH/DELETE | Vendor CRUD |
+  1217→| `/api/v1/purchase-orders` | GET/POST | List/create POs |
+  1218→| `/api/v1/purchase-orders/:id` | GET/PATCH | PO detail/edit |
+  1219→| `/api/v1/purchase-orders/:id/confirm` | POST | Confirm receipt (GRN) |
+  1220→| `/api/v1/purchase-orders/:id/cancel` | POST | Cancel PO |
+  1221→| `/api/v1/purchase-returns` | GET/POST | Purchase returns |
+  1222→| `/api/v1/vendor-payments` | GET/POST | Vendor disbursements |
+  1223→| `/api/v1/invoices` | GET/POST | List/create sales invoices |
+  1224→| `/api/v1/invoices/:id` | GET | Invoice detail |
+  1225→| `/api/v1/invoices/:id/pdf` | GET | A4 invoice PDF |
+  1226→| `/api/v1/sales-returns` | GET/POST | Sales returns |
+  1227→| `/api/v1/ledger/journals` | GET/POST | Journal entries |
+  1228→| `/api/v1/ledger/trial-balance` | GET | Trial balance |
+  1229→| `/api/v1/ledger/pnl` | GET | Profit & Loss |
+  1230→| `/api/v1/ledger/balance-sheet` | GET | Balance Sheet |
+  1231→| `/api/v1/ledger/day-book` | GET | Day book |
+  1232→| `/api/v1/ledger/ar-aging` | GET | AR aging |
+  1233→| `/api/v1/ledger/ap-aging` | GET | AP aging |
+  1234→| `/api/v1/inventory/stock` | GET | Stock levels |
+  1235→| `/api/v1/inventory/movements` | GET | Movement ledger |
+  1236→| `/api/v1/inventory/low-stock` | GET | Low-stock alerts |
+  1237→| `/api/v1/dashboard` | GET | KPI aggregates |
+  1238→| `/api/v1/reports/:type` | GET | Reports + export |
+  1239→| `/api/v1/ai/chat` | POST | Copilot query |
+  1240→| `/api/v1/ai/alerts` | GET | AI alerts |
+  1241→
+  1242→## C.6 Security Model (Single Owner)
+  1243→
+  1244→| Concern | Implementation |
+  1245→|---|---|
+  1246→| Authentication | Owner email + password → session token (NextAuth) |
+  1247→| Session Storage | HttpOnly cookie |
+  1248→| Firm Isolation | Every query filtered by `firm_id` from active session |
+  1249→| Password Hashing | bcrypt |
+  1250→| API Protection | Session validation middleware |
+  1251→| Data Encryption | At-rest DB encryption (PostgreSQL) |
+  1252→| Backup | Automated daily DB backups |
+  1253→
+  1254→> **No RBAC. No roles. No permissions matrix. Single owner has full access to all firms.**
+  1255→
+  1256→---
+  1257→
+  1258→---
+  1259→
+  1260→# 🅳 PART D — FRONTEND DESIGN SYSTEM (MIDNIGHT LEDGER)
+  1261→
+  1262→## D.1 Design Philosophy
+  1263→
+  1264→The DMK Mart ERP uses a **Dark-First, High-Contrast, Navy-Based** design language engineered for long working sessions, financial clarity, and professional trust. The palette is a deep midnight navy canvas with electric action accents, ensuring money and actions stand out against a calm background.
+  1265→
+  1266→**Core Principles:**
+  1267→1. **Money in Motion** — Orange/gold accents reserved for financial figures and actions.
+  1268→2. **Calm Canvas** — Deep navy background reduces eye strain during long bookkeeping sessions.
+  1269→3. **Clarity Over Decoration** — Clean tables, readable numerics, no visual noise.
+  1270→4. **Consistent Density** — Standardized spacing, control heights, and type scale across all modules.
+  1271→5. **Responsive Everywhere** — Identical functionality on desktop, laptop, tablet, and mobile.
+  1272→
+  1273→---
+  1274→
+  1275→## D.2 Color System (MANDATORY)
+  1276→
+  1277→### 🌑 1. Backgrounds & Canvas (Base Level)
+  1278→
+  1279→| Element / Layer | HEX Code | CSS Variable | Preview & Usage |
+  1280→|---|---|---|---|
+  1281→| Main App Canvas / Background | `#0A0F1D` | `--bg-primary` | Deepest midnight canvas across all pages |
+  1282→| Top Header Bar | `#0D1527` | `--bg-tertiary` | Sticky top bar with `backdrop-filter: blur(12px)` |
+  1283→| Left Sidebar Navigation | `#090E1A` | `--bg-primary` | Left navigation drawer background |
+  1284→
+  1285→### 📦 2. Cards, Containers & Surfaces
+  1286→
+  1287→| Element / Layer | HEX Code | CSS Variable | Preview & Usage |
+  1288→|---|---|---|---|
+  1289→| Primary Cards & Containers | `#111C32` | `--bg-secondary` | Main KPI cards, table containers, and form blocks |
+  1290→| Elevated Cards & Dropdowns | `#16233F` | `--bg-tertiary` | Modals, active firm cards, and dropdown menus |
+  1291→| Inner Input Wells & Sub-boxes | `#0B1426` | `--bg-input-well` | Form inputs, search boxes, and inner table rows |
+  1292→| Interactive Hover Surface | `#1D2D4F` | `--bg-surface-hover` | Hover state for list items, rows, and buttons |
+  1293→
+  1294→### 🔲 3. Borders & Dividers
+  1295→
+  1296→| Element / Layer | HEX Code / RGBA | CSS Variable | Preview & Usage |
+  1297→|---|---|---|---|
+  1298→| Subtle Card Border | `#1E2D4A` | `--border-subtle` | Standard 1px card and divider border |
+  1299→| Medium / Focused Border | `#2A3F66` | `--border-medium` | Focused input border & active card border |
+  1300→
+  1301→### ⚡ 4. Brand & Action Accents
+  1302→
+  1303→| Accent Type | HEX Code | CSS Variable | Usage |
+  1304→|---|---|---|---|
+  1305→| Action Primary Blue | `#2563EB` | `--accent-blue` | Primary CTA buttons (+ Create New Account, + New Sale) |
+  1306→| DMK Logo Yellow / Gold | `#FFCC00` | `--accent-gold` | DMK brand highlight & logo accents |
+  1307→| Electric Orange | `#FF6B00` | `--accent-orange` | Action money highlights & badges |
+  1308→
+  1309→### 🎨 5. Text Colors (Derived)
+  1310→
+  1311→| Element | Color | Usage |
+  1312→|---|---|---|
+  1313→| Primary Text | `#E8EEF9` | Headings, primary labels |
+  1314→| Secondary Text | `#A7B4CC` | Body text, descriptions |
+  1315→| Muted Text | `#6B7A99` | Captions, placeholders |
+  1316→| Disabled Text | `#45516B` | Disabled states |
+  1317→
+  1318→### 🚦 6. Semantic Status Colors
+  1319→
+  1320→| Status | Color | Usage |
+  1321→|---|---|---|
+  1322→| Success / Positive | `#22C55E` | Payments received, stock in, profit |
+  1323→| Warning / Pending | `#F59E0B` | Low stock, pending PO, aging |
+  1324→| Danger / Negative | `#EF4444` | Damaged stock, overdue, loss |
+  1325→| Info / Neutral | `#38BDF8` | Notifications, info badges |
+  1326→| Credit (Cr) | `#38BDF8` | Payable balances |
+  1327→| Debit (Dr) | `#FF6B00` | Receivable balances |
+  1328→
+  1329→### 📊 7. Chart Palette
+  1330→
+  1331→| Series | Color |
+  1332→|---|---|
+  1333→| Series 1 | `#2563EB` (Action Blue) |
+  1334→| Series 2 | `#FF6B00` (Electric Orange) |
+  1335→| Series 3 | `#FFCC00` (Gold) |
+  1336→| Series 4 | `#22C55E` (Success Green) |
+  1337→| Series 5 | `#38BDF8` (Info Cyan) |
+  1338→| Series 6 | `#A78BFA` (Soft Violet) |
+  1339→
+  1340→### 💡 8. Shadow System
+  1341→
+  1342→| Elevation | Shadow | Usage |
+  1343→|---|---|---|
+  1344→| Level 0 | none | Flat surfaces |
+  1345→| Level 1 | `0 1px 3px rgba(2,6,17,0.5)` | Cards |
+  1346→| Level 2 | `0 4px 12px rgba(2,6,17,0.5)` | Dropdowns, popovers |
+  1347→| Level 3 | `0 8px 24px rgba(2,6,17,0.6)` | Modals |
+  1348→| Inset Highlight | `inset 0 1px 0 rgba(148,180,255,0.06)` | Top edge sheen on elevated panels |
+  1349→
+  1350→### 🎯 9. Color Usage Rules
+  1351→
+  1352→1. **Orange is action, not atmosphere.** Reserve `#FF6B00` for CTAs, money figures, active nav, and focus rings. Passive surfaces use blue-neutral tints.
+  1353→2. **Gold is brand.** Use `#FFCC00` sparingly for logo, brand highlights, and premium badges.
+  1354→3. **Blue is primary action.** Use `#2563EB` for primary buttons, links, and selection states.
+  1355→4. **Never use pure black or pure white.** Canvas is `#0A0F1D`; text max is `#E8EEF9`.
+  1356→5. **Row hovers** use `rgba(148,180,255,0.05)` tint, not orange.
+  1357→6. **Status colors** are semantic — never repurpose green for branding or red for decoration.
+  1358→
+  1359→---
+  1360→
+  1361→## D.3 Typography
+  1362→
+  1363→| Role | Font | Weight | Size | Usage |
+  1364→|---|---|---|---|---|
+  1365→| Display / H1 | Inter | 700 | 22px | Page titles |
+  1366→| Heading / H2 | Inter | 600 | 18px | Section headers |
+  1367→| Subheading / H3 | Inter | 600 | 15px | Card titles |
+  1368→| Body | Inter | 400 | 13.5px | Body text |
+  1369→| Small / Caption | Inter | 400 | 12px | Captions, labels |
+  1370→| Tiny / Pill | Inter | 500 | 10.5px | Badges, pills |
+  1371→| Numeric / Money | JetBrains Mono | 500 | 13.5px | All currency, `tabular-nums` |
+  1372→| Code / SKU | JetBrains Mono | 400 | 12px | SKU, HSN, invoice numbers |
+  1373→
+  1374→**Rules:**
+  1375→- All money uses `font-variant-numeric: tabular-nums` for column alignment.
+  1376→- Line height: 1.5 for body, 1.2 for headings.
+  1377→- Letter spacing: +0.3px for uppercase labels.
+  1378→
+  1379→---
+  1380→
+  1381→## D.4 Spacing System
+  1382→
+  1383→Base unit: **4px**. Scale: `4, 8, 12, 16, 20, 24, 32, 40, 48, 64`.
+  1384→
+  1385→| Token | Value | Usage |
+  1386→|---|---|---|
+  1387→| `--space-1` | 4px | Icon gaps, tight padding |
+  1388→| `--space-2` | 8px | Input padding, chip gaps |
+  1389→| `--space-3` | 12px | Card inner padding |
+  1390→| `--space-4` | 16px | Section gaps |
+  1391→| `--space-6` | 24px | Card padding |
+  1392→| `--space-8` | 32px | Section spacing |
+  1393→| `--space-12` | 48px | Page section gaps |
+  1394→
+  1395→**Layout Constants:**
+  1396→- Header height: `56px`
+  1397→- Sidebar width (expanded): `240px`
+  1398→- Sidebar width (collapsed): `64px`
+  1399→- Card border radius: `10px`
+  1400→- Input border radius: `8px`
+  1401→- Button border radius: `8px`
+  1402→- Control height (input): `38px`
+  1403→- Control height (button): `38px`
+  1404→- Table row height: `44px`
+  1405→- Touch target (mobile): `≥44px`
+  1406→
+  1407→---
+  1408→
+  1409→## D.5 Component Library
+  1410→
+  1411→### D.5.1 Buttons
+  1412→
+  1413→| Variant | Background | Text | Border | Usage |
+  1414→|---|---|---|---|---|
+  1415→| Primary | `#2563EB` | White | none | Main CTAs (+ New Sale) |
+  1416→| Gold | `#FFCC00` | `#0A0F1D` | none | Brand actions |
+  1417→| Orange | `#FF6B00` | White | none | Money actions |
+  1418→| Secondary | `#16233F` | `#E8EEF9` | `#2A3F66` | Secondary actions |
+  1419→| Ghost | transparent | `#A7B4CC` | none | Tertiary |
+  1420→| Danger | `#EF4444` | White | none | Delete/cancel |
+  1421→| Hover | brightness +8% | — | — | All buttons |
+  1422→
+  1423→### D.5.2 Inputs
+  1424→
+  1425→- Background: `#0B1426` (`--bg-input-well`)
+  1426→- Border: `1px solid #1E2D4A`
+  1427→- Focus border: `#2A3F66` + `box-shadow: 0 0 0 3px rgba(37,99,235,0.15)`
+  1428→- Height: `38px`
+  1429→- Placeholder: `#45516B`
+  1430→
+  1431→### D.5.3 Cards
+  1432→
+  1433→- Background: `#111C32` (`--bg-secondary`)
+  1434→- Border: `1px solid #1E2D4A`
+  1435→- Radius: `10px`
+  1436→- Padding: `20px`
+  1437→- Optional top inset highlight.
+  1438→
+  1439→### D.5.4 Tables
+  1440→
+  1441→- Header bg: `#0B1426`
+  1442→- Header text: `#A7B4CC`, uppercase, 11px
+  1443→- Row border: `1px solid #1E2D4A`
+  1444→- Row hover: `#1D2D4F`
+  1445→- Numeric columns right-aligned, `tabular-nums`
+  1446→- Wrapped in overflow container for responsiveness.
+  1447→
+  1448→### D.5.5 Badges / Pills
+  1449→
+  1450→| Type | BG | Text |
+  1451→|---|---|---|
+  1452→| Success | `rgba(34,197,94,0.15)` | `#22C55E` |
+  1453→| Warning | `rgba(245,158,11,0.15)` | `#F59E0B` |
+  1454→| Danger | `rgba(239,68,68,0.15)` | `#EF4444` |
+  1455→| Info | `rgba(56,189,248,0.15)` | `#38BDF8` |
+  1456→| Dr | `rgba(255,107,0,0.15)` | `#FF6B00` |
+  1457→| Cr | `rgba(56,189,248,0.15)` | `#38BDF8` |
+  1458→
+  1459→### D.5.6 Modals
+  1460→
+  1461→- Overlay: `rgba(4,8,18,0.7)` + `backdrop-filter: blur(4px)`
+  1462→- Panel bg: `#16233F`
+  1463→- Border: `#2A3F66`
+  1464→- Radius: `12px`
+  1465→- Shadow: Level 3
+  1466→
+  1467→### D.5.7 Sidebar
+  1468→
+  1469→- BG: `#090E1A`
+  1470→- Width: `240px` expanded / `64px` collapsed
+  1471→- Item height: `40px`
+  1472→- Active item: `#1D2D4F` bg + `3px` left orange rail
+  1473→- Section label: uppercase, 10px, `#6B7A99`
+  1474→
+  1475→### D.5.8 Header
+  1476→
+  1477→- BG: `#0D1527` + `blur(12px)`
+  1478→- Height: `56px`
+  1479→- Contains: Firm switcher (left), FY switcher, search, notifications, owner profile
+  1480→
+  1481→---
+  1482→
+  1483→## D.6 Layout Patterns
+  1484→
+  1485→### D.6.1 App Shell
+  1486→
+  1487→```
+  1488→┌────────────────────────────────────────────────────────┐
+  1489→│  HEADER (56px) — Firm Switcher | FY | Search | Profile │
+  1490→├──────────┬─────────────────────────────────────────────┤
+  1491→│          │                                             │
+  1492→│ SIDEBAR  │              MAIN CONTENT                   │
+  1493→│ (240px)  │                                             │
+  1494→│          │  ┌─────────────────────────────────────┐    │
+  1495→│ Dashboard│  │  PAGE HEADER + ACTIONS              │    │
+  1496→│ Sales    │  ├─────────────────────────────────────┤    │
+  1497→│ Purchase │  │  KPI CARDS (grid)                   │    │
+  1498→│ Inventory│  ├─────────────────────────────────────┤    │
+  1499→│ Finance  │  │  DATA TABLE / CONTENT               │    │
+  1500→│ Invoices │  └─────────────────────────────────────┘    │
+  1501→│ Reports  │                                             │
+  1502→│ AI       │                                             │
+  1503→│ Settings │                                             │
+  1504→└──────────┴─────────────────────────────────────────────┘
+  1505→```
+  1506→
+  1507→### D.6.2 Two-Column Work Panels (Billing / Invoices)
+  1508→
+  1509→```
+  1510→┌─────────────────────────┬──────────────────────────────┐
+  1511→│  LEFT: Item Entry/List  │  RIGHT: Financial Summary /  │
+  1512→│  (product search, cart) │  Preview (totals, invoice)   │
+  1513→│  60%                    │  40%                         │
+  1514→└─────────────────────────┴──────────────────────────────┘
+  1515→```
+  1516→
+  1517→### D.6.3 Responsive Breakpoints
+  1518→
+  1519→| Breakpoint | Width | Behavior |
+  1520→|---|---|---|
+  1521→| Mobile | < 640px | Sidebar → drawer, 1-col stack |
+  1522→| Tablet | 640–1024px | Sidebar collapsed, 2-col |
+  1523→| Laptop | 1024–1440px | Full sidebar, 2–3 col |
+  1524→| Desktop | > 1440px | Full sidebar, max-width container |
+  1525→
+  1526→---
+  1527→
+  1528→## D.7 Motion & Animation
+  1529→
+  1530→| Token | Value | Usage |
+  1531→|---|---|---|
+  1532→| `--duration-fast` | 150ms | Hover, focus |
+  1533→| `--duration-normal` | 250ms | Panels, dropdowns |
+  1534→| `--duration-slow` | 400ms | Modals, page transitions |
+  1535→| `--ease-out` | `cubic-bezier(0.16,1,0.3,1)` | Entrances |
+  1536→| `--ease-in-out` | `cubic-bezier(0.4,0,0.2,1)` | Toggles |
+  1537→
+  1538→**Rules:**
+  1539→- Entrance: fade + translateY(8px).
+  1540→- No bouncing, no spinning badges, no infinite pulses.
+  1541→- Respect `prefers-reduced-motion`.
+  1542→
+  1543→---
+  1544→
+  1545→## D.8 Iconography
+  1546→
+  1547→- Library: **Lucide React**
+  1548→- Stroke width: `1.75`
+  1549→- Size: `18px` standard, `16px` compact, `20px` headers
+  1550→- Color: inherit text color; active = accent
+  1551→
+  1552→---
+  1553→
+  1554→## D.9 Dark/Light Mode
+  1555→
+  1556→- **Dark-only for MVP** (navy system). Light mode is a future phase.
+  1557→- All tokens defined as CSS variables for future theming.
+  1558→
+  1559→---
+  1560→
+  1561→---
+  1562→
+  1563→# 🅴 PART E — AREA-WISE WORKFLOW MANUAL
+  1564→
+  1565→## E.1 Firm Setup Workflow
+  1566→
+  1567→```
+  1568→1. Owner logs in (single credential)
+  1569→2. On first launch → "Create Your First Firm" wizard
+  1570→3. Enter firm details (name, code, GSTIN, state, address)
+  1571→4. Enter bank & contact
+  1572→5. Select financial year + invoice prefix
+  1573→6. Upload logo (optional)
+  1574→7. Enter opening balances (cash, bank)
+  1575→8. System seeds Chart of Accounts for the firm
+  1576→9. Firm ready → Owner lands on Dashboard
+  1577→10. To add another firm → Settings → Firms → [+ Create New Firm]
+  1578→11. To switch → Header Firm Switcher → select firm
+  1579→```
+  1580→
+  1581→**Outcome:** Each firm is a fully isolated workspace with its own products, parties, orders, and books.
+  1582→
+  1583→---
+  1584→
+  1585→## E.2 Product Management Workflow
+  1586→
+  1587→### E.2.1 Add Single Product
+  1588→
+  1589→```
+  1590→Inventory → Products → [+ Add Product]
+  1591→  → Fill SKU, name, category, unit, HSN, GST rate
+  1592→  → Enter purchase cost
+  1593→  → Enter 5-tier prices (system validates Tier1 ≤ ... ≤ Tier5)
+  1594→  → Enter opening stock (sellable) + damaged stock
+  1595→  → Set low-stock threshold
+  1596→  → Save
+  1597→```
+  1598→
+  1599→### E.2.2 Bulk Upload Products
+  1600→
+  1601→```
+  1602→Inventory → Products → [Bulk Upload]
+  1603→  → Download CSV/Excel template
+  1604→  → Fill offline
+  1605→  → Upload file
+  1606→  → System validates each row
+  1607→  → Preview: valid rows + invalid rows (with reasons)
+  1608→  → Confirm → import valid rows
+  1609→  → Summary: X created, Y updated, Z failed
+  1610→```
+  1611→
+  1612→### E.2.3 Edit / Archive Product
+  1613→
+  1614→```
+  1615→Products → select product → Edit
+  1616→  → Update fields → Save
+  1617→To archive: set Active = false (history preserved)
+  1618→```
+  1619→
+  1620→---
+  1621→
+  1622→## E.3 Purchase Workflow
+  1623→
+  1624→### E.3.1 Create Vendor
+  1625→
+  1626→```
+  1627→Purchase → Vendors → [+ Add Vendor]
+  1628→  → Select type: Manufacturer | Distributor
+  1629→  → If Manufacturer → enter brand name (scopes product selection)
+  1630→  → Enter name, GSTIN, state, phone, payment terms
+  1631→  → Enter opening balance
+  1632→  → Save
+  1633→```
+  1634→
+  1635→### E.3.2 Create Purchase Order
+  1636→
+  1637→```
+  1638→Purchase → Purchase Orders → [+ New PO]
+  1639→  → Select vendor
+  1640→    • If Manufacturer → product search shows only that brand
+  1641→    • If Distributor → product search shows all products
+  1642→  → Add products (typeahead search), qty, unit cost
+  1643→  → System computes taxable + GST (by vendor state)
+  1644→  → Save as PENDING
+  1645→```
+  1646→
+  1647→### E.3.3 Edit / Cancel Pending PO
+  1648→
+  1649→```
+  1650→PO Register → select PENDING PO
+  1651→  → [Re-Edit] → add/remove products, change qty → Save
+  1652→  → [Cancel] → enter reason → PO cancelled
+  1653→```
+  1654→
+  1655→### E.3.4 Confirm Receipt (GRN)
+  1656→
+  1657→```
+  1658→PO Register → select PENDING PO → [Confirm Inward]
+  1659→  → Enter received quantity per line
+  1660→  → Split: Accepted (good) vs Damaged
+  1661→  → Confirm
+  1662→  → System:
+  1663→     • stock_quantity += accepted
+  1664→     • damaged_stock  += damaged
+  1665→     • vendor closing_balance += grand_total
+  1666→     • vendor ledger row added (PURCHASE, Cr)
+  1667→     • Purchase journal posted:
+  1668→        Dr Inventory (subtotal)
+  1669→        Dr ITC (tax)
+  1670→        Cr Vendor Payable (grand total)
+  1671→  → PO status → CONFIRMED
+  1672→```
+  1673→
+  1674→### E.3.5 Purchase Return (Debit Note)
+  1675→
+  1676→```
+  1677→Purchase → Purchase Returns → [+ New Return]
+  1678→  → Select vendor + reference PO
+  1679→  → Add damaged products + qty + reason
+  1680→  → Confirm
+  1681→  → System:
+  1682→     • damaged_stock -= qty
+  1683→     • vendor closing_balance -= return_total
+  1684→     • vendor ledger row (DEBIT_NOTE, Dr)
+  1685→     • Debit Note journal:
+  1686→        Dr Vendor Payable
+  1687→        Cr Purchases (taxable)
+  1688→        Cr ITC reversal (tax)
+  1689→```
+  1690→
+  1691→### E.3.6 Vendor Payment
+  1692→
+  1693→```
+  1694→Purchase → Vendor Payments → [+ Record Payment]
+  1695→  → Select vendor, amount, mode (NEFT/UPI/Cheque/Cash), UTR ref
+  1696→  → Confirm
+  1697→  → System:
+  1698→     • vendor closing_balance -= amount
+  1699→     • vendor ledger row (PAYMENT, Dr)
+  1700→     • Payment journal:
+  1701→        Dr Vendor Payable
+  1702→        Cr Bank/Cash
+  1703→```
+  1704→
+  1705→---
+  1706→
+  1707→## E.4 Sales Workflow (B2B)
+  1708→
+  1709→### E.4.1 Create Customer
+  1710→
+  1711→```
+  1712→Sales → Customers → [+ Add Customer]
+  1713→  → Enter city + firm name → system composes "City FirmName"
+  1714→  → Enter GSTIN, state, phone
+  1715→  → Assign pricing tier
+  1716→  → Set credit limit + credit days
+  1717→  → Enter opening balance
+  1718→  → Save
+  1719→```
+  1720→
+  1721→### E.4.2 Create Sales Order / Invoice
+  1722→
+  1723→```
+  1724→Sales → Fast Billing → [+ New Sale]
+  1725→  → Select B2B customer
+  1726→  → Add products (typeahead), qty
+  1727→    • System applies customer's tier price
+  1728→    • Bulk/packaging discount auto-applied by qty
+  1729→  → System checks:
+  1730→     • Sellable stock sufficient?
+  1731→     • Credit limit OK? (projected outstanding ≤ limit)
+  1732→  → Compute GST (intra/inter-state by state codes)
+  1733→  → Select payment mode (Credit / Cash / UPI / NEFT)
+  1734→  → Confirm
+  1735→  → System:
+  1736→     • stock_quantity -= qty
+  1737→     • customer closing_balance += grand_total (if credit)
+  1738→     • customer ledger row (SALES, Dr)
+  1739→     • Sales journal:
+  1740→        Dr A/R or Cash/Bank (grand total)
+  1741→        Cr Sales Revenue (taxable)
+  1742→        Cr CGST/SGST or IGST (tax)
+  1743→        Dr/Cr Round-Off
+  1744→     • COGS journal:
+  1745→        Dr COGS
+  1746→        Cr Inventory Asset
+  1747→  → Invoice generated → A4 print/PDF
+  1748→```
+  1749→
+  1750→### E.4.3 Sales Return (Credit Note)
+  1751→
+  1752→```
+  1753→Sales → Sales Returns → [+ New Return]
+  1754→  → Select customer + reference invoice
+  1755→  → Add returned products + qty + defect type
+  1756→  → Confirm
+  1757→  → System:
+  1758→     • damaged_stock += qty  (NOT sellable)
+  1759→     • customer closing_balance -= return_total
+  1760→     • customer ledger row (CREDIT_NOTE, Cr)
+  1761→     • Credit Note journal:
+  1762→        Dr Sales Returns (taxable)
+  1763→        Dr Output GST reversal (tax)
+  1764→        Cr Customer A/R (grand total)
+  1765→```
+  1766→
+  1767→### E.4.4 Customer Payment (Receipt)
+  1768→
+  1769→```
+  1770→Sales → Customer Payments → [+ Record Receipt]
+  1771→  → Select customer, amount, mode, UTR
+  1772→  → Confirm
+  1773→  → System:
+  1774→     • customer closing_balance -= amount
+  1775→     • customer ledger row (RECEIPT, Cr)
+  1776→     • Receipt journal:
+  1777→        Dr Bank/Cash
+  1778→        Cr Customer A/R
+  1779→```
+  1780→
+  1781→---
+  1782→
+  1783→## E.5 B2C Counter Sales Workflow
+  1784→
+  1785→```
+  1786→Sales → B2C Counter
+  1787→  → Add products (barcode scan or typeahead)
+  1788→  → Select customer from directory:
+  1789→     • Search by name or phone
+  1790→     • If found → auto-fill
+  1791→     • If not → [+ Create New Customer] popup → enter name + phone → save
+  1792→  → Select payment: Cash / UPI / Card
+  1793→  → Confirm
+  1794→  → System:
+  1795→     • stock_quantity -= qty
+  1796→     • B2C customer record upserted (visit count, lifetime spend)
+  1797→     • Sales journal:
+  1798→        Dr Cash/UPI Clearing (grand total)
+  1799→        Cr Sales Revenue (taxable)
+  1800→        Cr CGST/SGST or IGST
+  1801→     • COGS journal
+  1802→  → Receipt printed
+  1803→  → NO credit limit check (B2C is instant payment)
+  1804→```
+  1805→
+  1806→**B2C Buyers List:**
+  1807→```
+  1808→Sales → B2C Counter → Buyers List
+  1809→  → Shows all walk-in customers with visits + lifetime spend
+  1810→  → Click a buyer → see their invoice history
+  1811→```
+  1812→
+  1813→---
+  1814→
+  1815→## E.6 Inventory Workflow
+  1816→
+  1817→### E.6.1 View Stock
+  1818→
+  1819→```
+  1820→Inventory → Stock Levels
+  1821→  → Table: SKU, name, sellable qty, damaged qty, valuation
+  1822→  → Filters: category, low-stock only
+  1823→```
+  1824→
+  1825→### E.6.2 Low Stock Alerts
+  1826→
+  1827→```
+  1828→Inventory → Low Stock Alerts
+  1829→  → List of products at/below threshold
+  1830→  → Each shows: current, threshold, deficit, preferred vendor, est. cost
+  1831→  → [Quick Reorder] → drafts a PO
+  1832→```
+  1833→
+  1834→### E.6.3 Transfer to Damaged (Internal)
+  1835→
+  1836→```
+  1837→Inventory → Stock Adjustment → [Transfer to Damaged]
+  1838→  → Select product, qty, reason
+  1839→  → Confirm
+  1840→  → stock_quantity -= qty; damaged_stock += qty
+  1841→  → Movement logged
+  1842→```
+  1843→
+  1844→### E.6.4 Stock Movement Ledger
+  1845→
+  1846→```
+  1847→Inventory → Movements
+  1848→  → Full history: date, product, type, qty, pool, source doc
+  1849→```
+  1850→
+  1851→---
+  1852→
+  1853→## E.7 Financial Accounting Workflow
+  1854→
+  1855→### E.7.1 View Journals
+  1856→
+  1857→```
+  1858→Finance → Journals
+  1859→  → List of all vouchers (filter by type, date)
+  1860→  → Expand a voucher → see debit/credit lines
+  1861→```
+  1862→
+  1863→### E.7.2 Manual Journal
+  1864→
+  1865→```
+  1866→Finance → Journals → [+ New Journal]
+  1867→  → Select voucher type, date, narration
+  1868→  → Add lines (account, Dr/Cr, amount)
+  1869→  → Live difference indicator (disabled until balanced)
+  1870→  → Save (only when ΣDr = ΣCr)
+  1871→```
+  1872→
+  1873→### E.7.3 Trial Balance
+  1874→
+  1875→```
+  1876→Finance → Trial Balance
+  1877→  → All accounts with Dr/Cr balances
+  1878→  → Total row (must balance)
+  1879→  → As-of date selector
+  1880→```
+  1881→
+  1882→### E.7.4 Profit & Loss
+  1883→
+  1884→```
+  1885→Finance → P&L
+  1886→  → Revenue − COGS = Gross Profit
+  1887→  → − Expenses = Net Profit
+  1888→  → Period selector (monthly/quarterly/annual)
+  1889→```
+  1890→
+  1891→### E.7.5 Balance Sheet
+  1892→
+  1893→```
+  1894→Finance → Balance Sheet
+  1895→  → Assets = Liabilities + Equity (+ current profit injected)
+  1896→```
+  1897→
+  1898→### E.7.6 Day Book
+  1899→
+  1900→```
+  1901→Finance → Day Book
+  1902→  → Chronological vouchers for a date
+  1903→  → Opening/closing cash & bank per day
+  1904→```
+  1905→
+  1906→### E.7.7 Party Ledgers
+  1907→
+  1908→```
+  1909→Finance → Party Ledgers → select customer/vendor
+  1910→  → Opening balance
+  1911→  → Running transaction rows
+  1912→  → Closing balance (Dr/Cr)
+  1913→```
+  1914→
+  1915→### E.7.8 AR / AP Aging
+  1916→
+  1917→```
+  1918→Finance → AR Aging / AP Aging
+  1919→  → Buckets: 0-30, 31-60, 61-90, 90+
+  1920→```
+  1921→
+  1922→---
+  1923→
+  1924→## E.8 Invoice & Document Workflow
+  1925→
+  1926→### E.8.1 View Tax Invoices
+  1927→
+  1928→```
+  1929→Invoices → Tax Invoices
+  1930→  → Left column: list of all invoices
+  1931→  → Right column: A4 invoice preview (zoomable)
+  1932→  → Multi-page safe (line items flow to next page)
+  1933→```
+  1934→
+  1935→### E.8.2 Print / Download Invoice
+  1936→
+  1937→```
+  1938→Select invoice → [Print] or [Download PDF]
+  1939→  → A4 format, statutory fields, amount in words
+  1940→```
+  1941→
+  1942→### E.8.3 Credit / Debit Notes
+  1943→
+  1944→```
+  1945→Invoices → Credit Notes / Debit Notes
+  1946→  → List + preview
+  1947→```
+  1948→
+  1949→---
+  1950→
+  1951→## E.9 AI Copilot Workflow
+  1952→
+  1953→```
+  1954→AI Assistant → Chat
+  1955→  → Owner asks: "What's my gross profit this week?"
+  1956→  → AI reads active firm data → answers with figures
+  1957→  → Owner asks: "Which products are low on stock?"
+  1958→  → AI lists low-stock SKUs + suggests reorder
+  1959→  → Owner asks: "Who owes me the most?"
+  1960→  → AI returns top receivable customers
+  1961→```
+  1962→
+  1963→**AI Alerts (proactive):**
+  1964→```
+  1965→Notification center shows:
+  1966→  • Low stock alert (SKU, current, threshold)
+  1967→  • Overdue receivable alert
+  1968→  • Damaged stock accumulation alert
+  1969→  • Payables due alert
+  1970→```
+  1971→
+  1972→---
+  1973→
+  1974→## E.10 Dashboard Workflow
+  1975→
+  1976→```
+  1977→Dashboard (on login)
+  1978→  → KPI cards: Today's Sales, Receivables, Payables, Cash/Bank, Low-Stock Count
+  1979→  → Sales trend chart (7-day)
+  1980→  → Top products
+  1981→  → Low-stock alerts rail
+  1982→  → Receivables aging
+  1983→  → Damaged stock summary
+  1984→  → Recent transactions
+  1985→  → All data scoped to active firm + FY
+  1986→```
+  1987→
+  1988→---
+  1989→
+  1990→## E.11 Reports & Export Workflow
+  1991→
+  1992→```
+  1993→Reports → select report type
+  1994→  → Set date range / filters
+  1995→  → View table
+  1996→  → [Export CSV] or [Export Excel]
+  1997→  → File downloads with proper extension + formatting
+  1998→```
+  1999→
+  2000→---
+
+[showing lines 1-2000 of 2155; use offset=2001 with limit to continue reading]

@@ -1,0 +1,315 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* ═══ DMK MART — MIDNIGHT LEDGER TOKENS (FROZEN) ═══ */
+  --color-dmk-bg-primary: var(--bg-primary);
+  --color-dmk-bg-secondary: var(--bg-secondary);
+  --color-dmk-bg-tertiary: var(--bg-tertiary);
+  --color-dmk-input-well: var(--bg-input-well);
+  --color-dmk-hover: var(--bg-surface-hover);
+  --color-dmk-border-subtle: var(--border-subtle);
+  --color-dmk-border-medium: var(--border-medium);
+  --color-dmk-blue: var(--accent-blue);
+  --color-dmk-gold: var(--accent-gold);
+  --color-dmk-orange: var(--accent-orange);
+  --color-dmk-text-primary: var(--text-primary);
+  --color-dmk-text-secondary: var(--text-secondary);
+  --color-dmk-text-muted: var(--text-muted);
+  --color-dmk-text-disabled: var(--text-disabled);
+  --color-dmk-success: var(--dmk-success);
+  --color-dmk-warning: var(--dmk-warning);
+  --color-dmk-danger: var(--dmk-danger);
+  --color-dmk-info: var(--dmk-info);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MIDNIGHT NAVY DESIGN SYSTEM — DMK MART ERP (per spec §9.2)
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  /* Canvas & Surfaces */
+  --bg-primary: #0a0f1d;
+  --bg-secondary: #111c32;
+  --bg-tertiary: #16233f;
+  --bg-input-well: #0b1426;
+  --bg-surface-hover: #1d2d4f;
+  /* Borders */
+  --border-subtle: #1e2d4a;
+  --border-medium: #2a3f66;
+  /* Brand & Action Accents */
+  --accent-blue: #2563eb;
+  --accent-gold: #ffcc00;
+  --accent-orange: #ff6b00;
+  /* Text */
+  --text-primary: #e8eef9;
+  --text-secondary: #a7b4cc;
+  --text-muted: #6b7a99;
+  --text-disabled: #45516b;
+  /* Semantic Status */
+  --dmk-success: #22c55e;
+  --dmk-warning: #f59e0b;
+  --dmk-danger: #ef4444;
+  --dmk-info: #38bdf8;
+  /* Chart palette */
+  --chart-1: #2563eb;
+  --chart-2: #ff6b00;
+  --chart-3: #ffcc00;
+  --chart-4: #22c55e;
+  --chart-5: #38bdf8;
+
+  /* shadcn mapping → navy system */
+  --radius: 0.625rem;
+  --background: var(--bg-primary);
+  --foreground: var(--text-primary);
+  --card: var(--bg-secondary);
+  --card-foreground: var(--text-primary);
+  --popover: var(--bg-tertiary);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent-blue);
+  --primary-foreground: #ffffff;
+  --secondary: var(--bg-tertiary);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--bg-input-well);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--bg-surface-hover);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--dmk-danger);
+  --border: var(--border-subtle);
+  --input: var(--border-subtle);
+  --ring: var(--accent-blue);
+  --sidebar: #090e1a;
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--accent-blue);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--bg-surface-hover);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-subtle);
+  --sidebar-ring: var(--accent-blue);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Money & code use JetBrains Mono with tabular numerals */
+.font-money,
+.tabular-money {
+  font-family: var(--font-jetbrains), monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ─── ERP shared component classes ─────────────────────────── */
+.dmk-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(2, 6, 17, 0.5), inset 0 1px 0 rgba(148, 180, 255, 0.06);
+}
+
+.dmk-elevated {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-medium);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(2, 6, 17, 0.6), inset 0 1px 0 rgba(148, 180, 255, 0.06);
+}
+
+.dmk-well {
+  background: var(--bg-input-well);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.dmk-kpi {
+  background: linear-gradient(180deg, var(--bg-secondary) 0%, #0f1930 100%);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(2, 6, 17, 0.5), inset 0 1px 0 rgba(148, 180, 255, 0.06);
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+.dmk-kpi:hover {
+  border-color: var(--border-medium);
+  transform: translateY(-2px);
+}
+
+/* Data table styling */
+.dmk-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.dmk-table thead th {
+  background: var(--bg-input-well);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  white-space: nowrap;
+}
+.dmk-table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+.dmk-table tbody tr {
+  transition: background 120ms ease;
+}
+.dmk-table tbody tr:hover {
+  background: var(--bg-surface-hover);
+}
+.dmk-table .num {
+  text-align: right;
+  font-family: var(--font-jetbrains), monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Badges */
+.dmk-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.dmk-badge-success { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.dmk-badge-warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.dmk-badge-danger  { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.dmk-badge-info    { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+.dmk-badge-dr      { background: rgba(255, 107, 0, 0.15); color: #ff6b00; }
+.dmk-badge-cr      { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+.dmk-badge-neutral { background: rgba(107, 122, 153, 0.15); color: #a7b4cc; }
+
+/* Focus ring on inputs */
+.dmk-input:focus-visible {
+  outline: none;
+  border-color: var(--border-medium);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* Custom scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-medium) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-medium);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #35507f;
+}
+
+/* Sidebar active rail */
+.dmk-nav-active {
+  background: var(--bg-surface-hover);
+  box-shadow: inset 3px 0 0 var(--accent-orange);
+}
+
+/* Print styles — A4 documents */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-a4 {
+    background: #ffffff !important;
+    color: #111827 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .print-a4 * {
+    color: #111827 !important;
+    border-color: #d1d5db !important;
+  }
+  .print-a4 .print-keep-dark {
+    background: #0a0f1d !important;
+    color: #ffffff !important;
+  }
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+}
+
+/* Motion tokens */
+:root {
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,87 @@
+// ═══════════════════════════════════════════════════════════════
+// /api/v1/purchase-orders — list + create (PENDING, no side effects)
+// ═══════════════════════════════════════════════════════════════
+
+import { NextRequest } from "next/server";
+import { db } from "@/lib/db";
+import {
+  BusinessError,
+  asRecord,
+  asRecordArray,
+  getDate,
+  getNum,
+  getStr,
+  handleApiError,
+  ok,
+  resolveFirm,
+} from "@/app/api/v1/_lib/api";
+import { createPurchaseOrder } from "@/app/api/v1/_lib/po";
+
+export async function GET(request: NextRequest) {
+  try {
+    const sp = request.nextUrl.searchParams;
+    const firmId = getStr(sp.get("firmId"));
+    await resolveFirm(firmId);
+
+    const status = getStr(sp.get("status"));
+    const search = getStr(sp.get("search"));
+
+    const orders = await db.purchaseOrder.findMany({
+      where: {
+        firmId,
+        ...(status ? { status } : {}),
+        ...(search
+          ? {
+              OR: [
+                { poNumber: { contains: search } },
+                { vendor: { vendorName: { contains: search } } },
+              ],
+            }
+          : {}),
+      },
+      include: {
+        vendor: { select: { id: true, vendorName: true, vendorType: true, brand: true } },
+        items: true,
+      },
+      orderBy: { poDate: "desc" },
+      take: 200,
+    });
+    return ok(orders);
+  } catch (e) {
+    return handleApiError(e);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = asRecord(await request.json().catch(() => ({})));
+    const firm = await resolveFirm(getStr(body.firmId));
+
+    const vendorId = getStr(body.vendorId);
+    if (!vendorId) throw new BusinessError("ERR_VALIDATION", "vendorId is required", 400);
+
+    const items = asRecordArray(body.items).map((i) => ({
+      productId: getStr(i.productId),
+      quantity: getNum(i.quantity),
+      unitCost: getNum(i.unitCost),
+    }));
+    if (items.length === 0) {
+      throw new BusinessError("ERR_EMPTY_ITEMS", "Purchase order requires at least one item", 400);
+    }
+
+    const po = await createPurchaseOrder({
+      firmId: firm.id,
+      firmStateCode: firm.stateCode,
+      vendorId,
+      poDate: getDate(body.poDate),
+      notes: getStr(body.notes),
+      items,
+      invoicePrefix: firm.invoicePrefix,
+      financialYear: firm.financialYear,
+    });
+
+    return ok(po, 201);
+  } catch (e) {
+    return handleApiError(e);
+  }
+}

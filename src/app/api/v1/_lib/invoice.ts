@@ -1,0 +1,407 @@
+// ═══════════════════════════════════════════════════════════════
+// DMK MART ERP — SALES INVOICE CORE (B2B + B2C counter)
+// Shared by /invoices route and the seed route.
+// Enforces: R3/R4 (sellable pool only), R11 bulk discounts, R13 credit
+// control (limit + overdue), R14 counter payment modes, R6 journals,
+// R7 customer ledger with running balanceAfter.
+// ═══════════════════════════════════════════════════════════════
+
+import { db } from "@/lib/db";
+import { ACC, nextDocNumber, postJournal } from "@/lib/journal";
+import { calculateGST, round2, roundOffDelta, sumGstSplits } from "@/lib/gst";
+import { calculateBulkPricing, TIERS } from "@/lib/pricing";
+import { amountInWords } from "@/lib/format";
+import { BusinessError } from "./api";
+import { addCustomerLedger, recordMovement, updateCustomerBalance } from "./party";
+
+export interface InvoiceLineInput {
+  productId: string;
+  quantity: number;
+  manualDiscountPct?: number;
+}
+
+export interface CreateInvoiceInput {
+  firmId: string;
+  customerId?: string | null;
+  isCounterSale?: boolean;
+  walkInName?: string;
+  walkInPhone?: string;
+  invoiceDate?: Date;
+  paymentMode: string;
+  lines: InvoiceLineInput[];
+}
+
+type FirmRow = {
+  id: string;
+  stateCode: string;
+  invoicePrefix: string;
+  financialYear: string;
+};
+
+const VALID_PAYMENT_MODES = ["CREDIT", "CASH", "UPI", "CARD", "NEFT"];
+const COUNTER_PAYMENT_MODES = ["CASH", "UPI", "CARD"];
+
+function debitAccountForMode(paymentMode: string): string {
+  switch (paymentMode) {
+    case "CREDIT":
+      return ACC.AR;
+    case "CASH":
+      return ACC.CASH;
+    case "UPI":
+      return ACC.UPI_CLEARING;
+    case "CARD":
+    case "NEFT":
+    default:
+      return ACC.BANK;
+  }
+}
+
+/**
+ * Create + fully post a sales invoice.
+ * Returns the invoice with line items, customer and print-ready fields.
+ */
+export async function createInvoice(firm: FirmRow, input: CreateInvoiceInput) {
+  const paymentMode = input.paymentMode || "CREDIT";
+  if (!VALID_PAYMENT_MODES.includes(paymentMode)) {
+    throw new BusinessError("ERR_INVALID_PAYMENT_MODE", `Invalid payment mode "${paymentMode}"`, 422);
+  }
+  if (!input.lines || input.lines.length === 0) {
+    throw new BusinessError("ERR_EMPTY_ITEMS", "Invoice requires at least one line", 400);
+  }
+  for (const line of input.lines) {
+    if (!(line.quantity > 0)) {
+      throw new BusinessError("ERR_VALIDATION", "Line quantity must be positive", 400);
+    }
+    if (line.manualDiscountPct !== undefined && (line.manualDiscountPct < 0 || line.manualDiscountPct > 100)) {
+      throw new BusinessError("ERR_VALIDATION", "Manual discount must be between 0 and 100", 400);
+    }
+  }
+
+  const invoiceDate = input.invoiceDate ?? new Date();
+  const isCounterSale = !!input.isCounterSale;
+
+  // ── Resolve customer ───────────────────────────────────────────
+  let customer = null as null | Awaited<ReturnType<typeof db.customer.findFirst>>;
+  if (input.customerId) {
+    customer = await db.customer.findFirst({
+      where: { id: input.customerId, firmId: firm.id },
+    });
+    if (!customer) {
+      throw new BusinessError("ERR_CUSTOMER_NOT_FOUND", "Customer not found for this firm", 404);
+    }
+  } else if (isCounterSale && input.walkInPhone) {
+    // B2C counter directory: find by phone, else create (R9)
+    customer = await db.customer.findFirst({
+      where: { firmId: firm.id, phone: input.walkInPhone, customerType: "B2C_COUNTER" },
+    });
+    if (!customer) {
+      customer = await db.customer.create({
+        data: {
+          firmId: firm.id,
+          partyName: input.walkInName?.trim() || "Walk-in Customer",
+          firmName: input.walkInName?.trim() || "Walk-in Customer",
+          phone: input.walkInPhone,
+          customerType: "B2C_COUNTER",
+          assignedTier: "tier4Retailer",
+          creditLimit: 0,
+          stateCode: firm.stateCode,
+        },
+      });
+    }
+  }
+
+  // R14: B2C counter has NO credit — cash-and-carry modes only
+  const isCounterCustomer = isCounterSale || customer?.customerType === "B2C_COUNTER";
+  if (isCounterCustomer && !COUNTER_PAYMENT_MODES.includes(paymentMode)) {
+    throw new BusinessError(
+      "ERR_INVALID_PAYMENT_MODE",
+      "Counter sales accept CASH, UPI or CARD only — no credit at the counter",
+      422
+    );
+  }
+
+  // GST: seller = firm; buyer = customer state (counter sales → firm state)
+  const buyerStateCode = isCounterSale ? firm.stateCode : customer?.stateCode ?? firm.stateCode;
+
+  // ── Pricing tier (R12) ─────────────────────────────────────────
+  const tierKeys = TIERS.map((t) => t.key) as string[];
+  const tierKey =
+    customer && tierKeys.includes(customer.assignedTier) ? customer.assignedTier : "tier4Retailer";
+
+  // ── Load products & compute lines ──────────────────────────────
+  const productIds = [...new Set(input.lines.map((l) => l.productId))];
+  const products = await db.product.findMany({
+    where: { firmId: firm.id, id: { in: productIds } },
+  });
+  const productMap = new Map(products.map((p) => [p.id, p]));
+
+  interface ComputedLine {
+    productId: string;
+    sku: string;
+    productName: string;
+    hsnCode: string;
+    selectedTier: string;
+    packagingFormat: string;
+    baseTierPrice: number;
+    bulkDiscountPct: number;
+    unitPrice: number;
+    quantity: number;
+    taxableAmount: number;
+    gstRate: number;
+    cgstAmount: number;
+    sgstAmount: number;
+    igstAmount: number;
+    totalAmount: number;
+    savings: number;
+    purchaseCost: number;
+    stockQuantity: number;
+  }
+
+  const computed: ComputedLine[] = [];
+  for (const line of input.lines) {
+    const product = productMap.get(line.productId);
+    if (!product) {
+      throw new BusinessError("ERR_PRODUCT_NOT_FOUND", `Product ${line.productId} not found`, 404);
+    }
+    if (!product.isActive) {
+      throw new BusinessError("ERR_PRODUCT_INACTIVE", `Product "${product.name}" is not active for billing`, 422);
+    }
+    // R3: billing draws from the SELLABLE pool only
+    if (product.stockQuantity < line.quantity) {
+      throw new BusinessError(
+        "ERR_INSUFFICIENT_SELLABLE_STOCK",
+        `Insufficient sellable stock for "${product.name}" (available ${product.stockQuantity}, requested ${line.quantity})`,
+        422
+      );
+    }
+    const tierPrice = product[tierKey as keyof typeof product] as number;
+    const base = tierPrice > 0 ? tierPrice : product.tier4Retailer;
+    const bulk = calculateBulkPricing(base, line.quantity, line.manualDiscountPct ?? 0);
+    const gst = calculateGST(bulk.taxable, product.gstRate, firm.stateCode, buyerStateCode);
+    computed.push({
+      productId: product.id,
+      sku: product.sku,
+      productName: product.name,
+      hsnCode: product.hsnCode,
+      selectedTier: tierKey,
+      packagingFormat: bulk.format,
+      baseTierPrice: base,
+      bulkDiscountPct: bulk.discountPct,
+      unitPrice: bulk.unitPrice,
+      quantity: line.quantity,
+      taxableAmount: bulk.taxable,
+      gstRate: product.gstRate,
+      cgstAmount: gst.cgst,
+      sgstAmount: gst.sgst,
+      igstAmount: gst.igst,
+      totalAmount: round2(bulk.taxable + gst.cgst + gst.sgst + gst.igst),
+      savings: bulk.savings,
+      purchaseCost: product.purchaseCost,
+      stockQuantity: product.stockQuantity,
+    });
+  }
+
+  const subtotal = round2(computed.reduce((s, l) => s + l.taxableAmount, 0));
+  const discountTotal = round2(computed.reduce((s, l) => s + l.savings, 0));
+  const tax = sumGstSplits(computed.map((l) => ({ cgst: l.cgstAmount, sgst: l.sgstAmount, igst: l.igstAmount })));
+  const { grand: grandTotal, roundOff } = roundOffDelta(subtotal + tax.cgst + tax.sgst + tax.igst);
+  const cogs = round2(computed.reduce((s, l) => s + l.purchaseCost * l.quantity, 0));
+
+  // ── R13 credit control (B2B + CREDIT only) ─────────────────────
+  if (customer && customer.customerType === "B2B" && paymentMode === "CREDIT") {
+    const creditDays = customer.creditDays > 0 ? customer.creditDays : 30;
+    const overdueCutoff = Date.now() - creditDays * 86400000;
+    const overdue = await db.invoice.findFirst({
+      where: {
+        firmId: firm.id,
+        customerId: customer.id,
+        paymentMode: "CREDIT",
+        status: "POSTED",
+        invoiceDate: { lt: new Date(overdueCutoff) },
+      },
+      select: { invoiceNumber: true, invoiceDate: true },
+    });
+    if (overdue) {
+      throw new BusinessError(
+        "ERR_CUSTOMER_CREDIT_LOCK",
+        `Credit blocked for ${customer.partyName}: invoice ${overdue.invoiceNumber} is overdue beyond the ${creditDays}-day credit window`,
+        422
+      );
+    }
+    if (round2(customer.closingBalance + grandTotal) > customer.creditLimit) {
+      throw new BusinessError(
+        "ERR_CUSTOMER_CREDIT_LOCK",
+        `Credit blocked for ${customer.partyName}: outstanding ₹${customer.closingBalance.toFixed(2)} + ₹${grandTotal.toFixed(2)} exceeds credit limit ₹${customer.creditLimit.toFixed(2)}`,
+        422
+      );
+    }
+  }
+
+  // ── Numbering + persistence ────────────────────────────────────
+  const invoiceNumber = await nextDocNumber("INVOICE", firm.id, firm.invoicePrefix, firm.financialYear);
+
+  const invoiceId = await db.$transaction(async (tx) => {
+    const invoice = await tx.invoice.create({
+      data: {
+        firmId: firm.id,
+        invoiceNumber,
+        invoiceDate,
+        customerId: customer?.id ?? null,
+        isCounterSale,
+        walkInName: input.walkInName ?? "",
+        walkInPhone: input.walkInPhone ?? "",
+        subtotal,
+        discountTotal,
+        totalCgst: tax.cgst,
+        totalSgst: tax.sgst,
+        totalIgst: tax.igst,
+        roundOff,
+        grandTotal,
+        amountInWords: amountInWords(grandTotal),
+        paymentMode,
+        status: "POSTED",
+        lineItems: {
+          create: computed.map((l) => ({
+            productId: l.productId,
+            sku: l.sku,
+            productName: l.productName,
+            hsnCode: l.hsnCode,
+            selectedTier: l.selectedTier,
+            packagingFormat: l.packagingFormat,
+            baseTierPrice: l.baseTierPrice,
+            bulkDiscountPct: l.bulkDiscountPct,
+            unitPrice: l.unitPrice,
+            quantity: l.quantity,
+            taxableAmount: l.taxableAmount,
+            gstRate: l.gstRate,
+            cgstAmount: l.cgstAmount,
+            sgstAmount: l.sgstAmount,
+            igstAmount: l.igstAmount,
+            totalAmount: l.totalAmount,
+          })),
+        },
+      },
+      select: { id: true },
+    });
+
+    // R3: stock leaves the SELLABLE pool + movement audit rows
+    for (const l of computed) {
+      await tx.product.update({
+        where: { id: l.productId },
+        data: { stockQuantity: { decrement: l.quantity } },
+      });
+      await recordMovement(tx, {
+        firmId: firm.id,
+        productId: l.productId,
+        movementType: "SALES_OUTWARD",
+        quantity: l.quantity,
+        targetPool: "SELLABLE",
+        direction: "OUT",
+        referenceDocId: invoice.id,
+        referenceNo: invoiceNumber,
+        notes: `Billed on invoice ${invoiceNumber}`,
+      });
+    }
+
+    // R7: customer ledger + closing balance (Dr-positive)
+    if (customer) {
+      const isB2C = customer.customerType === "B2C_COUNTER";
+      if (isB2C) {
+        await tx.customer.update({
+          where: { id: customer.id },
+          data: {
+            visitCount: { increment: 1 },
+            lifetimeSpend: { increment: grandTotal },
+          },
+        });
+      }
+
+      if (paymentMode === "CREDIT") {
+        // Outstanding receivable increases
+        await updateCustomerBalance(tx, customer.id, grandTotal);
+        await addCustomerLedger(tx, customer.id, {
+          entryDate: invoiceDate,
+          voucherType: "SALES",
+          voucherNo: invoiceNumber,
+          particulars: `Credit sales — invoice ${invoiceNumber}`,
+          debit: grandTotal,
+          credit: 0,
+        });
+      } else {
+        // Immediate payment: write BOTH rows so the ledger tells the
+        // full story (SALES Dr, then RECEIPT Cr) — net zero movement.
+        await updateCustomerBalance(tx, customer.id, grandTotal);
+        await addCustomerLedger(tx, customer.id, {
+          entryDate: invoiceDate,
+          voucherType: "SALES",
+          voucherNo: invoiceNumber,
+          particulars: `Sales — invoice ${invoiceNumber}`,
+          debit: grandTotal,
+          credit: 0,
+        });
+        await updateCustomerBalance(tx, customer.id, -grandTotal);
+        await addCustomerLedger(tx, customer.id, {
+          entryDate: invoiceDate,
+          voucherType: "RECEIPT",
+          voucherNo: invoiceNumber,
+          particulars: `Paid by ${paymentMode} against invoice ${invoiceNumber}`,
+          debit: 0,
+          credit: grandTotal,
+        });
+      }
+    }
+
+    return invoice.id;
+  });
+
+  // ── Journals (posted after the mutation tx commits) ────────────
+  const mainLines: { accountCode: string; entrySide: "DEBIT" | "CREDIT"; amount: number; narration?: string }[] = [
+    {
+      accountCode: debitAccountForMode(paymentMode),
+      entrySide: "DEBIT",
+      amount: grandTotal,
+      narration: paymentMode === "CREDIT" ? "Accounts Receivable" : `Received via ${paymentMode}`,
+    },
+    { accountCode: ACC.SALES, entrySide: "CREDIT", amount: subtotal, narration: "Domestic sales taxable value" },
+  ];
+  if (tax.cgst > 0) mainLines.push({ accountCode: ACC.GST_CGST, entrySide: "CREDIT", amount: tax.cgst });
+  if (tax.sgst > 0) mainLines.push({ accountCode: ACC.GST_SGST, entrySide: "CREDIT", amount: tax.sgst });
+  if (tax.igst > 0) mainLines.push({ accountCode: ACC.GST_IGST, entrySide: "CREDIT", amount: tax.igst });
+  if (roundOff > 0) mainLines.push({ accountCode: ACC.ROUND_OFF, entrySide: "CREDIT", amount: roundOff });
+  else if (roundOff < 0)
+    mainLines.push({ accountCode: ACC.ROUND_OFF, entrySide: "DEBIT", amount: Math.abs(roundOff) });
+
+  const mainJournal = await postJournal({
+    firmId: firm.id,
+    voucherType: "SALES",
+    postingDate: invoiceDate,
+    narration: `Invoice ${invoiceNumber} — ${customer ? customer.partyName : input.walkInName?.trim() || "Counter sale"}`,
+    referenceDocId: invoiceId,
+    lines: mainLines,
+  });
+
+  const cogsJournal =
+    cogs > 0
+      ? await postJournal({
+          firmId: firm.id,
+          voucherType: "SALES",
+          postingDate: invoiceDate,
+          narration: `COGS for invoice ${invoiceNumber}`,
+          referenceDocId: invoiceId,
+          lines: [
+            { accountCode: ACC.COGS, entrySide: "DEBIT", amount: cogs },
+            { accountCode: ACC.INVENTORY, entrySide: "CREDIT", amount: cogs },
+          ],
+        })
+      : null;
+
+  const full = await db.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      lineItems: true,
+      customer: { select: { id: true, partyName: true, stateCode: true, customerType: true, closingBalance: true } },
+    },
+  });
+
+  return { invoice: full, journal: mainJournal, cogsJournal };
+}

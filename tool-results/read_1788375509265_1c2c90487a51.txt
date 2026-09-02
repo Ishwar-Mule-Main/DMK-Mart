@@ -1,0 +1,716 @@
+     1→"use client";
+     2→
+     3→// ═══════════════════════════════════════════════════════════════
+     4→// SALES — CUSTOMERS & BUYERS
+     5→// B2B location-first parties (R8) with tier + credit control (R13)
+     6→// and B2C counter directory (R9 — name + phone, no credit, R14).
+     7→// Ledger = last 100 LedgerEntry rows from /customers/[id].
+     8→// ═══════════════════════════════════════════════════════════════
+     9→
+    10→import * as React from "react";
+    11→import { BookOpen, Building2, History, Loader2, Pencil, Plus, Search, Store, Users } from "lucide-react";
+    12→import { useErpStore, useActiveFirm } from "@/store/erp-store";
+    13→import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api-client";
+    14→import { formatINR, formatDate } from "@/lib/format";
+    15→import { TIERS } from "@/lib/pricing";
+    16→import type { Customer, Invoice, LedgerRow } from "@/types/erp";
+    17→import { PageHeader, Badge, EmptyState, LoadingRows, SearchInput, Field, inputCls, StatusBadge } from "@/components/erp/shared";
+    18→import { Button } from "@/components/ui/button";
+    19→import { Input } from "@/components/ui/input";
+    20→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    21→import {
+    22→  Dialog,
+    23→  DialogContent,
+    24→  DialogDescription,
+    25→  DialogFooter,
+    26→  DialogHeader,
+    27→  DialogTitle,
+    28→} from "@/components/ui/dialog";
+    29→import {
+    30→  Select,
+    31→  SelectContent,
+    32→  SelectItem,
+    33→  SelectTrigger,
+    34→  SelectValue,
+    35→} from "@/components/ui/select";
+    36→import { useToast } from "@/hooks/use-toast";
+    37→import { cn } from "@/lib/utils";
+    38→
+    39→const STATES: Array<{ code: string; name: string }> = [
+    40→  { code: "27", name: "Maharashtra (27)" },
+    41→  { code: "29", name: "Karnataka (29)" },
+    42→  { code: "36", name: "Telangana (36)" },
+    43→  { code: "33", name: "Tamil Nadu (33)" },
+    44→  { code: "24", name: "Gujarat (24)" },
+    45→  { code: "07", name: "Delhi (07)" },
+    46→  { code: "09", name: "Uttar Pradesh (09)" },
+    47→  { code: "23", name: "Madhya Pradesh (23)" },
+    48→  { code: "37", name: "Andhra Pradesh (37)" },
+    49→  { code: "32", name: "Kerala (32)" },
+    50→  { code: "19", name: "West Bengal (19)" },
+    51→  { code: "21", name: "Odisha (21)" },
+    52→  { code: "10", name: "Bihar (10)" },
+    53→  { code: "06", name: "Haryana (06)" },
+    54→  { code: "08", name: "Rajasthan (08)" },
+    55→  { code: "03", name: "Punjab (03)" },
+    56→];
+    57→
+    58→function tierLabel(key: string): string {
+    59→  return TIERS.find((t) => t.key === key)?.label ?? (key || "—");
+    60→}
+    61→
+    62→function tierBadgeTone(key: string): "info" | "success" | "warning" | "neutral" {
+    63→  switch (key) {
+    64→    case "tier1Distributor": return "info";
+    65→    case "tier2Wholesale": return "success";
+    66→    case "tier3SemiWholesale": return "warning";
+    67→    default: return "neutral";
+    68→  }
+    69→}
+    70→
+    71→export default function CustomersView() {
+    72→  return (
+    73→    <div className="space-y-4">
+    74→      <PageHeader title="Customers & Buyers" subtitle="B2B location-first parties with credit control · B2C counter directory" icon={Users} />
+    75→      <Tabs defaultValue="b2b" className="gap-4">
+    76→        <TabsList className="bg-dmk-input-well border border-dmk-border-subtle">
+    77→          <TabsTrigger value="b2b" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
+    78→            <Building2 className="h-4 w-4" /> B2B Customers
+    79→          </TabsTrigger>
+    80→          <TabsTrigger value="b2c" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
+    81→            <Store className="h-4 w-4" /> B2C Counter Buyers
+    82→          </TabsTrigger>
+    83→        </TabsList>
+    84→        <TabsContent value="b2b" className="mt-0"><B2BTab /></TabsContent>
+    85→        <TabsContent value="b2c" className="mt-0"><B2CTab /></TabsContent>
+    86→      </Tabs>
+    87→    </div>
+    88→  );
+    89→}
+    90→
+    91→// ═══════════════════════════════════════════════════════════════
+    92→// B2B TAB
+    93→// ═══════════════════════════════════════════════════════════════
+    94→function B2BTab() {
+    95→  const { toast } = useToast();
+    96→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+    97→  const firm = useActiveFirm();
+    98→  const firmStateCode = firm?.stateCode ?? "27";
+    99→
+   100→  const [query, setQuery] = React.useState("");
+   101→  const [rows, setRows] = React.useState<Customer[] | null>(null);
+   102→  const [editOpen, setEditOpen] = React.useState(false);
+   103→  const [editing, setEditing] = React.useState<Customer | null>(null);
+   104→  const [ledgerOf, setLedgerOf] = React.useState<Customer | null>(null);
+   105→  const [refresh, setRefresh] = React.useState(0);
+   106→
+   107→  React.useEffect(() => {
+   108→    if (!activeFirmId) return;
+   109→    let alive = true;
+   110→    const t = setTimeout(async () => {
+   111→      try {
+   112→        const res = await apiGet<Customer[]>("/api/v1/customers", { firmId: activeFirmId, type: "B2B", search: query.trim() });
+   113→        if (alive) setRows(res);
+   114→      } catch (e) {
+   115→        if (alive) {
+   116→          setRows([]);
+   117→          if (e instanceof ApiError) toast({ variant: "destructive", title: "Could not load customers", description: e.message });
+   118→        }
+   119→      }
+   120→    }, 220);
+   121→    return () => {
+   122→      alive = false;
+   123→      clearTimeout(t);
+   124→    };
+   125→  }, [activeFirmId, query, refresh]);
+   126→
+   127→  return (
+   128→    <div className="space-y-3">
+   129→      <div className="flex flex-col sm:flex-row gap-2">
+   130→        <div className="relative flex-1">
+   131→          <SearchInput value={query} onChange={setQuery} placeholder="Search party name, city, phone or GSTIN…" className="pl-9" />
+   132→          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
+   133→        </div>
+   134→        <Button
+   135→          size="sm"
+   136→          className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90"
+   137→          onClick={() => {
+   138→            setEditing(null);
+   139→            setEditOpen(true);
+   140→          }}
+   141→        >
+   142→          <Plus className="h-4 w-4" /> New B2B Customer
+   143→        </Button>
+   144→      </div>
+   145→
+   146→      <div className="dmk-card overflow-hidden">
+   147→        <div className="overflow-x-auto">
+   148→          {rows === null ? (
+   149→            <LoadingRows rows={8} />
+   150→          ) : rows.length === 0 ? (
+   151→            <EmptyState icon={Building2} title="No B2B customers" hint="Add your first trade party — naming is location-first, e.g. “Latur Ishwar Mule”." />
+   152→          ) : (
+   153→            <table className="dmk-table min-w-[1020px]">
+   154→              <thead>
+   155→                <tr>
+   156→                  <th>Party Name</th>
+   157→                  <th>City</th>
+   158→                  <th>State</th>
+   159→                  <th>GSTIN</th>
+   160→                  <th>Tier</th>
+   161→                  <th className="text-right">Credit limit</th>
+   162→                  <th className="text-right">Outstanding</th>
+   163→                  <th className="text-right">Days</th>
+   164→                  <th />
+   165→                </tr>
+   166→              </thead>
+   167→              <tbody>
+   168→                {rows.map((c) => {
+   169→                  const outstanding = Number(c.closingBalance);
+   170→                  return (
+   171→                    <tr key={c.id}>
+   172→                      <td className="max-w-[240px] truncate text-[13px] font-medium">{c.partyName}</td>
+   173→                      <td className="text-[12.5px] text-dmk-text-secondary">{c.city || "—"}</td>
+   174→                      <td className="text-[12.5px] text-dmk-text-secondary">{c.stateCode || "—"}</td>
+   175→                      <td className="font-money text-[11.5px] text-dmk-text-secondary">{c.gstin || "—"}</td>
+   176→                      <td><Badge tone={tierBadgeTone(c.assignedTier)}>{tierLabel(c.assignedTier)}</Badge></td>
+   177→                      <td className="num text-[12.5px]">{formatINR(Number(c.creditLimit))}</td>
+   178→                      <td className={cn("num text-[12.5px] font-semibold", outstanding > 0.005 ? "text-dmk-orange" : "text-dmk-success")}>
+   179→                        {outstanding > 0.005 ? `Dr ${formatINR(outstanding)}` : "Clear"}
+   180→                      </td>
+   181→                      <td className="num text-[12.5px]">{c.creditDays}</td>
+   182→                      <td className="text-right whitespace-nowrap">
+   183→                        <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setLedgerOf(c)}>
+   184→                          <BookOpen className="h-3.5 w-3.5" /> Ledger
+   185→                        </Button>
+   186→                        <Button
+   187→                          size="sm"
+   188→                          variant="outline"
+   189→                          className="h-8 ml-1.5 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
+   190→                          onClick={() => {
+   191→                            setEditing(c);
+   192→                            setEditOpen(true);
+   193→                          }}
+   194→                        >
+   195→                          <Pencil className="h-3.5 w-3.5" /> Edit
+   196→                        </Button>
+   197→                      </td>
+   198→                    </tr>
+   199→                  );
+   200→                })}
+   201→              </tbody>
+   202→            </table>
+   203→          )}
+   204→        </div>
+   205→      </div>
+   206→
+   207→      <B2BFormDialog
+   208→        open={editOpen}
+   209→        onOpenChange={setEditOpen}
+   210→        editing={editing}
+   211→        firmStateCode={firmStateCode}
+   212→        onSaved={() => setRefresh((r) => r + 1)}
+   213→        onRefresh={() => setRefresh((r) => r + 1)}
+   214→      />
+   215→
+   216→      <LedgerDialog customer={ledgerOf} onClose={() => setLedgerOf(null)} />
+   217→    </div>
+   218→  );
+   219→}
+   220→
+   221→// ═══════════════════════════════════════════════════════════════
+   222→// B2B create / edit dialog
+   223→// ═══════════════════════════════════════════════════════════════
+   224→function B2BFormDialog({
+   225→  open,
+   226→  onOpenChange,
+   227→  editing,
+   228→  firmStateCode,
+   229→  onSaved,
+   230→  onRefresh,
+   231→}: {
+   232→  open: boolean;
+   233→  onOpenChange: (o: boolean) => void;
+   234→  editing: Customer | null;
+   235→  firmStateCode: string;
+   236→  onSaved: () => void;
+   237→  onRefresh: () => void;
+   238→}) {
+   239→  const { toast } = useToast();
+   240→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   241→  const [saving, setSaving] = React.useState(false);
+   242→  const [form, setForm] = React.useState({
+   243→    city: "",
+   244→    firmName: "",
+   245→    gstin: "",
+   246→    phone: "",
+   247→    email: "",
+   248→    address: "",
+   249→    stateCode: firmStateCode,
+   250→    assignedTier: "tier3SemiWholesale",
+   251→    creditLimit: "0",
+   252→    creditDays: "30",
+   253→    openingBalance: "0",
+   254→  });
+   255→
+   256→  React.useEffect(() => {
+   257→    if (!open) return;
+   258→    if (editing) {
+   259→      setForm({
+   260→        city: editing.city ?? "",
+   261→        firmName: editing.firmName ?? "",
+   262→        gstin: editing.gstin ?? "",
+   263→        phone: editing.phone ?? "",
+   264→        email: editing.email ?? "",
+   265→        address: editing.address ?? "",
+   266→        stateCode: editing.stateCode || firmStateCode,
+   267→        assignedTier: editing.assignedTier || "tier3SemiWholesale",
+   268→        creditLimit: String(editing.creditLimit ?? 0),
+   269→        creditDays: String(editing.creditDays ?? 30),
+   270→        openingBalance: "0",
+   271→      });
+   272→    } else {
+   273→      setForm({
+   274→        city: "",
+   275→        firmName: "",
+   276→        gstin: "",
+   277→        phone: "",
+   278→        email: "",
+   279→        address: "",
+   280→        stateCode: firmStateCode,
+   281→        assignedTier: "tier3SemiWholesale",
+   282→        creditLimit: "0",
+   283→        creditDays: "30",
+   284→        openingBalance: "0",
+   285→      });
+   286→    }
+   287→  }, [open, editing, firmStateCode]);
+   288→
+   289→  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
+   290→
+   291→  async function submit() {
+   292→    if (!activeFirmId) return;
+   293→    if (!form.city.trim() || !form.firmName.trim()) {
+   294→      toast({ variant: "destructive", title: "Missing fields", description: "City and firm name are required — party name becomes “City FirmName”." });
+   295→      return;
+   296→    }
+   297→    setSaving(true);
+   298→    try {
+   299→      if (editing) {
+   300→        await apiPatch(`/api/v1/customers/${editing.id}`, {
+   301→          city: form.city.trim(),
+   302→          firmName: form.firmName.trim(),
+   303→          gstin: form.gstin.trim(),
+   304→          phone: form.phone.trim(),
+   305→          email: form.email.trim(),
+   306→          address: form.address.trim(),
+   307→          stateCode: form.stateCode,
+   308→          assignedTier: form.assignedTier,
+   309→          creditLimit: Number(form.creditLimit) || 0,
+   310→          creditDays: Number(form.creditDays) || 0,
+   311→        });
+   312→        toast({ title: "Customer updated", description: `${form.city.trim()} ${form.firmName.trim()}` });
+   313→      } else {
+   314→        await apiPost<Customer>("/api/v1/customers", {
+   315→          firmId: activeFirmId,
+   316→          customerType: "B2B",
+   317→          city: form.city.trim(),
+   318→          firmName: form.firmName.trim(),
+   319→          gstin: form.gstin.trim(),
+   320→          phone: form.phone.trim(),
+   321→          email: form.email.trim(),
+   322→          address: form.address.trim(),
+   323→          stateCode: form.stateCode,
+   324→          assignedTier: form.assignedTier,
+   325→          creditLimit: Number(form.creditLimit) || 0,
+   326→          creditDays: Number(form.creditDays) || 0,
+   327→          openingBalance: Number(form.openingBalance) || 0,
+   328→        });
+   329→        toast({ title: "Customer created", description: `${form.city.trim()} ${form.firmName.trim()} added to the trade directory.` });
+   330→      }
+   331→      onRefresh();
+   332→      onSaved();
+   333→      onOpenChange(false);
+   334→    } catch (e) {
+   335→      const msg = e instanceof ApiError ? e.message : "Could not save customer.";
+   336→      toast({ variant: "destructive", title: "Save failed", description: msg });
+   337→    } finally {
+   338→      setSaving(false);
+   339→    }
+   340→  }
+   341→
+   342→  return (
+   343→    <Dialog open={open} onOpenChange={onOpenChange}>
+   344→      <DialogContent className="sm:max-w-xl dmk-elevated border-dmk-border-medium max-h-[90vh] overflow-y-auto">
+   345→        <DialogHeader>
+   346→          <DialogTitle className="text-dmk-text-primary">{editing ? "Edit B2B customer" : "New B2B customer"}</DialogTitle>
+   347→          <DialogDescription className="text-dmk-text-muted">Location-first naming (R8) — party name is composed as “City FirmName”.</DialogDescription>
+   348→        </DialogHeader>
+   349→        <div className="grid grid-cols-2 gap-3">
+   350→          <Field label="City *">
+   351→            <Input value={form.city} onChange={set("city")} placeholder="e.g. Latur" className={inputCls} />
+   352→          </Field>
+   353→          <Field label="Firm name *">
+   354→            <Input value={form.firmName} onChange={set("firmName")} placeholder="e.g. Ishwar Mule" className={inputCls} />
+   355→          </Field>
+   356→          <Field label="GSTIN">
+   357→            <Input value={form.gstin} onChange={set("gstin")} placeholder="27…" className={cn(inputCls, "font-money")} />
+   358→          </Field>
+   359→          <Field label="Phone">
+   360→            <Input value={form.phone} onChange={set("phone")} className={cn(inputCls, "font-money")} />
+   361→          </Field>
+   362→          <Field label="State code">
+   363→            <Select value={form.stateCode} onValueChange={(v) => setForm((f) => ({ ...f, stateCode: v }))}>
+   364→              <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue /></SelectTrigger>
+   365→              <SelectContent className="max-h-64">
+   366→                {STATES.map((s) => (
+   367→                  <SelectItem key={s.code} value={s.code}>{s.name}</SelectItem>
+   368→                ))}
+   369→              </SelectContent>
+   370→            </Select>
+   371→          </Field>
+   372→          <Field label="Assigned tier">
+   373→            <Select value={form.assignedTier} onValueChange={(v) => setForm((f) => ({ ...f, assignedTier: v }))}>
+   374→              <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue /></SelectTrigger>
+   375→              <SelectContent>
+   376→                {TIERS.slice(0, 4).map((t) => (
+   377→                  <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>
+   378→                ))}
+   379→              </SelectContent>
+   380→            </Select>
+   381→          </Field>
+   382→          <Field label="Credit limit ₹">
+   383→            <Input type="number" min={0} value={form.creditLimit} onChange={set("creditLimit")} className={cn(inputCls, "font-money")} />
+   384→          </Field>
+   385→          <Field label="Credit days">
+   386→            <Input type="number" min={0} value={form.creditDays} onChange={set("creditDays")} className={cn(inputCls, "font-money")} />
+   387→          </Field>
+   388→          {!editing && (
+   389→            <>
+   390→              <Field label="Opening balance ₹ (Dr +)" hint="Positive = receivable (Dr). Posts an OPENING ledger row.">
+   391→                <Input type="number" step="0.01" value={form.openingBalance} onChange={set("openingBalance")} className={cn(inputCls, "font-money")} />
+   392→              </Field>
+   393→              <Field label="Email">
+   394→                <Input value={form.email} onChange={set("email")} className={inputCls} placeholder="optional" />
+   395→              </Field>
+   396→            </>
+   397→          )}
+   398→          {editing && (
+   399→            <Field label="Email">
+   400→              <Input value={form.email} onChange={set("email")} className={inputCls} placeholder="optional" />
+   401→            </Field>
+   402→          )}
+   403→          <div className="col-span-2">
+   404→            <Field label="Address">
+   405→              <Input value={form.address} onChange={set("address")} className={inputCls} placeholder="optional" />
+   406→            </Field>
+   407→          </div>
+   408→        </div>
+   409→        <DialogFooter>
+   410→          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
+   411→          <Button onClick={submit} disabled={saving} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+   412→            {saving && <Loader2 className="h-4 w-4 animate-spin" />} {editing ? "Save changes" : "Create customer"}
+   413→          </Button>
+   414→        </DialogFooter>
+   415→      </DialogContent>
+   416→    </Dialog>
+   417→  );
+   418→}
+   419→
+   420→// ═══════════════════════════════════════════════════════════════
+   421→// Ledger dialog — opening + last 100 rows + closing
+   422→// ═══════════════════════════════════════════════════════════════
+   423→function LedgerDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
+   424→  const [ledger, setLedger] = React.useState<LedgerRow[] | null>(null);
+   425→
+   426→  React.useEffect(() => {
+   427→    if (!customer) return;
+   428→    let alive = true;
+   429→    setLedger(null);
+   430→    apiGet<{ customer: Customer; ledger: LedgerRow[] }>(`/api/v1/customers/${customer.id}`)
+   431→      .then((res) => alive && setLedger(res.ledger))
+   432→      .catch(() => alive && setLedger([]));
+   433→    return () => {
+   434→      alive = false;
+   435→    };
+   436→  }, [customer]);
+   437→
+   438→  const closing = Number(customer?.closingBalance ?? 0);
+   439→
+   440→  return (
+   441→    <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
+   442→      <DialogContent className="sm:max-w-2xl dmk-elevated border-dmk-border-medium">
+   443→        <DialogHeader>
+   444→          <DialogTitle className="text-dmk-text-primary">Party ledger — {customer?.partyName}</DialogTitle>
+   445→          <DialogDescription className="text-dmk-text-muted">
+   446→            GSTIN <span className="font-money">{customer?.gstin || "—"}</span> · Credit {formatINR(Number(customer?.creditLimit ?? 0))} / {customer?.creditDays ?? 0} days
+   447→          </DialogDescription>
+   448→        </DialogHeader>
+   449→
+   450→        <div className="flex items-center justify-between dmk-well px-3 py-2.5 text-[12.5px]">
+   451→          <span className="text-dmk-text-muted">Opening <span className="font-money text-dmk-text-secondary">{formatINR(Number(customer?.openingBalance ?? 0))}</span></span>
+   452→          <span className="text-dmk-text-muted">
+   453→            Closing{" "}
+   454→            <span className={cn("font-money font-semibold", closing > 0.005 ? "text-dmk-orange" : "text-dmk-success")}>
+   455→              {closing > 0.005 ? `Dr ${formatINR(closing)}` : "Clear"}
+   456→            </span>
+   457→          </span>
+   458→        </div>
+   459→
+   460→        <div className="dmk-card overflow-hidden max-h-80 overflow-y-auto">
+   461→          {ledger === null ? (
+   462→            <LoadingRows rows={5} />
+   463→          ) : ledger.length === 0 ? (
+   464→            <EmptyState icon={BookOpen} title="No ledger rows yet" hint="Invoices, credit notes and receipts will appear here." />
+   465→          ) : (
+   466→            <table className="dmk-table">
+   467→              <thead>
+   468→                <tr>
+   469→                  <th>Date</th>
+   470→                  <th>Voucher</th>
+   471→                  <th>Voucher #</th>
+   472→                  <th>Particulars</th>
+   473→                  <th className="text-right">Dr</th>
+   474→                  <th className="text-right">Cr</th>
+   475→                  <th className="text-right">Balance</th>
+   476→                </tr>
+   477→              </thead>
+   478→              <tbody>
+   479→                {ledger.map((r) => (
+   480→                  <tr key={r.id}>
+   481→                    <td className="text-[11.5px] text-dmk-text-secondary whitespace-nowrap">{formatDate(r.entryDate)}</td>
+   482→                    <td><StatusBadge status={r.voucherType} /></td>
+   483→                    <td className="font-money text-[11px] text-dmk-text-secondary">{r.voucherNo || "—"}</td>
+   484→                    <td className="max-w-[220px] truncate text-[11.5px] text-dmk-text-secondary">{r.particulars || "—"}</td>
+   485→                    <td className="num text-[12px] text-dmk-orange">{Number(r.debitAmount) > 0 ? formatINR(Number(r.debitAmount)) : "—"}</td>
+   486→                    <td className="num text-[12px] text-dmk-info">{Number(r.creditAmount) > 0 ? formatINR(Number(r.creditAmount)) : "—"}</td>
+   487→                    <td className="num text-[12px]">{formatINR(Number(r.balanceAfter))}</td>
+   488→                  </tr>
+   489→                ))}
+   490→              </tbody>
+   491→            </table>
+   492→          )}
+   493→        </div>
+   494→        <DialogFooter>
+   495→          <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Close</Button>
+   496→        </DialogFooter>
+   497→      </DialogContent>
+   498→    </Dialog>
+   499→  );
+   500→}
+   501→
+   502→// ═══════════════════════════════════════════════════════════════
+   503→// B2C TAB — counter buyers directory
+   504→// ═══════════════════════════════════════════════════════════════
+   505→function B2CTab() {
+   506→  const { toast } = useToast();
+   507→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   508→  const [query, setQuery] = React.useState("");
+   509→  const [rows, setRows] = React.useState<Customer[] | null>(null);
+   510→  const [addOpen, setAddOpen] = React.useState(false);
+   511→  const [historyOf, setHistoryOf] = React.useState<Customer | null>(null);
+   512→  const [refresh, setRefresh] = React.useState(0);
+   513→
+   514→  React.useEffect(() => {
+   515→    if (!activeFirmId) return;
+   516→    let alive = true;
+   517→    const t = setTimeout(async () => {
+   518→      try {
+   519→        const res = await apiGet<Customer[]>("/api/v1/customers", { firmId: activeFirmId, type: "B2C_COUNTER", search: query.trim() });
+   520→        if (alive) setRows(res);
+   521→      } catch (e) {
+   522→        if (alive) {
+   523→          setRows([]);
+   524→          if (e instanceof ApiError) toast({ variant: "destructive", title: "Could not load buyers", description: e.message });
+   525→        }
+   526→      }
+   527→    }, 220);
+   528→    return () => {
+   529→      alive = false;
+   530→      clearTimeout(t);
+   531→    };
+   532→  }, [activeFirmId, query, refresh]);
+   533→
+   534→  return (
+   535→    <div className="space-y-3">
+   536→      <div className="flex flex-col sm:flex-row gap-2">
+   537→        <div className="relative flex-1">
+   538→          <SearchInput value={query} onChange={setQuery} placeholder="Search buyers by name or phone…" className="pl-9" />
+   539→          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
+   540→        </div>
+   541→        <Button size="sm" className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90" onClick={() => setAddOpen(true)}>
+   542→          <Plus className="h-4 w-4" /> New Buyer
+   543→        </Button>
+   544→      </div>
+   545→
+   546→      <div className="dmk-card overflow-hidden">
+   547→        <div className="overflow-x-auto">
+   548→          {rows === null ? (
+   549→            <LoadingRows rows={6} />
+   550→          ) : rows.length === 0 ? (
+   551→            <EmptyState icon={Store} title="No counter buyers" hint="Buyers need just a name + phone — no credit, instant payment (R14)." />
+   552→          ) : (
+   553→            <table className="dmk-table min-w-[640px]">
+   554→              <thead>
+   555→                <tr>
+   556→                  <th>Name</th>
+   557→                  <th>Phone</th>
+   558→                  <th className="text-right">Visits</th>
+   559→                  <th className="text-right">Lifetime spend</th>
+   560→                  <th />
+   561→                </tr>
+   562→              </thead>
+   563→              <tbody>
+   564→                {rows.map((c) => (
+   565→                  <tr key={c.id}>
+   566→                    <td className="text-[13px] font-medium">{c.partyName}</td>
+   567→                    <td className="font-money text-[12.5px] text-dmk-text-secondary">{c.phone || "—"}</td>
+   568→                    <td className="num text-[12.5px]">{c.visitCount}</td>
+   569→                    <td className="num text-[12.5px] text-dmk-gold">{formatINR(Number(c.lifetimeSpend))}</td>
+   570→                    <td className="text-right">
+   571→                      <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setHistoryOf(c)}>
+   572→                        <History className="h-3.5 w-3.5" /> History
+   573→                      </Button>
+   574→                    </td>
+   575→                  </tr>
+   576→                ))}
+   577→              </tbody>
+   578→            </table>
+   579→          )}
+   580→        </div>
+   581→      </div>
+   582→
+   583→      <NewBuyerDialog open={addOpen} onOpenChange={setAddOpen} onCreated={() => setRefresh((r) => r + 1)} />
+   584→      <BuyerHistoryDialog buyer={historyOf} onClose={() => setHistoryOf(null)} />
+   585→    </div>
+   586→  );
+   587→}
+   588→
+   589→function NewBuyerDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; onCreated: () => void }) {
+   590→  const { toast } = useToast();
+   591→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   592→  const firm = useActiveFirm();
+   593→  const [name, setName] = React.useState("");
+   594→  const [phone, setPhone] = React.useState("");
+   595→  const [saving, setSaving] = React.useState(false);
+   596→
+   597→  async function submit() {
+   598→    if (!activeFirmId) return;
+   599→    if (!name.trim()) {
+   600→      toast({ variant: "destructive", title: "Name required" });
+   601→      return;
+   602→    }
+   603→    setSaving(true);
+   604→    try {
+   605→      await apiPost<Customer>("/api/v1/customers", {
+   606→        firmId: activeFirmId,
+   607→        customerType: "B2C_COUNTER",
+   608→        firmName: name.trim(),
+   609→        phone: phone.trim(),
+   610→        city: "",
+   611→        stateCode: firm?.stateCode ?? "",
+   612→        assignedTier: "tier4Retailer",
+   613→        creditLimit: 0,
+   614→        creditDays: 0,
+   615→      });
+   616→      toast({ title: "Buyer added", description: name.trim() });
+   617→      setName("");
+   618→      setPhone("");
+   619→      onCreated();
+   620→      onOpenChange(false);
+   621→    } catch (e) {
+   622→      toast({ variant: "destructive", title: "Create failed", description: e instanceof ApiError ? e.message : "Unknown error" });
+   623→    } finally {
+   624→      setSaving(false);
+   625→    }
+   626→  }
+   627→
+   628→  return (
+   629→    <Dialog open={open} onOpenChange={onOpenChange}>
+   630→      <DialogContent className="sm:max-w-sm dmk-elevated border-dmk-border-medium">
+   631→        <DialogHeader>
+   632→          <DialogTitle className="text-dmk-text-primary">New counter buyer</DialogTitle>
+   633→          <DialogDescription className="text-dmk-text-muted">No credit — instant payment only (R14).</DialogDescription>
+   634→        </DialogHeader>
+   635→        <div className="space-y-3">
+   636→          <Field label="Name *">
+   637→            <Input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} autoFocus />
+   638→          </Field>
+   639→          <Field label="Phone">
+   640→            <Input value={phone} onChange={(e) => setPhone(e.target.value)} className={cn(inputCls, "font-money")} />
+   641→          </Field>
+   642→        </div>
+   643→        <DialogFooter>
+   644→          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
+   645→          <Button onClick={submit} disabled={saving} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+   646→            {saving && <Loader2 className="h-4 w-4 animate-spin" />} Add buyer
+   647→          </Button>
+   648→        </DialogFooter>
+   649→      </DialogContent>
+   650→    </Dialog>
+   651→  );
+   652→}
+   653→
+   654→function BuyerHistoryDialog({ buyer, onClose }: { buyer: Customer | null; onClose: () => void }) {
+   655→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   656→  const [invoices, setInvoices] = React.useState<Invoice[] | null>(null);
+   657→
+   658→  React.useEffect(() => {
+   659→    if (!buyer || !activeFirmId) return;
+   660→    let alive = true;
+   661→    setInvoices(null);
+   662→    apiGet<Invoice[]>("/api/v1/invoices", { firmId: activeFirmId, customerId: buyer.id })
+   663→      .then((res) => alive && setInvoices(res))
+   664→      .catch(() => alive && setInvoices([]));
+   665→    return () => {
+   666→      alive = false;
+   667→    };
+   668→  }, [buyer, activeFirmId]);
+   669→
+   670→  return (
+   671→    <Dialog open={!!buyer} onOpenChange={(o) => !o && onClose()}>
+   672→      <DialogContent className="sm:max-w-lg dmk-elevated border-dmk-border-medium">
+   673→        <DialogHeader>
+   674→          <DialogTitle className="text-dmk-text-primary">{buyer?.partyName}</DialogTitle>
+   675→          <DialogDescription className="text-dmk-text-muted font-money">
+   676→            {buyer?.phone || "—"} · {buyer?.visitCount ?? 0} visits · lifetime {formatINR(Number(buyer?.lifetimeSpend ?? 0))}
+   677→          </DialogDescription>
+   678→        </DialogHeader>
+   679→        <div className="max-h-80 overflow-y-auto">
+   680→          {invoices === null ? (
+   681→            <LoadingRows rows={3} />
+   682→          ) : invoices.length === 0 ? (
+   683→            <EmptyState icon={History} title="No purchases yet" />
+   684→          ) : (
+   685→            <div className="dmk-well overflow-hidden">
+   686→              <table className="dmk-table">
+   687→                <thead>
+   688→                  <tr>
+   689→                    <th>Receipt #</th>
+   690→                    <th>Date</th>
+   691→                    <th>Mode</th>
+   692→                    <th className="text-right">Amount</th>
+   693→                  </tr>
+   694→                </thead>
+   695→                <tbody>
+   696→                  {invoices.map((i) => (
+   697→                    <tr key={i.id}>
+   698→                      <td className="font-money text-[12px]">{i.invoiceNumber}</td>
+   699→                      <td className="text-[12px] text-dmk-text-secondary">{formatDate(i.invoiceDate)}</td>
+   700→                      <td><Badge tone="success">{i.paymentMode}</Badge></td>
+   701→                      <td className="num text-[12.5px]">{formatINR(Number(i.grandTotal))}</td>
+   702→                    </tr>
+   703→                  ))}
+   704→                </tbody>
+   705→              </table>
+   706→            </div>
+   707→          )}
+   708→        </div>
+   709→        <DialogFooter>
+   710→          <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Close</Button>
+   711→        </DialogFooter>
+   712→      </DialogContent>
+   713→    </Dialog>
+   714→  );
+   715→}
+   716→
