@@ -212,16 +212,20 @@ export default function DashboardView() {
         </div>
       ) : data ? (
         <>
-          {/* ── KPI row ─────────────────────────────────── */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <KpiCard label="Today's Sales" value={formatINR(data.todaySales)} tone="orange" icon={IndianRupee} />
-            <KpiCard label="Month Sales" value={formatINR(data.monthSales)} tone="blue" icon={CalendarDays} />
+          {/* ── KPI row (click to drill down) ───────────── */}
+          <div className="dmk-enter-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <KpiCard label="Today's Sales" value={formatINR(data.todaySales)} tone="orange" icon={IndianRupee}
+              onClick={() => setView("sales/invoices")} drillHint="Invoice Register" />
+            <KpiCard label="Month Sales" value={formatINR(data.monthSales)} tone="blue" icon={CalendarDays}
+              onClick={() => setView("reports")} drillHint="Sales Report" />
             <KpiCard
               label="Receivables"
               value={formatINR(data.receivables)}
               tone="orange"
               sub="Dr — owed by customers"
               icon={HandCoins}
+              onClick={() => setView("finance/aging")}
+              drillHint="AR Aging"
             />
             <KpiCard
               label="Payables"
@@ -229,6 +233,8 @@ export default function DashboardView() {
               tone="info"
               sub="Cr — owed to vendors"
               icon={Banknote}
+              onClick={() => setView("finance/aging")}
+              drillHint="AP Aging"
             />
             <KpiCard
               label="Cash + Bank"
@@ -236,6 +242,8 @@ export default function DashboardView() {
               tone="success"
               sub={`Cash ${formatINR(data.cash)} · Bank ${formatINR(data.bank)}`}
               icon={Wallet}
+              onClick={() => setView("finance/daybook")}
+              drillHint="Day Book"
             />
             <KpiCard
               label="Inventory Value"
@@ -243,6 +251,8 @@ export default function DashboardView() {
               tone="default"
               sub={`Damaged: ${formatINR(data.damagedValue)}`}
               icon={Boxes}
+              onClick={() => setView("inventory/stock")}
+              drillHint="Stock Levels"
             />
           </div>
 

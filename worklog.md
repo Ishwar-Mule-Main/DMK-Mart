@@ -210,3 +210,24 @@ Work Log:
 
 Stage Summary:
 - All 10 QA checkpoints pass. Books balance to the paisa across every mutation. Dual-stock quarantine enforced and auditable.
+
+---
+Task ID: 12
+Agent: ATLAS (cron webDevReview — cycle 12)
+Task: QA assessment + feature expansion (command palette, drill-downs, WAC valuation, styling polish)
+
+Work Log:
+- QA smoke: boot 200, dashboard healthy, no console errors, TB balanced ₹11,01,084.08 → project STABLE, proceeded to features.
+- FEATURE: Global Command Palette (⌘K / Ctrl+K) at src/components/erp/command-palette.tsx (cmdk via shadcn CommandDialog):
+  · Quick Actions (New B2B Sale, New Counter Sale, New PO, Record Receipt, Record Vendor Payment, Add Product, Create/Switch Firm)
+  · Deep search (debounced 220ms): products (sku/name + live stock), parties (name/phone + Dr balance / visits), invoices (number + amount) → navigate to owning module
+  · Firm switcher with gold ACTIVE badge; nav group with G-shortcuts; footer hint row
+  · Wired via window event "dmk:open-palette"; header got "Search everything… ⌘K" trigger (desktop) + icon button (mobile).
+- FEATURE: Dashboard KPI drill-downs — KpiCard extended with optional onClick + drillHint (keyboard accessible, role=button, aria-label); cards navigate: Today→Invoice Register, Month→Reports, Receivables→AR Aging, Payables→AP Aging, Cash+Bank→Day Book, Inventory→Stock Levels. Verified click Receivables → AR Aging opens.
+- FEATURE: Stock Valuation (WAC) report — /api/v1/reports type=valuation: WAC = Σ(receipt qty × unit cost)/Σ qty from CONFIRMED PO receipts, fallback last purchase cost; totals + count + method. Reports UI: 5th card "Valuation (WAC)", KPIs (Stock @ WAC, Quarantine @ WAC, Total, Variance vs Cost), method note chip, WAC vs last-cost table with ▲▼ delta markers + basis badges, totals tfoot, CSV export. Verified: 24 rows, ₹8,97,370 total, variance +₹28,650 traced to 2 genuine receipt-cost deltas (DMK-SB-402 +₹14,400, DMK-KW-503 +₹14,250).
+- STYLING: entrance animation system (dmk-enter fade+8px rise per design tokens; dmk-enter-stagger 40ms cascades) applied to view container (key=view remount) + KPI rows + report cards; dmk-kpi-clickable with → affordance reveal on hover + focus ring; global button/menuitem focus-visible ring (accent-blue); date-filter inputs properly disabled for snapshot reports (stock + valuation).
+- Verification: valuation API 200 w/ correct math; palette open/type/select navigate verified; drill-down verified; tsc 0 errors; lint 0 errors 0 warnings; TB still balanced.
+
+Stage Summary:
+- Platform remains balanced and green. New capabilities this cycle: ⌘K command palette (power-user navigation + actions + deep search), dashboard drill-downs, WAC inventory valuation report (Phase 3 task 3.7 closed), motion polish per Midnight Ledger motion tokens.
+- Risks: none open. Suggested next cycle: per-invoice settlement tracking (precise aging), GSTR-2B reconciliation view, dashboard sparklines, firm-level onboarding checklist.

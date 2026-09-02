@@ -18,4 +18,5 @@
 | 14 | Frontend: Finance (Journals, TB, P&L, BS, Daybook, Aging, Party Ledgers) | ✅ |
 | 15 | Frontend: Invoices & Docs (A4 preview/print), Reports + CSV export, AI Copilot, Settings | ✅ |
 | 16 | QA: lint, dev server, agent-browser E2E (golden paths), fixes | ✅ |
+| 18 | Cycle 12: ⌘K palette, KPI drill-downs, WAC valuation report, motion polish | ✅ |
 | 17 | Worklog + cron webDevReview every 15 min | ✅ |

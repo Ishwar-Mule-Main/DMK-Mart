@@ -46,12 +46,16 @@ export function KpiCard({
   sub,
   icon: Icon,
   tone = "default",
+  onClick,
+  drillHint,
 }: {
   label: string;
   value: string;
   sub?: string;
   icon?: LucideIcon;
   tone?: "default" | "orange" | "blue" | "gold" | "success" | "danger" | "info";
+  onClick?: () => void;
+  drillHint?: string;
 }) {
   const toneMap: Record<string, string> = {
     default: "text-dmk-text-primary",
@@ -62,16 +66,35 @@ export function KpiCard({
     danger: "text-dmk-danger",
     info: "text-dmk-info",
   };
-  return (
-    <div className="dmk-kpi p-4 flex flex-col gap-2">
+  const clickable = typeof onClick === "function";
+  const CardInner = (
+    <>
       <div className="flex items-center justify-between">
         <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{label}</span>
         {Icon && <Icon className="h-4 w-4 text-dmk-text-muted" strokeWidth={1.75} />}
       </div>
       <span className={cn("font-money text-[20px] font-semibold leading-none", toneMap[tone])}>{value}</span>
       {sub && <span className="text-[11px] text-dmk-text-muted">{sub}</span>}
-    </div>
+      {clickable && drillHint && (
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-dmk-blue/80">{drillHint}</span>
+      )}
+    </>
   );
+  if (clickable) {
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={`${label} — open ${drillHint ?? "details"}`}
+        onClick={onClick}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); } }}
+        className={cn("dmk-kpi dmk-kpi-clickable p-4 flex flex-col gap-2")}
+      >
+        {CardInner}
+      </div>
+    );
+  }
+  return <div className="dmk-kpi p-4 flex flex-col gap-2">{CardInner}</div>;
 }
 
 type BadgeTone = "success" | "warning" | "danger" | "info" | "dr" | "cr" | "neutral";

@@ -25,6 +25,7 @@ import {
   Landmark,
   Percent,
   RefreshCw,
+  Scale,
   ShoppingCart,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -38,7 +39,7 @@ import { useErpStore, useActiveFirm } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-type ReportType = "sales" | "purchases" | "stock" | "gst";
+type ReportType = "sales" | "purchases" | "stock" | "gst" | "valuation";
 
 // ─── Row shapes (verified against route source) ─────────────────
 
@@ -94,6 +95,22 @@ interface StockRow {
   damagedValue: number;
 }
 
+interface ValuationRow {
+  sku: string;
+  name: string;
+  category: string;
+  unit: string;
+  wac: number;
+  purchaseCost: number;
+  stockQuantity: number;
+  damagedStock: number;
+  stockValue: number;
+  damagedValue: number;
+  totalValue: number;
+  receiptsQty: number;
+  method: string;
+}
+
 interface GstDocRow {
   docNo: string;
   date: string;
@@ -124,8 +141,10 @@ interface GstResponse {
 
 interface ReportResponse {
   type: ReportType;
-  rows?: SalesRow[] | PurchaseRow[] | StockRow[];
-  totals?: { stockValue: number; damagedValue: number };
+  rows?: SalesRow[] | PurchaseRow[] | StockRow[] | ValuationRow[];
+  totals?: { stockValue: number; damagedValue: number; totalValue?: number };
+  count?: number;
+  method?: string;
   output?: GstSide;
   input?: GstSide;
   net?: { cgst: number; sgst: number; igst: number };
@@ -135,6 +154,7 @@ const REPORTS: Array<{ type: ReportType; label: string; icon: LucideIcon; desc: 
   { type: "sales", label: "Sales Report", icon: FileText, desc: "Posted invoice line items" },
   { type: "purchases", label: "Purchase Report", icon: ShoppingCart, desc: "Confirmed PO line items" },
   { type: "stock", label: "Stock Report", icon: Boxes, desc: "Dual-stock position & valuation" },
+  { type: "valuation", label: "Valuation (WAC)", icon: Scale, desc: "Weighted average cost valuation" },
   { type: "gst", label: "GST Summary", icon: Percent, desc: "Output tax vs ITC vs net payable" },
 ];
 
@@ -183,8 +203,8 @@ export default function ReportsView() {
         const res = await apiGet<ReportResponse>("/api/v1/reports", {
           firmId: activeFirmId,
           type,
-          dateFrom: type === "stock" ? undefined : dateFrom || undefined,
-          dateTo: type === "stock" ? undefined : dateTo || undefined,
+          dateFrom: type === "stock" || type === "valuation" ? undefined : dateFrom || undefined,
+          dateTo: type === "stock" || type === "valuation" ? undefined : dateTo || undefined,
         });
         if (alive) setData(res);
       } catch (e) {
@@ -231,6 +251,19 @@ export default function ReportsView() {
         out.push([r.sku, r.name, r.category, r.brand, r.unit, r.isActive ? "ACTIVE" : "INACTIVE", r.stockQuantity, r.damagedStock, r.lowStockThreshold, r.purchaseCost, r.stockValue, r.damagedValue])
       );
       downloadCSV(`stock-report-${toISODate(new Date())}.csv`, out);
+    } else if (data.type === "valuation" && data.rows) {
+      const rows = data.rows as ValuationRow[];
+      const out: (string | number)[][] = [
+        ["Stock Valuation — Weighted Average Cost", `Generated ${toISODate(new Date())}`],
+        ["SKU", "Name", "Category", "Unit", "WAC", "Purchase Cost", "Sellable Qty", "Damaged Qty", "Stock Value", "Damaged Value", "Total Value", "Receipts Qty", "Method"],
+      ];
+      rows.forEach((r) =>
+        out.push([r.sku, r.name, r.category, r.unit, r.wac, r.purchaseCost, r.stockQuantity, r.damagedStock, r.stockValue, r.damagedValue, r.totalValue, r.receiptsQty, r.method])
+      );
+      if (data.totals) {
+        out.push([], ["TOTALS", "", "", "", "", "", "", "", data.totals.stockValue, data.totals.damagedValue, data.totals.totalValue ?? data.totals.stockValue + data.totals.damagedValue]);
+      }
+      downloadCSV(`stock-valuation-wac-${toISODate(new Date())}.csv`, out);
     } else if (data.type === "gst" && data.output && data.input && data.net) {
       const out: (string | number)[][] = [
         ["GST Summary", `${dateFrom} → ${dateTo}`],
@@ -282,7 +315,7 @@ export default function ReportsView() {
       />
 
       {/* ── Report type cards ───────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="dmk-enter-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {REPORTS.map((r) => {
           const Icon = r.icon;
           const selected = type === r.type;
@@ -327,7 +360,7 @@ export default function ReportsView() {
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            disabled={type === "stock"}
+            disabled={type === "stock" || type === "valuation"}
             className={cn(inputCls, "[color-scheme:dark] disabled:opacity-50")}
           />
         </div>
@@ -337,12 +370,12 @@ export default function ReportsView() {
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            disabled={type === "stock"}
+            disabled={type === "stock" || type === "valuation"}
             className={cn(inputCls, "[color-scheme:dark] disabled:opacity-50")}
           />
         </div>
         {type === "stock" && (
-          <p className="text-[11px] text-dmk-text-muted pb-1">Stock report is a position snapshot — date filters not applicable.</p>
+          <p className="text-[11px] text-dmk-text-muted pb-1">Stock &amp; valuation reports are position snapshots — date filters not applicable.</p>
         )}
       </div>
 
@@ -358,6 +391,12 @@ export default function ReportsView() {
         <PurchasesReport rows={(data.rows ?? []) as PurchaseRow[]} />
       ) : data.type === "stock" ? (
         <StockReport rows={(data.rows ?? []) as StockRow[]} totals={data.totals} />
+      ) : data.type === "valuation" ? (
+        <ValuationReport
+          rows={(data.rows ?? []) as ValuationRow[]}
+          totals={data.totals}
+          method={data.method}
+        />
       ) : data.output && data.input && data.net ? (
         <GstReport output={data.output} input={data.input} net={data.net} />
       ) : (
@@ -607,6 +646,127 @@ function StockReport({ rows, totals }: { rows: StockRow[]; totals?: { stockValue
                 </tr>
               ))}
             </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STOCK VALUATION (WAC) — weighted average cost from receipts
+// ═══════════════════════════════════════════════════════════════
+
+function ValuationReport({
+  rows,
+  totals,
+  method,
+}: {
+  rows: ValuationRow[];
+  totals?: { stockValue: number; damagedValue: number; totalValue?: number };
+  method?: string;
+}) {
+  const stockValue = totals?.stockValue ?? rows.reduce((s, r) => s + r.stockValue, 0);
+  const damagedValue = totals?.damagedValue ?? rows.reduce((s, r) => s + r.damagedValue, 0);
+  const totalValue = totals?.totalValue ?? stockValue + damagedValue;
+  const costValue = rows.reduce((s, r) => s + r.purchaseCost * r.stockQuantity, 0);
+  const variance = Math.round((stockValue - costValue) * 100) / 100;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="dmk-kpi p-4">
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Stock Value @ WAC</span>
+          <span className="font-money text-[19px] font-semibold text-dmk-success block mt-2">{formatINR(stockValue)}</span>
+        </div>
+        <div className="dmk-kpi p-4">
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Quarantine @ WAC</span>
+          <span className="font-money text-[19px] font-semibold text-dmk-danger block mt-2">{formatINR(damagedValue)}</span>
+        </div>
+        <div className="dmk-kpi p-4">
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Total Valuation</span>
+          <span className="font-money text-[19px] font-semibold text-dmk-text-primary block mt-2">{formatINR(totalValue)}</span>
+        </div>
+        <div className="dmk-kpi p-4">
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Variance vs Cost</span>
+          <span className={cn("font-money text-[19px] font-semibold block mt-2", variance === 0 ? "text-dmk-text-primary" : variance > 0 ? "text-dmk-info" : "text-dmk-warning")}>
+            {variance >= 0 ? "+" : ""}{formatINR(variance)}
+          </span>
+        </div>
+      </div>
+
+      <div className="dmk-well px-3.5 py-2.5 flex items-center gap-2">
+        <Scale className="h-3.5 w-3.5 text-dmk-info shrink-0" />
+        <p className="text-[11.5px] text-dmk-text-secondary">
+          <span className="font-semibold text-dmk-text-primary">Method:</span> {method ?? "Weighted Average Cost from confirmed goods receipts"}.
+          Products never received fall back to last purchase cost.
+        </p>
+      </div>
+
+      <div className="dmk-card overflow-hidden">
+        <div className="overflow-x-auto max-h-[calc(100vh-500px)] overflow-y-auto">
+          <table className="dmk-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Product</th>
+                <th className="hidden md:table-cell">Category</th>
+                <th className="num text-right">Sellable</th>
+                <th className="num text-right">Damaged</th>
+                <th className="num text-right">WAC (₹)</th>
+                <th className="num text-right hidden lg:table-cell">Last Cost (₹)</th>
+                <th className="num text-right">Stock Value (₹)</th>
+                <th className="num text-right hidden md:table-cell">Damaged (₹)</th>
+                <th className="num text-right">Basis</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const delta = Math.round((r.wac - r.purchaseCost) * 100) / 100;
+                return (
+                  <tr key={r.sku}>
+                    <td className="font-money text-[12px] text-dmk-text-secondary">{r.sku}</td>
+                    <td className="max-w-[220px]">
+                      <span className="block truncate text-[12.5px] font-medium">{r.name}</span>
+                      <span className="text-[10.5px] text-dmk-text-muted">{r.unit}</span>
+                    </td>
+                    <td className="hidden md:table-cell text-[12px] text-dmk-text-secondary">{r.category}</td>
+                    <td className="num text-right text-dmk-text-primary">{r.stockQuantity}</td>
+                    <td className={cn("num text-right", r.damagedStock > 0 ? "text-dmk-danger font-semibold" : "text-dmk-text-muted")}>
+                      {r.damagedStock}
+                    </td>
+                    <td className="num text-right font-money font-semibold text-dmk-text-primary" title={delta !== 0 ? `Δ ${formatINR(delta)} vs last cost` : undefined}>
+                      {formatINR(r.wac)}
+                      {delta !== 0 && (
+                        <span className={cn("ml-1 text-[9.5px] font-sans", delta > 0 ? "text-dmk-info" : "text-dmk-warning")}>
+                          {delta > 0 ? "▲" : "▼"}
+                        </span>
+                      )}
+                    </td>
+                    <td className="num text-right hidden lg:table-cell text-dmk-text-muted">{formatINR(r.purchaseCost)}</td>
+                    <td className="num text-right font-money font-semibold text-dmk-success">{formatINR(r.stockValue)}</td>
+                    <td className="num text-right hidden md:table-cell font-money text-dmk-danger">{formatINR(r.damagedValue)}</td>
+                    <td>
+                      <Badge tone={r.method.startsWith("WAC") ? "info" : "neutral"}>
+                        {r.method.startsWith("WAC") ? `${r.receiptsQty} recd` : "last cost"}
+                      </Badge>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {rows.length > 0 && (
+              <tfoot>
+                <tr className="bg-dmk-input-well">
+                  <td colSpan={7} className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
+                    Totals — {rows.length} products valued
+                  </td>
+                  <td className="num text-right font-money font-bold text-dmk-success">{formatINR(stockValue)}</td>
+                  <td className="num text-right hidden md:table-cell font-money font-bold text-dmk-danger">{formatINR(damagedValue)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>

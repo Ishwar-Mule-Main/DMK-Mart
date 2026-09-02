@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { Menu, Building2, CalendarRange, Bell, ChevronDown, Plus, CircleUser, ShieldCheck } from "lucide-react";
+import { Menu, Building2, CalendarRange, Bell, ChevronDown, Plus, CircleUser, ShieldCheck, Search } from "lucide-react";
 import { useErpStore } from "@/store/erp-store";
 import { apiGet, apiPost } from "@/lib/api-client";
 import type { Firm, LowStockItem } from "@/types/erp";
@@ -44,6 +44,8 @@ export function Header() {
     // opens settings view to create firm
     useErpStore.getState().setView("settings");
   };
+
+  const openPalette = () => window.dispatchEvent(new Event("dmk:open-palette"));
 
   return (
     <header className="fixed top-0 inset-x-0 z-[60] h-14 bg-[#0D1527]/90 backdrop-blur-md border-b border-dmk-border-subtle">
@@ -139,6 +141,24 @@ export function Header() {
         </DropdownMenu>
 
         <div className="flex-1" />
+
+        {/* Command palette trigger (⌘K) */}
+        <button
+          onClick={openPalette}
+          className="hidden md:flex h-9 items-center gap-2 rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-3 text-[12px] text-dmk-text-muted hover:bg-dmk-hover hover:text-dmk-text-secondary transition-colors"
+          aria-label="Open command palette (Cmd+K)"
+        >
+          <Search className="h-3.5 w-3.5" strokeWidth={1.75} />
+          <span>Search everything…</span>
+          <kbd className="pointer-events-none ml-2 rounded border border-dmk-border-subtle bg-dmk-bg-primary px-1.5 py-0.5 font-mono text-[9.5px] text-dmk-text-muted">⌘K</kbd>
+        </button>
+        <button
+          onClick={openPalette}
+          className="md:hidden h-9 w-9 flex items-center justify-center rounded-lg hover:bg-dmk-hover text-dmk-text-secondary"
+          aria-label="Search"
+        >
+          <Search className="h-[18px] w-[18px]" strokeWidth={1.75} />
+        </button>
 
         {/* Notifications */}
         <DropdownMenu>

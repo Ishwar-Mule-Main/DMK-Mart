@@ -7,6 +7,7 @@
 import * as React from "react";
 import { Header } from "./header";
 import { Sidebar } from "./sidebar";
+import { CommandPalette } from "./command-palette";
 import { useErpStore, type ViewId } from "@/store/erp-store";
 import { apiGet, apiPost } from "@/lib/api-client";
 import type { Firm } from "@/types/erp";
@@ -147,8 +148,9 @@ export function AppShell() {
     <div className="min-h-screen flex flex-col bg-dmk-bg-primary">
       <Header />
       <Sidebar />
+      <CommandPalette />
       <div className={cn("flex-1 flex flex-col transition-all duration-200 mt-14", sidebarOpen ? "lg:ml-[240px]" : "lg:ml-[64px]")}>
-        <main className="flex-1 px-3 sm:px-5 py-4 sm:py-5 max-w-[1600px] w-full mx-auto">
+        <main key={view} className="dmk-enter flex-1 px-3 sm:px-5 py-4 sm:py-5 max-w-[1600px] w-full mx-auto">
           <ActiveView />
         </main>
         <footer className="mt-auto border-t border-dmk-border-subtle bg-[#0D1527]/60">

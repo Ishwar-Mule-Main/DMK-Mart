@@ -305,6 +305,69 @@ body {
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* ─── Entrance animations (per design system: fade + translateY(8px)) ─── */
+@keyframes dmk-enter-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dmk-enter {
+  animation: dmk-enter-up var(--duration-normal) var(--ease-out) both;
+}
+
+.dmk-enter-stagger > * {
+  animation: dmk-enter-up var(--duration-normal) var(--ease-out) both;
+}
+.dmk-enter-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.dmk-enter-stagger > *:nth-child(2) { animation-delay: 40ms; }
+.dmk-enter-stagger > *:nth-child(3) { animation-delay: 80ms; }
+.dmk-enter-stagger > *:nth-child(4) { animation-delay: 120ms; }
+.dmk-enter-stagger > *:nth-child(5) { animation-delay: 160ms; }
+.dmk-enter-stagger > *:nth-child(6) { animation-delay: 200ms; }
+
+/* Clickable drill-down cards */
+.dmk-kpi-clickable {
+  cursor: pointer;
+  position: relative;
+}
+.dmk-kpi-clickable::after {
+  content: "→";
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 12px;
+  color: var(--text-disabled);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+.dmk-kpi-clickable:hover::after {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--accent-orange);
+}
+.dmk-kpi-clickable:focus-visible {
+  outline: none;
+  border-color: var(--border-medium);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
+/* Global focus ring for interactive elements */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[role="menuitem"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px rgba(37, 99, 235, 0.45);
+  border-radius: 8px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
