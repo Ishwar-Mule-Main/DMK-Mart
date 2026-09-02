@@ -264,7 +264,118 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    throw new BusinessError("ERR_VALIDATION", "type must be one of sales | purchases | stock | gst | valuation", 400);
+    // ── GSTR-1 (sales-side outward supplies summary) ─────────
+    // B2B (registered buyer GSTIN) vs B2C split, rate-wise tax
+    // buckets, and HSN-wise summary — the filing-side mirror of
+    // the GSTR-2B purchase recon (cycle 17).
+    if (type === "gstr1") {
+      const invoices = await db.invoice.findMany({
+        where: { firmId, status: "POSTED", ...range("invoiceDate") },
+        include: {
+          customer: { select: { partyName: true, gstin: true, stateCode: true } },
+          lineItems: true,
+        },
+        orderBy: { invoiceDate: "desc" },
+        take: 2000,
+      });
+
+      interface RateAgg { taxable: number; cgst: number; sgst: number; igst: number; qty: number }
+      interface HsnAgg { hsn: string; description: string; uqc: string; qty: number; taxable: number; cgst: number; sgst: number; igst: number }
+      const rateAgg = new Map<number, RateAgg>();
+      const hsnAgg = new Map<string, HsnAgg>();
+
+      let b2bTaxable = 0, b2bCgst = 0, b2bSgst = 0, b2bIgst = 0, b2bCount = 0;
+      let b2cTaxable = 0, b2cCgst = 0, b2cSgst = 0, b2cIgst = 0, b2cCount = 0;
+      let totalTaxable = 0, totalCgst = 0, totalSgst = 0, totalIgst = 0;
+
+      const docRows = invoices.map((inv) => {
+        const gstin = inv.customer?.gstin?.trim() || "";
+        const isB2b = !inv.isCounterSale && gstin.length > 0;
+        const cg = round2(inv.totalCgst);
+        const sg = round2(inv.totalSgst);
+        const ig = round2(inv.totalIgst);
+        const tx = round2(inv.subtotal);
+
+        totalTaxable = round2(totalTaxable + tx);
+        totalCgst = round2(totalCgst + cg);
+        totalSgst = round2(totalSgst + sg);
+        totalIgst = round2(totalIgst + ig);
+        if (isB2b) {
+          b2bTaxable = round2(b2bTaxable + tx);
+          b2bCgst = round2(b2bCgst + cg);
+          b2bSgst = round2(b2bSgst + sg);
+          b2bIgst = round2(b2bIgst + ig);
+          b2bCount += 1;
+        } else {
+          b2cTaxable = round2(b2cTaxable + tx);
+          b2cCgst = round2(b2cCgst + cg);
+          b2cSgst = round2(b2cSgst + sg);
+          b2cIgst = round2(b2cIgst + ig);
+          b2cCount += 1;
+        }
+
+        for (const l of inv.lineItems) {
+          const rate = Number(l.gstRate) || 0;
+          const r = rateAgg.get(rate) ?? { taxable: 0, cgst: 0, sgst: 0, igst: 0, qty: 0 };
+          r.taxable = round2(r.taxable + Number(l.taxableAmount));
+          r.cgst = round2(r.cgst + Number(l.cgstAmount));
+          r.sgst = round2(r.sgst + Number(l.sgstAmount));
+          r.igst = round2(r.igst + Number(l.igstAmount));
+          r.qty = round2(r.qty + Number(l.quantity));
+          rateAgg.set(rate, r);
+
+          const hsnKey = l.hsnCode || "—";
+          const h = hsnAgg.get(hsnKey) ?? { hsn: hsnKey, description: l.productName, uqc: "", qty: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0 };
+          h.qty = round2(h.qty + Number(l.quantity));
+          h.taxable = round2(h.taxable + Number(l.taxableAmount));
+          h.cgst = round2(h.cgst + Number(l.cgstAmount));
+          h.sgst = round2(h.sgst + Number(l.sgstAmount));
+          h.igst = round2(h.igst + Number(l.igstAmount));
+          hsnAgg.set(hsnKey, h);
+        }
+
+        return {
+          docNo: inv.invoiceNumber,
+          date: inv.invoiceDate.toISOString().slice(0, 10),
+          party: (inv.customer?.partyName ?? inv.walkInName) || "Counter Sale",
+          gstin: gstin || null,
+          supplyType: isB2b ? "B2B" : "B2C",
+          placeOfSupply: inv.customer?.stateCode ?? firm.stateCode,
+          taxable: tx,
+          cgst: cg,
+          sgst: sg,
+          igst: ig,
+          total: round2(inv.grandTotal),
+        };
+      });
+
+      const rateWise = [...rateAgg.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([rate, v]) => ({ rate, ...v }));
+
+      const hsnWise = [...hsnAgg.values()].sort((a, b) => b.taxable - a.taxable);
+
+      return ok({
+        type,
+        totals: {
+          totalTaxable,
+          totalCgst,
+          totalSgst,
+          totalIgst,
+          totalTax: round2(totalCgst + totalSgst + totalIgst),
+          invoiceCount: invoices.length,
+          b2bCount,
+          b2cCount,
+        },
+        b2b: { count: b2bCount, taxable: b2bTaxable, cgst: b2bCgst, sgst: b2bSgst, igst: b2bIgst },
+        b2c: { count: b2cCount, taxable: b2cTaxable, cgst: b2cCgst, sgst: b2cSgst, igst: b2cIgst },
+        rateWise,
+        hsnWise,
+        rows: docRows,
+      });
+    }
+
+    throw new BusinessError("ERR_VALIDATION", "type must be one of sales | purchases | stock | gst | valuation | gstr1", 400);
   } catch (e) {
     return handleApiError(e);
   }

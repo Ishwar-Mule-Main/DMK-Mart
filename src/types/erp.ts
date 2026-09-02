@@ -123,6 +123,10 @@ export interface PurchaseOrder {
   notes: string;
   items: PurchaseOrderItem[];
   createdAt: string;
+  /** AP subledger badges (CONFIRMED only — from purchase-orders GET). */
+  paid?: number;
+  credited?: number;
+  outstanding?: number;
 }
 
 export interface InvoiceLineItem {

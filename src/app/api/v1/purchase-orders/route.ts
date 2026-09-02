@@ -17,6 +17,7 @@ import {
   resolveFirm,
 } from "@/app/api/v1/_lib/api";
 import { createPurchaseOrder } from "@/app/api/v1/_lib/po";
+import { settledTotalsByPo } from "@/app/api/v1/_lib/settlement-ap";
 
 export async function GET(request: NextRequest) {
   try {
@@ -47,7 +48,27 @@ export async function GET(request: NextRequest) {
       orderBy: { poDate: "desc" },
       take: 200,
     });
-    return ok(orders);
+
+    // AP subledger badges (cycle 17): settled/credited/outstanding on
+    // CONFIRMED orders — mirrors the invoice register pattern.
+    const settleMap = await settledTotalsByPo(
+      firmId,
+      orders.filter((o) => o.status === "CONFIRMED").map((o) => o.id)
+    );
+    const withSettlement = orders.map((o) => {
+      if (o.status !== "CONFIRMED") return o;
+      const s = settleMap.get(o.id);
+      const paid = s?.settled ?? 0;
+      const credited = s?.credited ?? 0;
+      return {
+        ...o,
+        paid,
+        credited,
+        outstanding: Math.round((o.grandTotal - paid - credited) * 100) / 100,
+      };
+    });
+
+    return ok(withSettlement);
   } catch (e) {
     return handleApiError(e);
   }

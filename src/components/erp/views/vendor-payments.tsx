@@ -42,7 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { consumePendingVendor } from "@/lib/settle-bus";
+import { consumePendingVendor, consumePendingPayPo } from "@/lib/settle-bus";
 import { cn } from "@/lib/utils";
 
 interface PayAllocation {
@@ -128,13 +128,21 @@ export default function VendorPaymentsView() {
   const [refresh, setRefresh] = React.useState(0);
   const [payOpen, setPayOpen] = React.useState(false);
   const [presetVendor, setPresetVendor] = React.useState<string | null>(null);
+  const [presetPo, setPresetPo] = React.useState<{ poId: string; vendorId: string } | null>(null);
 
   // Settle-from-context: party ledger "Pay" deep-links here (cycle 15).
+  // Cycle 17: purchase-order rows deep-link a SPECIFIC bill.
   // Handles both orders: event while mounted, or pending slot consumed on mount.
   React.useEffect(() => {
     const pending = consumePendingVendor();
     if (pending) {
       setPresetVendor(pending);
+      setPayOpen(true);
+    }
+    const pendingPo = consumePendingPayPo();
+    if (pendingPo) {
+      setPresetPo(pendingPo);
+      setPresetVendor(pendingPo.vendorId);
       setPayOpen(true);
     }
     function onSettle(e: Event) {
@@ -143,8 +151,19 @@ export default function VendorPaymentsView() {
       setPresetVendor(String(d.partyId));
       setPayOpen(true);
     }
+    function onPayPo(e: Event) {
+      const d = (e as CustomEvent).detail ?? {};
+      if (!d?.poId || !d?.vendorId) return;
+      setPresetPo({ poId: String(d.poId), vendorId: String(d.vendorId) });
+      setPresetVendor(String(d.vendorId));
+      setPayOpen(true);
+    }
     window.addEventListener("dmk:settle-vendor", onSettle);
-    return () => window.removeEventListener("dmk:settle-vendor", onSettle);
+    window.addEventListener("dmk:pay-po", onPayPo);
+    return () => {
+      window.removeEventListener("dmk:settle-vendor", onSettle);
+      window.removeEventListener("dmk:pay-po", onPayPo);
+    };
   }, []);
 
   React.useEffect(() => {
@@ -325,10 +344,14 @@ export default function VendorPaymentsView() {
         open={payOpen}
         onOpenChange={(o) => {
           setPayOpen(o);
-          if (!o) setPresetVendor(null);
+          if (!o) {
+            setPresetVendor(null);
+            setPresetPo(null);
+          }
         }}
         vendors={vendors}
         presetVendorId={presetVendor}
+        presetPoId={presetPo?.poId ?? null}
         onSaved={() => setRefresh((r) => r + 1)}
       />
     </div>
@@ -343,12 +366,14 @@ function RecordPaymentDialog({
   onOpenChange,
   vendors,
   presetVendorId,
+  presetPoId,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   vendors: Vendor[];
   presetVendorId?: string | null;
+  presetPoId?: string | null;
   onSaved: () => void;
 }) {
   const { toast } = useToast();
@@ -461,6 +486,17 @@ function RecordPaymentDialog({
     }
     setAllocs(next);
   }, [openPOs, presetVendorId, vendors]);
+
+  // ── Pay-from-PO preset (cycle 17): pin the FULL outstanding of the
+  // specific bill once open bills arrive and match the payment amount. ──
+  React.useEffect(() => {
+    if (!open || !presetPoId || !openPOs) return;
+    const po = openPOs.find((p) => p.poId === presetPoId);
+    if (!po || po.outstanding <= 0.009) return;
+    const v = po.outstanding.toFixed(2);
+    setAllocs({ [presetPoId]: v });
+    setAmount(v);
+  }, [open, presetPoId, openPOs]);
 
   // Reset allocations when the vendor changes
   React.useEffect(() => {

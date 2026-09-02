@@ -12,6 +12,7 @@ import * as React from "react";
 import {
   ClipboardList,
   Eye,
+  HandCoins,
   PackageCheck,
   Pencil,
   Plus,
@@ -62,6 +63,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { requestPayPo } from "@/lib/settle-bus";
 import { cn } from "@/lib/utils";
 
 // ── API row shapes (as returned by the routes) ──────────────────
@@ -108,6 +110,10 @@ interface PoRow {
   notes: string;
   items: PoItemRow[];
   createdAt: string;
+  /** AP subledger (CONFIRMED only — from purchase-orders GET, cycle 17). */
+  paid?: number;
+  credited?: number;
+  outstanding?: number;
 }
 
 interface PoLine {
@@ -158,6 +164,7 @@ function vendorBadge(v?: PoVendor | Vendor) {
 export default function PurchaseOrdersView() {
   const { toast } = useToast();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const setView = useErpStore((s) => s.setView);
 
   const [query, setQuery] = React.useState("");
   const [status, setStatus] = React.useState("ALL");
@@ -196,6 +203,17 @@ export default function PurchaseOrdersView() {
     };
   }, [activeFirmId, query, status, refresh, toast]);
 
+  /** Cycle 17: pay a specific bill from its PO row. */
+  function payFromRow(po: PoRow) {
+    if (po.status !== "CONFIRMED" || !po.outstanding || po.outstanding <= 0.009) return;
+    requestPayPo(po.id, po.vendorId);
+    setView("purchase/payments");
+    toast({
+      title: "Opening payment dialog",
+      description: `${po.poNumber} · ${formatINR(po.outstanding)} outstanding pre-allocated — confirm there.`,
+    });
+  }
+
   async function confirmCancel() {
     if (!cancelOf) return;
     setCancelling(true);
@@ -216,6 +234,9 @@ export default function PurchaseOrdersView() {
   }
 
   const pendingCount = (rows ?? []).filter((r) => r.status === "PENDING").length;
+  const openPayable = (rows ?? [])
+    .filter((r) => r.status === "CONFIRMED" && (r.outstanding ?? 0) > 0.009)
+    .reduce((s, r) => s + (r.outstanding ?? 0), 0);
 
   return (
     <div className="space-y-4">
@@ -263,7 +284,7 @@ export default function PurchaseOrdersView() {
               hint="Create a PO to a manufacturer or distributor — receive it via GRN to book stock and payable."
             />
           ) : (
-            <table className="dmk-table min-w-[1120px]">
+            <table className="dmk-table min-w-[1210px]">
               <thead>
                 <tr>
                   <th>PO #</th>
@@ -273,6 +294,7 @@ export default function PurchaseOrdersView() {
                   <th className="text-right">Taxable</th>
                   <th className="text-right">Tax</th>
                   <th className="text-right">Grand Total</th>
+                  <th className="text-right">Balance</th>
                   <th>Status</th>
                   <th />
                 </tr>
@@ -280,8 +302,11 @@ export default function PurchaseOrdersView() {
               <tbody>
                 {rows.map((po) => {
                   const tax = po.totalCgst + po.totalSgst + po.totalIgst;
+                  const osd = po.outstanding;
+                  const settled = po.status === "CONFIRMED" && osd !== undefined && osd <= 0.009;
+                  const payable = po.status === "CONFIRMED" && osd !== undefined && osd > 0.009;
                   return (
-                    <tr key={po.id}>
+                    <tr key={po.id} className="group/row">
                       <td className="font-money text-[12px] text-dmk-text-primary">
                         {po.poNumber}
                         {po.vendorBillNo && (
@@ -299,6 +324,17 @@ export default function PurchaseOrdersView() {
                       <td className="num text-[12.5px]">{formatINR(po.subtotal)}</td>
                       <td className="num text-[12.5px] text-dmk-text-secondary">{formatINR(tax)}</td>
                       <td className="num text-[13px] font-semibold text-dmk-text-primary">{formatINR(po.grandTotal)}</td>
+                      <td className="num text-right whitespace-nowrap">
+                        {po.status !== "CONFIRMED" ? (
+                          <span className="text-[11px] text-dmk-text-muted">—</span>
+                        ) : osd === undefined ? (
+                          <span className="text-[11px] text-dmk-text-muted">…</span>
+                        ) : settled ? (
+                          <Badge tone="success">SETTLED</Badge>
+                        ) : (
+                          <span className="font-money text-[12.5px] font-semibold text-dmk-blue">{formatINR(osd)}</span>
+                        )}
+                      </td>
                       <td><StatusBadge status={po.status} /></td>
                       <td className="text-right whitespace-nowrap">
                         {po.status === "PENDING" && (
@@ -328,6 +364,20 @@ export default function PurchaseOrdersView() {
                             </Button>
                           </>
                         )}
+                        {payable && (
+                          <button
+                            type="button"
+                            onClick={() => payFromRow(po)}
+                            title={`Record a payment against ${po.poNumber} (${formatINR(osd ?? 0)})`}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide mr-1.5",
+                              "opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all",
+                              "border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover text-dmk-info hover:border-dmk-info/40"
+                            )}
+                          >
+                            <HandCoins className="h-3 w-3" /> Pay
+                          </button>
+                        )}
                         {po.status !== "PENDING" && (
                           <Button
                             size="sm"
@@ -350,6 +400,9 @@ export default function PurchaseOrdersView() {
           <div className="dmk-well px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11.5px] text-dmk-text-muted">
             <span><span className="font-money text-dmk-text-secondary">{rows.length}</span> orders</span>
             <span><span className="font-money text-dmk-warning">{pendingCount}</span> awaiting receipt</span>
+            {openPayable > 0.009 && (
+              <span><span className="font-money text-dmk-blue">{formatINR(openPayable)}</span> open payable — hover a row to <span className="text-dmk-info font-semibold">Pay</span></span>
+            )}
             <span className="hidden sm:inline">GRN posts: stock IN · vendor payable Cr · PURCHASE journal</span>
           </div>
         )}

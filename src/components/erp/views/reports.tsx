@@ -26,6 +26,7 @@ import {
   Percent,
   RefreshCw,
   Scale,
+  ScrollText,
   ShoppingCart,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -39,7 +40,7 @@ import { useErpStore, useActiveFirm } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-type ReportType = "sales" | "purchases" | "stock" | "gst" | "valuation";
+type ReportType = "sales" | "purchases" | "stock" | "gst" | "valuation" | "gstr1";
 
 // ─── Row shapes (verified against route source) ─────────────────
 
@@ -139,15 +140,74 @@ interface GstResponse {
   net: { cgst: number; sgst: number; igst: number };
 }
 
+// ── GSTR-1 (sales-side outward supplies) ────────────────────────
+interface Gstr1DocRow {
+  docNo: string;
+  date: string;
+  party: string;
+  gstin: string | null;
+  supplyType: "B2B" | "B2C";
+  placeOfSupply: string;
+  taxable: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  total: number;
+}
+
+interface Gstr1RateRow {
+  rate: number;
+  taxable: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  qty: number;
+}
+
+interface Gstr1HsnRow {
+  hsn: string;
+  description: string;
+  uqc: string;
+  qty: number;
+  taxable: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+}
+
+interface Gstr1Side {
+  count: number;
+  taxable: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+}
+
+interface Gstr1Totals {
+  totalTaxable: number;
+  totalCgst: number;
+  totalSgst: number;
+  totalIgst: number;
+  totalTax: number;
+  invoiceCount: number;
+  b2bCount: number;
+  b2cCount: number;
+}
+
 interface ReportResponse {
   type: ReportType;
   rows?: SalesRow[] | PurchaseRow[] | StockRow[] | ValuationRow[];
-  totals?: { stockValue: number; damagedValue: number; totalValue?: number };
+  totals?: { stockValue: number; damagedValue: number; totalValue?: number } | Gstr1Totals;
   count?: number;
   method?: string;
   output?: GstSide;
   input?: GstSide;
   net?: { cgst: number; sgst: number; igst: number };
+  // gstr1
+  b2b?: Gstr1Side;
+  b2c?: Gstr1Side;
+  rateWise?: Gstr1RateRow[];
+  hsnWise?: Gstr1HsnRow[];
 }
 
 const REPORTS: Array<{ type: ReportType; label: string; icon: LucideIcon; desc: string }> = [
@@ -156,6 +216,7 @@ const REPORTS: Array<{ type: ReportType; label: string; icon: LucideIcon; desc: 
   { type: "stock", label: "Stock Report", icon: Boxes, desc: "Dual-stock position & valuation" },
   { type: "valuation", label: "Valuation (WAC)", icon: Scale, desc: "Weighted average cost valuation" },
   { type: "gst", label: "GST Summary", icon: Percent, desc: "Output tax vs ITC vs net payable" },
+  { type: "gstr1", label: "GSTR-1 (Sales)", icon: ScrollText, desc: "Outward supplies — B2B/B2C · rate · HSN" },
 ];
 
 const CHART_BLUE = "#2563EB";
@@ -261,9 +322,27 @@ export default function ReportsView() {
         out.push([r.sku, r.name, r.category, r.unit, r.wac, r.purchaseCost, r.stockQuantity, r.damagedStock, r.stockValue, r.damagedValue, r.totalValue, r.receiptsQty, r.method])
       );
       if (data.totals) {
-        out.push([], ["TOTALS", "", "", "", "", "", "", "", data.totals.stockValue, data.totals.damagedValue, data.totals.totalValue ?? data.totals.stockValue + data.totals.damagedValue]);
+        const vt = data.totals as { stockValue: number; damagedValue: number; totalValue?: number };
+        out.push([], ["TOTALS", "", "", "", "", "", "", "", vt.stockValue, vt.damagedValue, vt.totalValue ?? vt.stockValue + vt.damagedValue]);
       }
       downloadCSV(`stock-valuation-wac-${toISODate(new Date())}.csv`, out);
+    } else if (data.type === "gstr1" && data.totals) {
+      const t = data.totals as Gstr1Totals;
+      const docs = (data.rows ?? []) as unknown as Gstr1DocRow[];
+      const out: (string | number)[][] = [
+        ["GSTR-1 — Outward Supplies", `${dateFrom} → ${dateTo}`],
+        ["Taxable", "CGST", "SGST", "IGST", "Total Tax", "Invoices", "B2B", "B2C"],
+        [t.totalTaxable, t.totalCgst, t.totalSgst, t.totalIgst, t.totalTax, t.invoiceCount, t.b2bCount, t.b2cCount],
+        [],
+        ["RATE-WISE"],
+        ["GST %", "Qty", "Taxable", "CGST", "SGST", "IGST"],
+      ];
+      (data.rateWise ?? []).forEach((r) => out.push([`${r.rate}%`, r.qty, r.taxable, r.cgst, r.sgst, r.igst]));
+      out.push([], ["HSN-WISE"], ["HSN", "Description", "Qty", "Taxable", "CGST", "SGST", "IGST"]);
+      (data.hsnWise ?? []).forEach((r) => out.push([r.hsn, r.description, r.qty, r.taxable, r.cgst, r.sgst, r.igst]));
+      out.push([], ["INVOICE DOCS"], ["Doc #", "Date", "Party", "GSTIN", "Type", "Place of Supply", "Taxable", "CGST", "SGST", "IGST", "Total"]);
+      docs.forEach((r) => out.push([r.docNo, r.date, r.party, r.gstin ?? "", r.supplyType, r.placeOfSupply, r.taxable, r.cgst, r.sgst, r.igst, r.total]));
+      downloadCSV(`gstr1-outward-${dateFrom}-to-${dateTo}.csv`, out);
     } else if (data.type === "gst" && data.output && data.input && data.net) {
       const out: (string | number)[][] = [
         ["GST Summary", `${dateFrom} → ${dateTo}`],
@@ -315,7 +394,7 @@ export default function ReportsView() {
       />
 
       {/* ── Report type cards ───────────────────────────── */}
-      <div className="dmk-enter-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="dmk-enter-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {REPORTS.map((r) => {
           const Icon = r.icon;
           const selected = type === r.type;
@@ -390,12 +469,21 @@ export default function ReportsView() {
       ) : data.type === "purchases" ? (
         <PurchasesReport rows={(data.rows ?? []) as PurchaseRow[]} />
       ) : data.type === "stock" ? (
-        <StockReport rows={(data.rows ?? []) as StockRow[]} totals={data.totals} />
+        <StockReport rows={(data.rows ?? []) as StockRow[]} totals={data.totals as { stockValue: number; damagedValue: number } | undefined} />
       ) : data.type === "valuation" ? (
         <ValuationReport
           rows={(data.rows ?? []) as ValuationRow[]}
-          totals={data.totals}
+          totals={data.totals as { stockValue: number; damagedValue: number; totalValue?: number } | undefined}
           method={data.method}
+        />
+      ) : data.type === "gstr1" && data.totals ? (
+        <Gstr1Report
+          totals={data.totals as Gstr1Totals}
+          b2b={data.b2b}
+          b2c={data.b2c}
+          rateWise={data.rateWise ?? []}
+          hsnWise={data.hsnWise ?? []}
+          docs={(data.rows ?? []) as unknown as Gstr1DocRow[]}
         />
       ) : data.output && data.input && data.net ? (
         <GstReport output={data.output} input={data.input} net={data.net} />
@@ -922,6 +1010,244 @@ function GstSideTable({ title, tone, rows }: { title: string; tone: "success" | 
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GSTR-1 — OUTWARD SUPPLIES (sales-side filing summary, cycle 17)
+// B2B/B2C split · rate-wise buckets · HSN summary · invoice docs
+// ═══════════════════════════════════════════════════════════════
+
+function Gstr1Report({
+  totals,
+  b2b,
+  b2c,
+  rateWise,
+  hsnWise,
+  docs,
+}: {
+  totals: Gstr1Totals;
+  b2b?: Gstr1Side;
+  b2c?: Gstr1Side;
+  rateWise: Gstr1RateRow[];
+  hsnWise: Gstr1HsnRow[];
+  docs: Gstr1DocRow[];
+}) {
+  const rateTaxTotal = rateWise.reduce((s, r) => s + r.taxable, 0);
+  const hsnTaxTotal = hsnWise.reduce((s, r) => s + r.taxable, 0);
+  // Cross-foot: rate-wise + hsn-wise taxable must equal the doc totals.
+  const rateDelta = Math.round((rateTaxTotal - totals.totalTaxable) * 100) / 100;
+  const hsnDelta = Math.round((hsnTaxTotal - totals.totalTaxable) * 100) / 100;
+  const reconciled = Math.abs(rateDelta) <= 0.01 && Math.abs(hsnDelta) <= 0.01;
+
+  return (
+    <div className="space-y-4">
+      {/* KPI row */}
+      <div className="dmk-enter-stagger grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="dmk-kpi p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Total Output Tax</span>
+            <Percent className="h-4 w-4 text-dmk-orange" />
+          </div>
+          <span className="font-money text-[20px] font-semibold text-dmk-orange block mt-2">{formatINR(totals.totalTax)}</span>
+          <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
+            CGST {formatINR(totals.totalCgst)} · SGST {formatINR(totals.totalSgst)} · IGST {formatINR(totals.totalIgst)}
+          </span>
+        </div>
+        <div className="dmk-kpi p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">B2B Taxable</span>
+            <Badge tone="info">B2B</Badge>
+          </div>
+          <span className="font-money text-[20px] font-semibold text-dmk-text-primary block mt-2">{formatINR(b2b?.taxable ?? 0)}</span>
+          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
+            {b2b?.count ?? 0} doc{(b2b?.count ?? 0) === 1 ? "" : "s"} · registered buyers
+          </span>
+        </div>
+        <div className="dmk-kpi p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">B2C Taxable</span>
+            <Badge tone="dr">B2C</Badge>
+          </div>
+          <span className="font-money text-[20px] font-semibold text-dmk-text-primary block mt-2">{formatINR(b2c?.taxable ?? 0)}</span>
+          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
+            {b2c?.count ?? 0} doc{(b2c?.count ?? 0) === 1 ? "" : "s"} · counter / unregistered
+          </span>
+        </div>
+        <div className="dmk-kpi p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Invoices</span>
+            <ScrollText className="h-4 w-4 text-dmk-gold" />
+          </div>
+          <span className="font-money text-[20px] font-semibold text-dmk-text-primary block mt-2">{totals.invoiceCount}</span>
+          <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
+            Taxable {formatINR(totals.totalTaxable)} total
+          </span>
+        </div>
+      </div>
+
+      {/* Reconciliation strip */}
+      <div className="dmk-card px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px]">
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10.5px] font-bold uppercase tracking-wide",
+            reconciled
+              ? "border-dmk-success/40 bg-dmk-success/10 text-dmk-success"
+              : "border-dmk-warning/40 bg-dmk-warning/10 text-dmk-warning"
+          )}
+        >
+          {reconciled ? "CROSS-FOOTED ✓" : `Δ ${formatINR(Math.abs(rateDelta || hsnDelta))}`}
+        </span>
+        <span className="text-dmk-text-muted">
+          Rate-wise <span className="font-money text-dmk-text-secondary">{formatINR(rateTaxTotal)}</span>
+          {" · "}HSN-wise <span className="font-money text-dmk-text-secondary">{formatINR(hsnTaxTotal)}</span>
+          {" · "}both reconcile to invoice totals <span className="font-money text-dmk-text-secondary">{formatINR(totals.totalTaxable)}</span>
+        </span>
+      </div>
+
+      {/* Rate-wise */}
+      <div className="dmk-card overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-dmk-border-subtle">
+          <h2 className="text-[13px] font-semibold text-dmk-text-primary">Rate-wise Tax Buckets</h2>
+          <Badge tone="gold">{rateWise.length} rate{rateWise.length === 1 ? "" : "s"}</Badge>
+        </div>
+        {rateWise.length === 0 ? (
+          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No supplies in this window.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="dmk-table">
+              <thead>
+                <tr>
+                  <th>GST Rate</th>
+                  <th className="num text-right">Qty</th>
+                  <th className="num text-right">Taxable (₹)</th>
+                  <th className="num text-right">CGST (₹)</th>
+                  <th className="num text-right">SGST (₹)</th>
+                  <th className="num text-right">IGST (₹)</th>
+                  <th className="num text-right">Tax (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rateWise.map((r) => (
+                  <tr key={r.rate}>
+                    <td>
+                      <span className="dmk-badge bg-dmk-gold/15 text-dmk-gold font-money">{r.rate}%</span>
+                    </td>
+                    <td className="num text-right text-dmk-text-secondary">{r.qty}</td>
+                    <td className="num text-right text-dmk-text-primary">{formatINR(r.taxable)}</td>
+                    <td className="num text-right text-dmk-text-secondary">{r.cgst ? formatINR(r.cgst) : "—"}</td>
+                    <td className="num text-right text-dmk-text-secondary">{r.sgst ? formatINR(r.sgst) : "—"}</td>
+                    <td className="num text-right text-dmk-text-secondary">{r.igst ? formatINR(r.igst) : "—"}</td>
+                    <td className="num text-right font-money font-semibold text-dmk-orange">
+                      {formatINR(r.cgst + r.sgst + r.igst)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
+                  <td className="font-bold text-dmk-text-primary">TOTAL</td>
+                  <td className="num text-right text-dmk-text-secondary">{rateWise.reduce((s, r) => s + r.qty, 0)}</td>
+                  <td className="num text-right font-money font-bold">{formatINR(rateTaxTotal)}</td>
+                  <td className="num text-right font-money font-bold">{formatINR(totals.totalCgst)}</td>
+                  <td className="num text-right font-money font-bold">{formatINR(totals.totalSgst)}</td>
+                  <td className="num text-right font-money font-bold">{formatINR(totals.totalIgst)}</td>
+                  <td className="num text-right font-money font-bold text-dmk-orange">{formatINR(totals.totalTax)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* HSN-wise */}
+      <div className="dmk-card overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-dmk-border-subtle">
+          <h2 className="text-[13px] font-semibold text-dmk-text-primary">HSN-wise Summary</h2>
+          <Badge tone="neutral">{hsnWise.length} HSN{hsnWise.length === 1 ? "" : "s"}</Badge>
+        </div>
+        {hsnWise.length === 0 ? (
+          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No supplies in this window.</p>
+        ) : (
+          <div className="overflow-x-auto max-h-72 overflow-y-auto">
+            <table className="dmk-table">
+              <thead>
+                <tr>
+                  <th>HSN</th>
+                  <th>Description</th>
+                  <th className="num text-right">Qty</th>
+                  <th className="num text-right">Taxable (₹)</th>
+                  <th className="num text-right">CGST (₹)</th>
+                  <th className="num text-right">SGST (₹)</th>
+                  <th className="num text-right">IGST (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {hsnWise.map((r) => (
+                  <tr key={r.hsn}>
+                    <td className="font-money text-[12px] text-dmk-text-primary">{r.hsn}</td>
+                    <td className="max-w-[240px]"><span className="block truncate text-[12.5px]" title={r.description}>{r.description}</span></td>
+                    <td className="num text-right text-dmk-text-secondary">{r.qty}</td>
+                    <td className="num text-right text-dmk-text-primary">{formatINR(r.taxable)}</td>
+                    <td className="num text-right text-dmk-text-secondary">{r.cgst ? formatINR(r.cgst) : "—"}</td>
+                    <td className="num text-right text-dmk-text-secondary">{r.sgst ? formatINR(r.sgst) : "—"}</td>
+                    <td className="num text-right text-dmk-text-secondary">{r.igst ? formatINR(r.igst) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Invoice docs */}
+      <div className="dmk-card overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-dmk-border-subtle">
+          <h2 className="text-[13px] font-semibold text-dmk-text-primary">Outward Invoice Documents</h2>
+          <Badge tone="neutral">{docs.length} docs</Badge>
+        </div>
+        {docs.length === 0 ? (
+          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No invoices in this window.</p>
+        ) : (
+          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+            <table className="dmk-table min-w-[980px]">
+              <thead>
+                <tr>
+                  <th>Doc #</th>
+                  <th>Date</th>
+                  <th>Party</th>
+                  <th>GSTIN</th>
+                  <th>Type</th>
+                  <th>POS</th>
+                  <th className="num text-right">Taxable (₹)</th>
+                  <th className="num text-right">CGST (₹)</th>
+                  <th className="num text-right">SGST (₹)</th>
+                  <th className="num text-right">IGST (₹)</th>
+                  <th className="num text-right">Total (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {docs.map((r) => (
+                  <tr key={r.docNo}>
+                    <td className="font-money text-[12px] whitespace-nowrap text-dmk-text-primary">{r.docNo}</td>
+                    <td className="text-[12px] text-dmk-text-secondary whitespace-nowrap">{formatDate(r.date)}</td>
+                    <td className="max-w-[200px]"><span className="block truncate text-[12.5px]" title={r.party}>{r.party}</span></td>
+                    <td className="font-money text-[11px] text-dmk-text-muted whitespace-nowrap">{r.gstin ?? "—"}</td>
+                    <td>{r.supplyType === "B2B" ? <Badge tone="info">B2B</Badge> : <Badge tone="dr">B2C</Badge>}</td>
+                    <td className="text-[12px] text-dmk-text-muted">{r.placeOfSupply}</td>
+                    <td className="num text-right text-dmk-text-primary">{formatINR(r.taxable)}</td>
+                    <td className="num text-right text-dmk-text-secondary">{r.cgst ? formatINR(r.cgst) : "—"}</td>
+                    <td className="num text-right text-dmk-text-secondary">{r.sgst ? formatINR(r.sgst) : "—"}</td>
+                    <td className="num text-right text-dmk-text-secondary">{r.igst ? formatINR(r.igst) : "—"}</td>
+                    <td className="num text-right font-money font-semibold text-dmk-text-primary">{formatINR(r.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

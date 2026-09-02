@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { consumePendingCustomer } from "@/lib/settle-bus";
+import { consumePendingCustomer, consumePendingSettleInvoice } from "@/lib/settle-bus";
 import { cn } from "@/lib/utils";
 
 const MODES = ["NEFT", "UPI", "CHEQUE", "CASH"] as const;
@@ -65,13 +65,20 @@ export default function ReceiptsView() {
   const [newOpen, setNewOpen] = React.useState(false);
   const [refresh, setRefresh] = React.useState(0);
   const [presetCustomer, setPresetCustomer] = React.useState<string | null>(null);
+  const [presetInvoice, setPresetInvoice] = React.useState<{ invoiceId: string; customerId: string } | null>(null);
 
   // Settle-from-context: party ledger "Settle" deep-links here (cycle 15).
+  // Cycle 17: invoice register rows deep-link a SPECIFIC invoice.
   // Handles both orders: event while mounted, or pending slot consumed on mount.
   React.useEffect(() => {
     const pending = consumePendingCustomer();
     if (pending) {
       setPresetCustomer(pending);
+      setNewOpen(true);
+    }
+    const pendingInv = consumePendingSettleInvoice();
+    if (pendingInv) {
+      setPresetInvoice(pendingInv);
       setNewOpen(true);
     }
     function onSettle(e: Event) {
@@ -80,8 +87,18 @@ export default function ReceiptsView() {
       setPresetCustomer(String(d.partyId));
       setNewOpen(true);
     }
+    function onSettleInvoice(e: Event) {
+      const d = (e as CustomEvent).detail ?? {};
+      if (!d?.invoiceId || !d?.customerId) return;
+      setPresetInvoice({ invoiceId: String(d.invoiceId), customerId: String(d.customerId) });
+      setNewOpen(true);
+    }
     window.addEventListener("dmk:settle-party", onSettle);
-    return () => window.removeEventListener("dmk:settle-party", onSettle);
+    window.addEventListener("dmk:settle-invoice", onSettleInvoice);
+    return () => {
+      window.removeEventListener("dmk:settle-party", onSettle);
+      window.removeEventListener("dmk:settle-invoice", onSettleInvoice);
+    };
   }, []);
 
   React.useEffect(() => {
@@ -261,10 +278,14 @@ export default function ReceiptsView() {
         open={newOpen}
         onOpenChange={(o) => {
           setNewOpen(o);
-          if (!o) setPresetCustomer(null);
+          if (!o) {
+            setPresetCustomer(null);
+            setPresetInvoice(null);
+          }
         }}
         customers={customers}
         presetCustomerId={presetCustomer}
+        presetInvoice={presetInvoice}
         onCreated={() => setRefresh((r) => r + 1)}
       />
     </div>
@@ -280,12 +301,14 @@ function NewReceiptDialog({
   onOpenChange,
   customers,
   presetCustomerId,
+  presetInvoice,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   customers: Customer[] | null;
   presetCustomerId?: string | null;
+  presetInvoice?: { invoiceId: string; customerId: string } | null;
   onCreated: () => void;
 }) {
   const { toast } = useToast();
@@ -398,6 +421,29 @@ function NewReceiptDialog({
     }
     setAllocs(next);
   }, [openInvoices, presetCustomerId, customers]);
+
+  // ── Settle-from-invoice preset (cycle 17): preselect the invoice's
+  // customer, then when the invoice list arrives pin the FULL
+  // outstanding of that one invoice and match the receipt amount. ──
+  const invPresetApplied = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!open || !presetInvoice) {
+      if (!open) invPresetApplied.current = null;
+      return;
+    }
+    if (invPresetApplied.current === presetInvoice.invoiceId) return;
+    invPresetApplied.current = presetInvoice.invoiceId;
+    setCustomerId(presetInvoice.customerId);
+  }, [open, presetInvoice]);
+
+  React.useEffect(() => {
+    if (!open || !presetInvoice || !openInvoices) return;
+    const inv = openInvoices.find((r) => r.invoiceId === presetInvoice.invoiceId);
+    if (!inv || inv.outstanding <= 0.009) return;
+    const v = inv.outstanding.toFixed(2);
+    setAllocs({ [presetInvoice.invoiceId]: v });
+    setAmount(v);
+  }, [open, presetInvoice, openInvoices]);
 
   // Reset allocations when the customer changes
   React.useEffect(() => {

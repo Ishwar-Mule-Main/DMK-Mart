@@ -15,6 +15,8 @@ let pendingCustomer: string | null = null;
 let pendingVendor: string | null = null;
 let pendingAgingTab: string | null = null;
 let pendingLedgerParty: { partyType: "CUSTOMER" | "VENDOR"; partyId: string } | null = null;
+let pendingSettleInvoice: { invoiceId: string; customerId: string } | null = null;
+let pendingPayPo: { poId: string; vendorId: string } | null = null;
 
 /** Fire a settle request for a customer (receipts dialog). */
 export function requestSettleCustomer(partyId: string): void {
@@ -49,6 +51,29 @@ export function requestLedgerParty(
   );
 }
 
+/**
+ * Settle one specific invoice (cycle 17): from the invoice register
+ * row, jump to Receipts with that invoice pre-allocated. Customer id
+ * rides along so the dialog can preselect before open invoices load.
+ */
+export function requestSettleInvoice(invoiceId: string, customerId: string): void {
+  pendingSettleInvoice = { invoiceId, customerId };
+  window.dispatchEvent(
+    new CustomEvent("dmk:settle-invoice", { detail: { invoiceId, customerId } })
+  );
+}
+
+/**
+ * Pay one specific PO (cycle 17): from the purchase-order row, jump
+ * to Vendor Payments with that bill pre-allocated.
+ */
+export function requestPayPo(poId: string, vendorId: string): void {
+  pendingPayPo = { poId, vendorId };
+  window.dispatchEvent(
+    new CustomEvent("dmk:pay-po", { detail: { poId, vendorId } })
+  );
+}
+
 /** One-shot consume — called on mount of the target view. */
 export function consumePendingCustomer(): string | null {
   const v = pendingCustomer;
@@ -77,5 +102,25 @@ export function consumePendingLedgerParty(): {
 } | null {
   const v = pendingLedgerParty;
   pendingLedgerParty = null;
+  return v;
+}
+
+/** One-shot consume — called on mount of the receipts view. */
+export function consumePendingSettleInvoice(): {
+  invoiceId: string;
+  customerId: string;
+} | null {
+  const v = pendingSettleInvoice;
+  pendingSettleInvoice = null;
+  return v;
+}
+
+/** One-shot consume — called on mount of the vendor-payments view. */
+export function consumePendingPayPo(): {
+  poId: string;
+  vendorId: string;
+} | null {
+  const v = pendingPayPo;
+  pendingPayPo = null;
   return v;
 }

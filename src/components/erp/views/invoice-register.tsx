@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { Download, Eye, FileText, ReceiptText, Search } from "lucide-react";
+import { Download, Eye, FileText, HandCoins, ReceiptText, Search } from "lucide-react";
 import { useErpStore } from "@/store/erp-store";
 import { apiGet, ApiError } from "@/lib/api-client";
 import { formatINR, formatDate, downloadCSV, amountInWords } from "@/lib/format";
@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { requestSettleInvoice } from "@/lib/settle-bus";
 import { cn } from "@/lib/utils";
 
 /** List rows carry a partial customer (id, partyName, customerType, stateCode). */
@@ -93,6 +94,17 @@ export default function InvoiceRegisterView() {
     } finally {
       setDetailLoading(false);
     }
+  }
+
+  /** Cycle 17: settle a specific invoice from its register row. */
+  function settleFromRow(inv: InvoiceListRow) {
+    if (!inv.customer?.id || !inv.outstanding || inv.outstanding <= 0.009) return;
+    requestSettleInvoice(inv.id, inv.customer.id);
+    setView("sales/receipts");
+    toast({
+      title: "Opening receipt dialog",
+      description: `${inv.invoiceNumber} · ${formatINR(inv.outstanding)} outstanding pre-allocated — confirm there.`,
+    });
   }
 
   function exportCsv() {
@@ -172,11 +184,12 @@ export default function InvoiceRegisterView() {
                   const isCredit = i.paymentMode === "CREDIT" && i.status === "POSTED";
                   const osd = i.outstanding;
                   const settled = isCredit && osd !== undefined && osd <= 0.009;
+                  const settleable = isCredit && !!i.customer?.id && osd !== undefined && osd > 0.009;
                   return (
-                    <tr key={i.id}>
+                    <tr key={i.id} className="group/row">
                       <td className="font-money text-[12.5px] text-dmk-text-primary">{i.invoiceNumber}</td>
                       <td className="text-[12.5px] text-dmk-text-secondary whitespace-nowrap">{formatDate(i.invoiceDate)}</td>
-                      <td className="max-w-[240px] truncate text-[13px]">{i.customer?.partyName || i.walkInName || "Walk-in"}</td>
+                      <td className="max-w-[240px] truncate text-[13px]" title={i.customer?.partyName || i.walkInName || "Walk-in"}>{i.customer?.partyName || i.walkInName || "Walk-in"}</td>
                       <td>
                         {i.isCounterSale ? <Badge tone="dr">COUNTER</Badge> : <Badge tone="info">B2B</Badge>}
                       </td>
@@ -197,7 +210,21 @@ export default function InvoiceRegisterView() {
                           </span>
                         )}
                       </td>
-                      <td className="text-right">
+                      <td className="text-right whitespace-nowrap">
+                        {settleable && (
+                          <button
+                            type="button"
+                            onClick={() => settleFromRow(i)}
+                            title={`Record a receipt settling ${i.invoiceNumber} (${formatINR(osd ?? 0)})`}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide mr-1.5",
+                              "opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all",
+                              "border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover text-dmk-success hover:border-dmk-success/40"
+                            )}
+                          >
+                            <HandCoins className="h-3 w-3" /> Settle
+                          </button>
+                        )}
                         <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => openDetail(i.id)}>
                           <Eye className="h-3.5 w-3.5" /> View
                         </Button>
