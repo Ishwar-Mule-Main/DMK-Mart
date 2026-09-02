@@ -10,7 +10,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { ArrowRight, BookOpenText, Building2, Download, HandCoins, Loader2, Printer, Truck, User, X } from "lucide-react";
+import { ArrowRight, BookOpenText, Building2, Download, HandCoins, Layers, Loader2, Printer, Truck, User, X } from "lucide-react";
 
 import {
   Badge,
@@ -178,6 +178,10 @@ function PartyTab({
   const [ledgerLoading, setLedgerLoading] = React.useState(false);
   const [ledgerError, setLedgerError] = React.useState<string | null>(null);
   const [printOpen, setPrintOpen] = React.useState(false);
+  const [batchOpen, setBatchOpen] = React.useState(false);
+  const [batchLoading, setBatchLoading] = React.useState(false);
+  const [batchProgress, setBatchProgress] = React.useState(0);
+  const [batchSheets, setBatchSheets] = React.useState<Array<{ ledger: PartyLedgerResponse; closingWords: string | null }>>([]);
 
   // Party directory (debounced server search)
   React.useEffect(() => {
@@ -319,6 +323,54 @@ function PartyTab({
 
   const closingWords = ledger && Math.abs(ledger.closing) > 0.005 ? amountInWords(Math.abs(ledger.closing)) : null;
 
+  /**
+   * Batch print: fetch ledgers for every party with an open balance
+   * (oldest-first, capped for print sanity) and stack them as A4
+   * sheets in one chrome-free print run — one page per party.
+   */
+  async function printAllStatements() {
+    if (!activeFirmId || !parties || batchLoading) return;
+    const withBalance = parties
+      .filter((p) => Math.abs(p.balance) > 0.005)
+      .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))
+      .slice(0, 24);
+    if (withBalance.length === 0) {
+      toast({ title: "Nothing to print", description: "Every party in this book is fully settled." });
+      return;
+    }
+    setBatchLoading(true);
+    setBatchProgress(0);
+    const sheets: Array<{ ledger: PartyLedgerResponse; closingWords: string | null }> = [];
+    let failed = 0;
+    for (const p of withBalance) {
+      try {
+        const res = await apiGet<PartyLedgerResponse>("/api/v1/ledger/party", {
+          firmId: activeFirmId,
+          partyType,
+          partyId: p.id,
+        });
+        sheets.push({
+          ledger: res,
+          closingWords: Math.abs(res.closing) > 0.005 ? amountInWords(Math.abs(res.closing)) : null,
+        });
+      } catch {
+        failed += 1;
+      }
+      setBatchProgress(sheets.length + failed);
+    }
+    setBatchLoading(false);
+    if (sheets.length === 0) {
+      toast({ variant: "destructive", title: "Could not load statements", description: "No ledgers could be fetched for printing." });
+      return;
+    }
+    setBatchSheets(sheets);
+    setBatchOpen(true);
+    toast({
+      title: `${sheets.length} statement${sheets.length === 1 ? "" : "s"} ready`,
+      description: failed > 0 ? `${failed} ledger${failed === 1 ? "" : "s"} could not be loaded and were skipped.` : "Review the list, then print the whole batch.",
+    });
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 items-start">
       {/* ── Party list ─────────────────────────────────── */}
@@ -328,7 +380,31 @@ function PartyTab({
           onChange={setQuery}
           placeholder={isCustomer ? "Search customers…" : "Search vendors…"}
         />
-        <div className="max-h-[420px] lg:max-h-[calc(100vh-330px)] overflow-y-auto space-y-1.5 pr-0.5">
+        <button
+          type="button"
+          onClick={() => void printAllStatements()}
+          disabled={batchLoading || listLoading || !parties}
+          className={cn(
+            "group flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+            "border-dmk-gold/35 bg-dmk-gold/5 hover:bg-dmk-gold/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dmk-gold/50",
+            "disabled:opacity-50 disabled:cursor-not-allowed"
+          )}
+        >
+          <span className="flex items-center gap-2 min-w-0">
+            {batchLoading ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-dmk-gold" />
+            ) : (
+              <Layers className="h-3.5 w-3.5 shrink-0 text-dmk-gold" />
+            )}
+            <span className="text-[12px] font-semibold text-dmk-text-primary truncate">
+              {batchLoading ? `Preparing ${batchProgress}…` : "Print all statements"}
+            </span>
+          </span>
+          <span className="dmk-badge bg-dmk-gold/15 text-dmk-gold shrink-0">
+            {parties?.filter((p) => Math.abs(p.balance) > 0.005).length ?? 0} open
+          </span>
+        </button>
+        <div className="max-h-[420px] lg:max-h-[calc(100vh-378px)] overflow-y-auto space-y-1.5 pr-0.5">
           {listLoading && !parties ? (
             <LoadingRows rows={5} />
           ) : !parties || parties.length === 0 ? (
@@ -632,6 +708,15 @@ function PartyTab({
           </>
         ) : null}
       </div>
+
+      {/* Batch statement print — always mounted so it can open regardless of selection */}
+      <BatchPrintDialog
+        open={batchOpen}
+        onOpenChange={setBatchOpen}
+        sheets={batchSheets}
+        partyType={partyType}
+        firm={activeFirm}
+      />
     </div>
   );
 }
@@ -896,6 +981,106 @@ function StatementPrintDialog({
             openingWords={openingWords}
             closingWords={closingWords}
           />
+        </A4PrintPortal>
+      )}
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BATCH STATEMENT PRINT — one A4 page per open-balance party,
+// stacked into a single chrome-free print run (cycle 18).
+// ═══════════════════════════════════════════════════════════════
+
+function BatchPrintDialog({
+  open,
+  onOpenChange,
+  sheets,
+  partyType,
+  firm,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  sheets: Array<{ ledger: PartyLedgerResponse; closingWords: string | null }>;
+  partyType: "CUSTOMER" | "VENDOR";
+  firm?: Firm;
+}) {
+  const totalDue = sheets.reduce((s, sh) => {
+    const parts = balanceParts(sh.ledger.closing, partyType);
+    return s + (parts.suffix === (partyType === "CUSTOMER" ? "Dr" : "Cr") ? parts.amount : 0);
+  }, 0);
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="no-print sm:max-w-lg max-h-[86vh] overflow-hidden flex flex-col border-dmk-border-medium dmk-elevated">
+          <DialogHeader>
+            <DialogTitle className="text-dmk-text-primary flex items-center gap-2">
+              <Layers className="h-4 w-4 text-dmk-gold" />
+              Batch statement print — {sheets.length} page{sheets.length === 1 ? "" : "s"}
+            </DialogTitle>
+            <DialogDescription className="text-dmk-text-muted">
+              One A4 statement per party with an open balance, largest first. Print runs chrome-free.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto dmk-well rounded-lg p-2 space-y-1">
+            {sheets.map(({ ledger }) => {
+              const bal = balanceParts(ledger.closing, partyType);
+              return (
+                <div
+                  key={ledger.party.id}
+                  className="flex items-center justify-between gap-3 rounded-md border border-dmk-border-subtle bg-dmk-input-well px-3 py-2"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-[12.5px] font-medium text-dmk-text-primary truncate">{ledger.party.name}</span>
+                    <span className="block text-[10.5px] text-dmk-text-muted">
+                      {ledger.entries.length} entr{ledger.entries.length === 1 ? "y" : "ies"}
+                    </span>
+                  </span>
+                  {bal.suffix ? (
+                    <Badge tone={bal.suffix === "Dr" ? "dr" : "cr"}>
+                      {bal.suffix} {formatINR(bal.amount)}
+                    </Badge>
+                  ) : (
+                    <Badge tone="neutral">Clear</Badge>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <span className="text-[11.5px] text-dmk-text-muted font-money">
+              {partyType === "CUSTOMER" ? "Receivables" : "Payables"} in batch: {formatINR(totalDue)}
+            </span>
+            <span className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover"
+              >
+                <X className="h-4 w-4" /> Close
+              </Button>
+              <Button onClick={printA4} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+                <Printer className="h-4 w-4" /> Print {sheets.length} pages
+              </Button>
+            </span>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {open && (
+        <A4PrintPortal>
+          <div className="dmk-batch-root">
+            {sheets.map(({ ledger, closingWords }) => (
+              <StatementSheet
+                key={ledger.party.id}
+                ledger={ledger}
+                partyType={partyType}
+                firm={firm}
+                openingWords={null}
+                closingWords={closingWords}
+              />
+            ))}
+          </div>
         </A4PrintPortal>
       )}
     </>

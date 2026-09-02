@@ -11,6 +11,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,6 +29,7 @@ import {
   Scale,
   ScrollText,
   ShoppingCart,
+  TrendingUp,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -40,7 +42,7 @@ import { useErpStore, useActiveFirm } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-type ReportType = "sales" | "purchases" | "stock" | "gst" | "valuation" | "gstr1";
+type ReportType = "sales" | "purchases" | "stock" | "gst" | "valuation" | "gstr1" | "profitability";
 
 // ─── Row shapes (verified against route source) ─────────────────
 
@@ -196,8 +198,8 @@ interface Gstr1Totals {
 
 interface ReportResponse {
   type: ReportType;
-  rows?: SalesRow[] | PurchaseRow[] | StockRow[] | ValuationRow[];
-  totals?: { stockValue: number; damagedValue: number; totalValue?: number } | Gstr1Totals;
+  rows?: SalesRow[] | PurchaseRow[] | StockRow[] | ValuationRow[] | ProfitRow[];
+  totals?: { stockValue: number; damagedValue: number; totalValue?: number } | Gstr1Totals | ProfitTotals;
   count?: number;
   method?: string;
   output?: GstSide;
@@ -210,9 +212,38 @@ interface ReportResponse {
   hsnWise?: Gstr1HsnRow[];
 }
 
+// ── Product profitability (margin vs WAC) ──────────────────────
+interface ProfitRow {
+  sku: string;
+  name: string;
+  qtySold: number;
+  qtyReturned: number;
+  netQty: number;
+  grossRevenue: number;
+  returnedValue: number;
+  netRevenue: number;
+  wac: number;
+  cogs: number;
+  grossProfit: number;
+  marginPct: number;
+  invoiceCount: number;
+  avgLineValue: number;
+}
+
+interface ProfitTotals {
+  revenue: number;
+  cogs: number;
+  grossProfit: number;
+  marginPct: number;
+  products: number;
+  lossMakers: number;
+  bestSku: string | null;
+}
+
 const REPORTS: Array<{ type: ReportType; label: string; icon: LucideIcon; desc: string }> = [
   { type: "sales", label: "Sales Report", icon: FileText, desc: "Posted invoice line items" },
   { type: "purchases", label: "Purchase Report", icon: ShoppingCart, desc: "Confirmed PO line items" },
+  { type: "profitability", label: "Profitability", icon: TrendingUp, desc: "Margin vs WAC per product" },
   { type: "stock", label: "Stock Report", icon: Boxes, desc: "Dual-stock position & valuation" },
   { type: "valuation", label: "Valuation (WAC)", icon: Scale, desc: "Weighted average cost valuation" },
   { type: "gst", label: "GST Summary", icon: Percent, desc: "Output tax vs ITC vs net payable" },
@@ -303,6 +334,20 @@ export default function ReportsView() {
         out.push([r.poNumber, r.poDate, r.vendor, r.sku, r.productName, r.hsnCode, r.quantity, r.receivedQty, r.unitCost, r.taxableAmount, r.gstRate, r.cgstAmount, r.sgstAmount, r.igstAmount, r.totalAmount])
       );
       downloadCSV(`purchase-report-${dateFrom}-to-${dateTo}.csv`, out);
+    } else if (data.type === "profitability" && data.totals) {
+      const rows = (data.rows ?? []) as ProfitRow[];
+      const t = data.totals as ProfitTotals;
+      const out: (string | number)[][] = [
+        ["Product Profitability — margin vs WAC", `${dateFrom} → ${dateTo}`],
+        ["Net Revenue", "COGS", "Gross Profit", "Margin %", "Products", "Loss Makers"],
+        [t.revenue, t.cogs, t.grossProfit, t.marginPct, t.products, t.lossMakers],
+        [],
+        ["SKU", "Product", "Qty Sold", "Qty Returned", "Net Qty", "Gross Revenue", "Returned Value", "Net Revenue", "WAC", "COGS", "Gross Profit", "Margin %", "Invoices", "Avg Line Value"],
+      ];
+      rows.forEach((r) =>
+        out.push([r.sku, r.name, r.qtySold, r.qtyReturned, r.netQty, r.grossRevenue, r.returnedValue, r.netRevenue, r.wac, r.cogs, r.grossProfit, r.marginPct, r.invoiceCount, r.avgLineValue])
+      );
+      downloadCSV(`profitability-${dateFrom}-to-${dateTo}.csv`, out);
     } else if (data.type === "stock" && data.rows) {
       const rows = data.rows as StockRow[];
       const out: (string | number)[][] = [
@@ -394,7 +439,7 @@ export default function ReportsView() {
       />
 
       {/* ── Report type cards ───────────────────────────── */}
-      <div className="dmk-enter-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="dmk-enter-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
         {REPORTS.map((r) => {
           const Icon = r.icon;
           const selected = type === r.type;
@@ -468,6 +513,12 @@ export default function ReportsView() {
         <SalesReport rows={(data.rows ?? []) as SalesRow[]} />
       ) : data.type === "purchases" ? (
         <PurchasesReport rows={(data.rows ?? []) as PurchaseRow[]} />
+      ) : data.type === "profitability" && data.totals ? (
+        <ProfitabilityReport
+          rows={(data.rows ?? []) as ProfitRow[]}
+          totals={data.totals as ProfitTotals}
+          method={data.method}
+        />
       ) : data.type === "stock" ? (
         <StockReport rows={(data.rows ?? []) as StockRow[]} totals={data.totals as { stockValue: number; damagedValue: number } | undefined} />
       ) : data.type === "valuation" ? (
@@ -1244,6 +1295,254 @@ function Gstr1Report({
                   </tr>
                 ))}
               </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PRODUCT PROFITABILITY — margin vs WAC (cycle 18)
+// Revenue (taxable, returns netted) − COGS (qty × WAC) per SKU.
+// ═══════════════════════════════════════════════════════════════
+
+const CHART_GOLD = "#F59E0B";
+const CHART_GREEN = "#10B981";
+const CHART_RED = "#EF4444";
+
+function ProfitabilityReport({
+  rows,
+  totals,
+  method,
+}: {
+  rows: ProfitRow[];
+  totals: ProfitTotals;
+  method?: string;
+}) {
+  const [sortBy, setSortBy] = React.useState<"profit" | "margin" | "revenue" | "qty">("profit");
+
+  const sorted = React.useMemo(() => {
+    const copy = [...rows];
+    if (sortBy === "margin") copy.sort((a, b) => b.marginPct - a.marginPct);
+    else if (sortBy === "revenue") copy.sort((a, b) => b.netRevenue - a.netRevenue);
+    else if (sortBy === "qty") copy.sort((a, b) => b.netQty - a.netQty);
+    else copy.sort((a, b) => b.grossProfit - a.grossProfit);
+    return copy;
+  }, [rows, sortBy]);
+
+  const chartData = React.useMemo(
+    () =>
+      [...rows]
+        .sort((a, b) => b.grossProfit - a.grossProfit)
+        .slice(0, 8)
+        .map((r) => ({
+          name: r.name.length > 18 ? `${r.name.slice(0, 17)}…` : r.name,
+          profit: r.grossProfit,
+          negative: r.grossProfit < 0,
+        })),
+    [rows]
+  );
+
+  const best = totals.bestSku ? rows.find((r) => r.sku === totals.bestSku) : undefined;
+
+  return (
+    <div className="space-y-4">
+      {/* KPI row */}
+      <div className="dmk-enter-stagger grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="dmk-kpi p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net Revenue</span>
+            <ArrowUpRight className="h-4 w-4 text-dmk-success" />
+          </div>
+          <span className="font-money text-[20px] font-semibold text-dmk-success block mt-2">{formatINR(totals.revenue)}</span>
+          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">{totals.products} SKUs sold · returns netted</span>
+        </div>
+        <div className="dmk-kpi p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">COGS @ WAC</span>
+            <Scale className="h-4 w-4 text-dmk-info" />
+          </div>
+          <span className="font-money text-[20px] font-semibold text-dmk-info block mt-2">{formatINR(totals.cogs)}</span>
+          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">Weighted average cost basis</span>
+        </div>
+        <div className="dmk-kpi p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Gross Profit</span>
+            <TrendingUp className="h-4 w-4 text-dmk-gold" />
+          </div>
+          <span className={cn("font-money text-[20px] font-semibold block mt-2", totals.grossProfit >= 0 ? "text-dmk-gold" : "text-dmk-danger")}>
+            {formatINR(totals.grossProfit)}
+          </span>
+          <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
+            Margin {totals.marginPct.toFixed(1)}%{best ? ` · best ${best.name.split(" ").slice(0, 2).join(" ")}` : ""}
+          </span>
+        </div>
+        <div className="dmk-kpi p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Loss Makers</span>
+            <ArrowDownRight className={cn("h-4 w-4", totals.lossMakers > 0 ? "text-dmk-danger" : "text-dmk-text-muted")} />
+          </div>
+          <span className={cn("font-money text-[20px] font-semibold block mt-2", totals.lossMakers > 0 ? "text-dmk-danger" : "text-dmk-success")}>
+            {totals.lossMakers}
+          </span>
+          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
+            {totals.lossMakers > 0 ? "Review pricing / cost on these" : "Every SKU is profitable"}
+          </span>
+        </div>
+      </div>
+
+      {/* Method strip */}
+      <div className="dmk-well px-3.5 py-2.5 flex items-center gap-2">
+        <TrendingUp className="h-3.5 w-3.5 text-dmk-info shrink-0" />
+        <p className="text-[11.5px] text-dmk-text-secondary">
+          <span className="font-semibold text-dmk-text-primary">Basis:</span> {method ?? "COGS at weighted average cost from confirmed receipts; sales returns netted."}
+        </p>
+      </div>
+
+      {/* Top products chart */}
+      {chartData.length > 0 && (
+        <div className="dmk-card p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-[15px] font-semibold text-dmk-text-primary">Top Products by Gross Profit</h2>
+              <p className="text-[11px] text-dmk-text-muted">Top {chartData.length} SKUs · taxable revenue minus WAC cost of net quantity</p>
+            </div>
+            <Badge tone="gold">PROFIT</Badge>
+          </div>
+          <div className="h-[260px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+                <CartesianGrid stroke="#1E2D4A" strokeDasharray="3 3" horizontal={false} />
+                <XAxis
+                  type="number"
+                  tick={{ fill: "var(--text-muted)", fontSize: 11 }}
+                  axisLine={{ stroke: "#1E2D4A" }}
+                  tickLine={false}
+                  tickFormatter={(v) => compactINR(Number(v))}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  tick={{ fill: "var(--text-muted)", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={130}
+                />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE}
+                  labelStyle={{ color: "var(--text-secondary)", marginBottom: 4 }}
+                  itemStyle={{ color: "var(--text-primary)", fontFamily: "var(--font-jetbrains)" }}
+                  formatter={(value) => formatINR(Number(value))}
+                  cursor={{ fill: "rgba(245,158,11,0.06)" }}
+                />
+                <Bar dataKey="profit" name="Gross profit" radius={[0, 4, 4, 0]} maxBarSize={20}>
+                  {chartData.map((d) => (
+                    <Cell key={d.name} fill={d.negative ? CHART_RED : CHART_GREEN} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Per-product table */}
+      <div className="dmk-card overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-dmk-border-subtle">
+          <h2 className="text-[13px] font-semibold text-dmk-text-primary">Per-product profitability</h2>
+          <div className="flex items-center gap-1">
+            {(["profit", "margin", "revenue", "qty"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setSortBy(k)}
+                className={cn(
+                  "rounded-md border px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide transition-colors",
+                  sortBy === k
+                    ? "border-dmk-gold/40 bg-dmk-gold/10 text-dmk-gold"
+                    : "border-dmk-border-subtle bg-dmk-input-well text-dmk-text-muted hover:bg-dmk-hover hover:text-dmk-text-secondary"
+                )}
+              >
+                {k === "qty" ? "Quantity" : k}
+              </button>
+            ))}
+          </div>
+        </div>
+        {rows.length === 0 ? (
+          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No sales in this window.</p>
+        ) : (
+          <div className="overflow-x-auto max-h-[calc(100vh-560px)] overflow-y-auto">
+            <table className="dmk-table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Product</th>
+                  <th className="num text-right">Sold</th>
+                  <th className="num text-right hidden md:table-cell">Returned</th>
+                  <th className="num text-right">Net Qty</th>
+                  <th className="num text-right">Net Revenue (₹)</th>
+                  <th className="num text-right hidden lg:table-cell">WAC (₹)</th>
+                  <th className="num text-right">COGS (₹)</th>
+                  <th className="num text-right">Profit (₹)</th>
+                  <th className="num text-right">Margin</th>
+                  <th className="num text-right hidden lg:table-cell">Invoices</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((r) => (
+                  <tr key={r.sku}>
+                    <td className="font-money text-[12px] text-dmk-text-secondary whitespace-nowrap">{r.sku}</td>
+                    <td className="max-w-[220px]">
+                      <span className="block truncate text-[12.5px] font-medium" title={r.name}>{r.name}</span>
+                    </td>
+                    <td className="num text-right text-dmk-text-primary">{r.qtySold}</td>
+                    <td className={cn("num text-right hidden md:table-cell", r.qtyReturned > 0 ? "text-dmk-warning font-semibold" : "text-dmk-text-muted")}>
+                      {r.qtyReturned || "—"}
+                    </td>
+                    <td className="num text-right text-dmk-text-secondary">{r.netQty}</td>
+                    <td className="num text-right text-dmk-text-primary">{formatINR(r.netRevenue)}</td>
+                    <td className="num text-right hidden lg:table-cell text-dmk-text-muted">{formatINR(r.wac)}</td>
+                    <td className="num text-right text-dmk-info">{formatINR(r.cogs)}</td>
+                    <td className={cn("num text-right font-money font-semibold", r.grossProfit >= 0 ? "text-dmk-success" : "text-dmk-danger")}>
+                      {r.grossProfit >= 0 ? "" : "−"}{formatINR(Math.abs(r.grossProfit))}
+                    </td>
+                    <td className="num text-right">
+                      <span
+                        className={cn(
+                          "dmk-badge font-money",
+                          r.marginPct >= 20
+                            ? "bg-dmk-success/15 text-dmk-success"
+                            : r.marginPct >= 10
+                              ? "bg-dmk-gold/15 text-dmk-gold"
+                              : r.marginPct >= 0
+                                ? "bg-dmk-warning/15 text-dmk-warning"
+                                : "bg-dmk-danger/15 text-dmk-danger"
+                        )}
+                      >
+                        {r.marginPct.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="num text-right hidden lg:table-cell text-dmk-text-muted">{r.invoiceCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
+                  <td colSpan={5} className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
+                    Totals — {totals.products} SKUs
+                  </td>
+                  <td className="num text-right font-money font-bold text-dmk-text-primary">{formatINR(totals.revenue)}</td>
+                  <td className="hidden lg:table-cell" />
+                  <td className="num text-right font-money font-bold text-dmk-info">{formatINR(totals.cogs)}</td>
+                  <td className={cn("num text-right font-money font-bold", totals.grossProfit >= 0 ? "text-dmk-success" : "text-dmk-danger")}>
+                    {formatINR(totals.grossProfit)}
+                  </td>
+                  <td className="num text-right font-money font-bold text-dmk-gold">{totals.marginPct.toFixed(1)}%</td>
+                  <td className="hidden lg:table-cell" />
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}

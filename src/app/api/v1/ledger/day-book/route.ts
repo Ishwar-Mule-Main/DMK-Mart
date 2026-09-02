@@ -68,6 +68,70 @@ export async function GET(request: NextRequest) {
 
     const [cash, bank] = await Promise.all([flow(ACC.CASH), flow(ACC.BANK)]);
 
+    // ── Optional cash+bank movement trend (last N days ending on
+    //    the selected day) — powers the Day Book flow mini-chart. ──
+    let trend: Array<{
+      date: string;
+      label: string;
+      cashIn: number;
+      cashOut: number;
+      bankIn: number;
+      bankOut: number;
+      in: number;
+      out: number;
+      net: number;
+    }> = [];
+    const trendDays = Math.min(Math.max(Number(sp.get("trendDays")) || 0, 0), 60);
+    if (trendDays > 0) {
+      const windowStart = addDays(dayStart, -(trendDays - 1));
+      const accounts = await db.chartOfAccount.findMany({
+        where: { firmId, accountCode: { in: [ACC.CASH, ACC.BANK] } },
+        select: { id: true, accountCode: true },
+      });
+      const cashId = accounts.find((a) => a.accountCode === ACC.CASH)?.id;
+      const bankId = accounts.find((a) => a.accountCode === ACC.BANK)?.id;
+      const lines = await db.journalLine.findMany({
+        where: {
+          accountId: { in: [cashId, bankId].filter((v): v is string => Boolean(v)) },
+          journal: { postingDate: { gte: windowStart, lt: dayEnd } },
+        },
+        select: { accountId: true, debitAmount: true, creditAmount: true, journal: { select: { postingDate: true } } },
+      });
+      const buckets = new Map<string, { cashIn: number; cashOut: number; bankIn: number; bankOut: number }>();
+      for (let i = 0; i < trendDays; i++) {
+        const d = addDays(windowStart, i);
+        buckets.set(toKey(d), { cashIn: 0, cashOut: 0, bankIn: 0, bankOut: 0 });
+      }
+      for (const l of lines) {
+        const key = toKey(l.journal.postingDate);
+        const b = buckets.get(key);
+        if (!b) continue;
+        const isCash = l.accountId === cashId;
+        if (l.debitAmount) {
+          if (isCash) b.cashIn = round2(b.cashIn + l.debitAmount);
+          else b.bankIn = round2(b.bankIn + l.debitAmount);
+        }
+        if (l.creditAmount) {
+          if (isCash) b.cashOut = round2(b.cashOut + l.creditAmount);
+          else b.bankOut = round2(b.bankOut + l.creditAmount);
+        }
+      }
+      trend = [...buckets.entries()].map(([key, b]) => {
+        const d = new Date(`${key}T00:00:00`);
+        return {
+          date: key,
+          label: d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
+          cashIn: b.cashIn,
+          cashOut: b.cashOut,
+          bankIn: b.bankIn,
+          bankOut: b.bankOut,
+          in: round2(b.cashIn + b.bankIn),
+          out: round2(b.cashOut + b.bankOut),
+          net: round2(b.cashIn + b.bankIn - b.cashOut - b.bankOut),
+        };
+      });
+    }
+
     return ok({
       firmId,
       firmName: firm.firmName,
@@ -75,8 +139,13 @@ export async function GET(request: NextRequest) {
       journals,
       cash,
       bank,
+      ...(trendDays > 0 ? { trend } : {}),
     });
   } catch (e) {
     return handleApiError(e);
   }
+}
+
+function toKey(d: Date): string {
+  return startOfDay(d).toISOString().slice(0, 10);
 }

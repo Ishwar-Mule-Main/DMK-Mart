@@ -264,6 +264,126 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // ── Product Profitability (margin vs WAC) ────────────────
+    // Revenue = taxable sales in window; COGS = qty × weighted
+    // average cost (confirmed receipts, fallback purchase cost);
+    // sales returns in window net out qty + taxable value
+    // (inverse-tax approximation from GST-inclusive note totals).
+    if (type === "profitability") {
+      const [invoices, salesReturns, products, poItems] = await Promise.all([
+        db.invoice.findMany({
+          where: { firmId, status: "POSTED", ...range("invoiceDate") },
+          include: { lineItems: true },
+          take: 2000,
+        }),
+        db.salesReturn.findMany({
+          where: { firmId, returnDate: {
+            ...(dateFrom ? { gte: startOfDay(dateFrom) } : {}),
+            ...(dateTo ? { lte: endOfDay(dateTo) } : {}),
+          } },
+          include: { items: true },
+          take: 2000,
+        }),
+        db.product.findMany({ where: { firmId }, select: { id: true, sku: true, purchaseCost: true } }),
+        db.purchaseOrderItem.findMany({
+          where: { po: { firmId, status: "CONFIRMED" } },
+          select: { productId: true, receivedQty: true, unitCost: true },
+        }),
+      ]);
+
+      // WAC per product (receipt-history weighted average)
+      const costAgg = new Map<string, { qty: number; value: number }>();
+      for (const it of poItems) {
+        const cur = costAgg.get(it.productId) ?? { qty: 0, value: 0 };
+        cur.qty += it.receivedQty;
+        cur.value += it.receivedQty * it.unitCost;
+        costAgg.set(it.productId, cur);
+      }
+      const wacOf = new Map<string, number>();
+      for (const p of products) {
+        const a = costAgg.get(p.id);
+        wacOf.set(p.id, a && a.qty > 0 ? round2(a.value / a.qty) : round2(p.purchaseCost));
+      }
+
+      // Sales aggregation per product (sku-keyed, carries display meta)
+      interface SoldAgg { qty: number; revenue: number; invoices: Set<string>; name: string; category: string }
+      const sold = new Map<string, SoldAgg>();
+      for (const inv of invoices) {
+        for (const l of inv.lineItems) {
+          const cur = sold.get(l.sku) ?? { qty: 0, revenue: 0, invoices: new Set<string>(), name: l.productName, category: "" };
+          cur.qty += Number(l.quantity);
+          cur.revenue = round2(cur.revenue + Number(l.taxableAmount));
+          cur.invoices.add(inv.invoiceNumber);
+          if (!cur.name) cur.name = l.productName;
+          sold.set(l.sku, cur);
+        }
+      }
+
+      // Net out sales returns per product (inverse-tax approximation)
+      interface RetAgg { qty: number; taxable: number }
+      const returned = new Map<string, RetAgg>();
+      for (const sr of salesReturns) {
+        for (const it of sr.items) {
+          const rate = Number(it.gstRate) || 0;
+          const taxable = round2(Number(it.totalAmount) / (1 + rate / 100));
+          const cur = returned.get(it.productId) ?? { qty: 0, taxable: 0 };
+          cur.qty += Number(it.damagedQty);
+          cur.taxable = round2(cur.taxable + taxable);
+          returned.set(it.productId, cur);
+        }
+      }
+      const skuToProduct = new Map(products.map((p) => [p.sku, p]));
+
+      const rows = [...sold.entries()]
+        .map(([sku, s]) => {
+          const product = skuToProduct.get(sku);
+          const pid = product?.id ?? "";
+          const ret = returned.get(pid);
+          const netQty = round2(s.qty - (ret?.qty ?? 0));
+          const netRevenue = round2(s.revenue - (ret?.taxable ?? 0));
+          const wac = wacOf.get(pid) ?? 0;
+          const cogs = round2(netQty * wac);
+          const profit = round2(netRevenue - cogs);
+          const marginPct = netRevenue > 0 ? round2((profit / netRevenue) * 100) : 0;
+          return {
+            sku,
+            name: s.name || sku,
+            qtySold: s.qty,
+            qtyReturned: round2(ret?.qty ?? 0),
+            netQty,
+            grossRevenue: s.revenue,
+            returnedValue: ret?.taxable ?? 0,
+            netRevenue,
+            wac,
+            cogs,
+            grossProfit: profit,
+            marginPct,
+            invoiceCount: s.invoices.size,
+            avgLineValue: s.qty > 0 ? round2(s.revenue / s.qty) : 0,
+          };
+        })
+        .sort((a, b) => b.grossProfit - a.grossProfit);
+
+      const tRevenue = round2(rows.reduce((s, r) => s + r.netRevenue, 0));
+      const tCogs = round2(rows.reduce((s, r) => s + r.cogs, 0));
+      const tProfit = round2(tRevenue - tCogs);
+      return ok({
+        type,
+        rows,
+        totals: {
+          revenue: tRevenue,
+          cogs: tCogs,
+          grossProfit: tProfit,
+          marginPct: tRevenue > 0 ? round2((tProfit / tRevenue) * 100) : 0,
+          products: rows.length,
+          lossMakers: rows.filter((r) => r.grossProfit < -0.005).length,
+          bestSku: rows[0]?.sku ?? null,
+        },
+        method: "COGS at weighted average cost from confirmed receipts (fallback: last purchase cost); sales returns netted (inverse-tax approximation)",
+        generatedAt: new Date().toISOString(),
+      });
+    }
+
     // ── GSTR-1 (sales-side outward supplies summary) ─────────
     // B2B (registered buyer GSTIN) vs B2C split, rate-wise tax
     // buckets, and HSN-wise summary — the filing-side mirror of
@@ -375,7 +495,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    throw new BusinessError("ERR_VALIDATION", "type must be one of sales | purchases | stock | gst | valuation | gstr1", 400);
+    throw new BusinessError("ERR_VALIDATION", "type must be one of sales | purchases | stock | gst | valuation | gstr1 | profitability", 400);
   } catch (e) {
     return handleApiError(e);
   }

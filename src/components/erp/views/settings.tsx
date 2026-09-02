@@ -11,6 +11,7 @@ import {
   Building2,
   CalendarRange,
   Check,
+  DatabaseBackup,
   Loader2,
   Pencil,
   Plus,
@@ -377,6 +378,9 @@ export default function SettingsView() {
         </p>
       </div>
 
+            {/* ── Data & backup ───────────────────────────────────────── */}
+      <BackupCard firm={activeFirm} counts={activeFirmId ? counts[activeFirmId] : undefined} />
+
       {/* ── Platform info ───────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="dmk-card p-5">
@@ -444,6 +448,98 @@ export default function SettingsView() {
           toast({ title: "Firm profile updated", description: "Changes apply to invoices and GST docs immediately." });
         }}
       />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DATA & BACKUP — firm-level JSON export (R1/R20: firm = account)
+// ═══════════════════════════════════════════════════════════════
+
+function BackupCard({
+  firm,
+  counts,
+}: {
+  firm?: Firm;
+  counts?: FirmCounts;
+}) {
+  const { toast } = useToast();
+  const [exporting, setExporting] = React.useState(false);
+  const [lastExport, setLastExport] = React.useState<string | null>(null);
+
+  async function exportBackup() {
+    if (!firm || exporting) return;
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/v1/backup?firmId=${firm.id}`);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Export failed (${res.status})`);
+      }
+      const payload = await res.json();
+      const stamp = new Date().toISOString().slice(0, 10);
+      const totalRecords = payload?.counts
+        ? Object.values(payload.counts as Record<string, number>).reduce((a, b) => a + b, 0)
+        : 0;
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `dmk-backup-${(firm.firmCode || firm.firmName).replace(/\s+/g, "-").toLowerCase()}-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setLastExport(new Date().toLocaleString("en-IN"));
+      toast({
+        title: "Backup downloaded",
+        description: `${totalRecords} records exported for ${firm.firmName}.`,
+      });
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Backup failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const recordCount = counts
+    ? counts.products + counts.customers + counts.vendors + counts.invoices + counts.purchaseOrders
+    : null;
+
+  return (
+    <div className="dmk-card p-5">
+      <div className="flex items-center gap-2.5 mb-3">
+        <DatabaseBackup className="h-4 w-4 text-dmk-info" />
+        <h2 className="text-[15px] font-semibold text-dmk-text-primary">Data &amp; Backup</h2>
+        {firm && <Badge tone="info">{firm.firmName}</Badge>}
+      </div>
+      <p className="text-[12.5px] text-dmk-text-secondary mb-3">
+        Download the complete data universe of the active firm as a versioned JSON envelope — firm profile, masters,
+        documents, subledger allocations, journals, inventory audit trail and GSTR-2B records. Keep it with your
+        accountant or feed it into any restore pipeline.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          onClick={() => void exportBackup()}
+          disabled={!firm || exporting}
+          className="h-9 gap-2 bg-dmk-info text-[12.5px] font-semibold text-white hover:bg-dmk-info/85 disabled:opacity-50"
+        >
+          {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <DatabaseBackup className="h-3.5 w-3.5" />}
+          {exporting ? "Preparing…" : "Export full backup (JSON)"}
+        </Button>
+        <span className="text-[11.5px] text-dmk-text-muted">
+          {recordCount !== null
+            ? `≈ ${recordCount} core records · ${counts?.invoices ?? 0} invoices · ${counts?.purchaseOrders ?? 0} POs`
+            : "Entity counts load with the firm list"}
+        </span>
+        {lastExport && (
+          <span className="dmk-badge bg-dmk-success/10 text-dmk-success">Last export {lastExport}</span>
+        )}
+      </div>
     </div>
   );
 }

@@ -329,6 +329,11 @@ body {
   body.printing-a4 .print-a4 thead {
     display: table-header-group;
   }
+  /* Batch print: each stacked .print-a4 sheet starts on a fresh page */
+  body.printing-a4 .dmk-batch-root .print-a4 + .print-a4 {
+    page-break-before: always;
+    break-before: page;
+  }
 }
 
 /* Motion tokens */

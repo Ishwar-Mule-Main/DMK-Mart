@@ -9,6 +9,18 @@
 
 import * as React from "react";
 import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  ComposedChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  Legend,
+} from "recharts";
+import {
   Banknote,
   CalendarDays,
   ChevronDown,
@@ -57,6 +69,18 @@ interface Flow {
   closing: number;
 }
 
+interface TrendDay {
+  date: string;
+  label: string;
+  cashIn: number;
+  cashOut: number;
+  bankIn: number;
+  bankOut: number;
+  in: number;
+  out: number;
+  net: number;
+}
+
 interface DayBookResponse {
   firmId: string;
   firmName: string;
@@ -64,6 +88,7 @@ interface DayBookResponse {
   journals: DayJournal[];
   cash: Flow;
   bank: Flow;
+  trend?: TrendDay[];
 }
 
 const TYPE_TONE: Record<string, BadgeTone> = {
@@ -137,7 +162,7 @@ export default function DaybookView() {
     let alive = true;
     setLoading(true);
     setError(null);
-    apiGet<DayBookResponse>("/api/v1/ledger/day-book", { firmId: activeFirmId, date })
+    apiGet<DayBookResponse>("/api/v1/ledger/day-book", { firmId: activeFirmId, date, trendDays: 14 })
       .then((res) => {
         if (alive) {
           setData(res);
@@ -236,6 +261,9 @@ export default function DaybookView() {
             <FlowStrip icon={Wallet} label="Cash" flow={data.cash} />
             <FlowStrip icon={Banknote} label="Bank" flow={data.bank} />
           </div>
+
+          {/* Cash-flow movement trend (last 14 days ending on selected date) */}
+          <FlowTrendChart trend={data.trend ?? []} selectedDate={data.date} />
 
           {/* Vouchers */}
           {data.journals.length === 0 ? (
@@ -347,6 +375,107 @@ export default function DaybookView() {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CASH-FLOW TREND — 14-day money in/out bars + net line (cycle 18)
+// ═══════════════════════════════════════════════════════════════
+
+const TREND_GREEN = "#10B981";
+const TREND_RED = "#EF4444";
+const TREND_GOLD = "#F59E0B";
+const TREND_TOOLTIP: React.CSSProperties = {
+  background: "var(--bg-tertiary)",
+  border: "1px solid var(--border-medium)",
+  borderRadius: 8,
+  fontSize: 12,
+  padding: "8px 10px",
+  boxShadow: "0 8px 24px rgba(2,6,17,0.6)",
+};
+
+function compactINR(v: number): string {
+  const abs = Math.abs(v);
+  if (abs >= 10000000) return `₹${(v / 10000000).toFixed(1)}Cr`;
+  if (abs >= 100000) return `₹${(v / 100000).toFixed(1)}L`;
+  if (abs >= 1000) return `₹${(v / 1000).toFixed(0)}K`;
+  return `₹${v.toFixed(0)}`;
+}
+
+function FlowTrendChart({ trend, selectedDate }: { trend: TrendDay[]; selectedDate: string }) {
+  const totalIn = trend.reduce((s, t) => s + t.in, 0);
+  const totalOut = trend.reduce((s, t) => s + t.out, 0);
+  const net = Math.round((totalIn - totalOut) * 100) / 100;
+  const activeDays = trend.filter((t) => t.in > 0 || t.out > 0).length;
+
+  return (
+    <div className="dmk-card p-4 dmk-enter">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div>
+          <h2 className="text-[15px] font-semibold text-dmk-text-primary">Cash &amp; Bank Movement</h2>
+          <p className="text-[11px] text-dmk-text-muted">
+            Last {trend.length} days ending {new Date(`${selectedDate}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} · {activeDays} active day{activeDays === 1 ? "" : "s"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] font-money">
+          <span className="dmk-badge bg-dmk-success/10 text-dmk-success">IN {compactINR(totalIn)}</span>
+          <span className="dmk-badge bg-dmk-danger/10 text-dmk-danger">OUT {compactINR(totalOut)}</span>
+          <span className={cn("dmk-badge font-semibold", net >= 0 ? "bg-dmk-gold/15 text-dmk-gold" : "bg-dmk-warning/15 text-dmk-warning")}>
+            NET {net >= 0 ? "+" : "−"}{compactINR(Math.abs(net))}
+          </span>
+        </div>
+      </div>
+      {activeDays === 0 ? (
+        <p className="text-[12px] text-dmk-text-muted py-8 text-center">
+          No money movement in the last {trend.length} days.
+        </p>
+      ) : (
+        <div className="h-[190px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={trend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="#1E2D4A" strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fill: "var(--text-muted)", fontSize: 10 }}
+                axisLine={{ stroke: "#1E2D4A" }}
+                tickLine={false}
+                dy={6}
+                interval="preserveStartEnd"
+                minTickGap={18}
+              />
+              <YAxis
+                tick={{ fill: "var(--text-muted)", fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+                width={54}
+                tickFormatter={(v) => compactINR(Number(v))}
+              />
+              <Tooltip
+                contentStyle={TREND_TOOLTIP}
+                labelStyle={{ color: "var(--text-secondary)", marginBottom: 4 }}
+                formatter={(value, name) => [formatINR(Number(value)), String(name)]}
+                cursor={{ fill: "rgba(245,158,11,0.06)" }}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: 11, paddingTop: 6 }}
+                formatter={(value) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
+              />
+              <Bar dataKey="in" name="Money in" fill={TREND_GREEN} radius={[3, 3, 0, 0]} maxBarSize={14} />
+              <Bar dataKey="out" name="Money out" fill={TREND_RED} radius={[3, 3, 0, 0]} maxBarSize={14} />
+              <Line
+                type="monotone"
+                dataKey="net"
+                name="Net flow"
+                stroke={TREND_GOLD}
+                strokeWidth={2}
+                dot={{ r: 2.5, fill: TREND_GOLD, strokeWidth: 0 }}
+                activeDot={{ r: 4 }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
       )}
     </div>
   );
