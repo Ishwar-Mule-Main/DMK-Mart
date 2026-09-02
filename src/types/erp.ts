@@ -167,6 +167,10 @@ export interface Invoice {
   status: string;
   lineItems: InvoiceLineItem[];
   createdAt: string;
+  /** Settlement tracking (credit invoices only — from invoices GET). */
+  settled?: number;
+  credited?: number;
+  outstanding?: number;
 }
 
 export interface SalesReturnItem {
@@ -241,6 +245,62 @@ export interface CustomerReceipt {
   mode: string;
   utrRef: string;
   notes: string;
+  allocations?: ReceiptAllocationInfo[];
+  allocatedTotal?: number;
+}
+
+export interface ReceiptAllocationInfo {
+  invoiceId: string;
+  invoiceNumber: string;
+  amount: number;
+}
+
+export interface OpenInvoiceRow {
+  invoiceId: string;
+  invoiceNumber: string;
+  customerId: string | null;
+  partyName: string;
+  invoiceDate: string;
+  grandTotal: number;
+  settled: number;
+  credited: number;
+  outstanding: number;
+  ageDays: number;
+  bucket: "0-30" | "31-60" | "61-90" | "90+";
+  creditDays: number;
+  dueDate: string;
+  overdueDays: number;
+  isOverdue: boolean;
+}
+
+export interface InvoiceAgingResponse {
+  type: "AR_INVOICE";
+  firmName: string;
+  asOf: string;
+  rows: OpenInvoiceRow[];
+  totals: {
+    outstanding: number;
+    overdue: number;
+    buckets: { d0_30: number; d31_60: number; d61_90: number; d90plus: number };
+    openInvoices: number;
+    overdueInvoices: number;
+  };
+  parties: Array<{
+    customerId: string;
+    partyName: string;
+    outstanding: number;
+    invoiceCount: number;
+    oldestInvoiceDate: string | null;
+    oldestInvoiceNo: string;
+    unapplied?: number;
+  }>;
+  reconciliation: {
+    openInvoices: number;
+    unappliedReceipts: number;
+    openingBalances: number;
+    glReceivables: number;
+    difference: number;
+  };
 }
 
 export interface Account {

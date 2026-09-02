@@ -17,6 +17,8 @@ import {
   resolveFirm,
 } from "@/app/api/v1/_lib/api";
 import { createInvoice } from "@/app/api/v1/_lib/invoice";
+import { settledTotalsByInvoice } from "@/app/api/v1/_lib/settlement";
+import { round2 } from "@/lib/gst";
 
 export async function GET(request: NextRequest) {
   try {
@@ -50,7 +52,19 @@ export async function GET(request: NextRequest) {
       orderBy: { invoiceDate: "desc" },
       take: 200,
     });
-    return ok(invoices);
+
+    // Attach settlement info for credit invoices (register "outstanding" column)
+    const creditIds = invoices.filter((i) => i.paymentMode === "CREDIT").map((i) => i.id);
+    const settledMap = await settledTotalsByInvoice(firmId, creditIds);
+    const rows = invoices.map((inv) => {
+      if (inv.paymentMode !== "CREDIT" || inv.status !== "POSTED") return inv;
+      // No allocation/credit-note rows → fully outstanding
+      const s = settledMap.get(inv.id) ?? { settled: 0, credited: 0 };
+      const outstanding = round2(Math.max(0, round2(inv.grandTotal) - s.settled - s.credited));
+      return { ...inv, settled: s.settled, credited: s.credited, outstanding };
+    });
+
+    return ok(rows);
   } catch (e) {
     return handleApiError(e);
   }

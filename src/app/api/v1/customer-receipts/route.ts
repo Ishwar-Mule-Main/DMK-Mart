@@ -8,6 +8,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import {
   asRecord,
+  asRecordArray,
   getDate,
   getNum,
   getStr,
@@ -16,6 +17,7 @@ import {
   resolveFirm,
 } from "@/app/api/v1/_lib/api";
 import { createCustomerReceipt } from "@/app/api/v1/_lib/payments";
+import { round2 } from "@/lib/gst";
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,11 +28,26 @@ export async function GET(request: NextRequest) {
     const customerId = getStr(sp.get("customerId"));
     const receipts = await db.customerReceipt.findMany({
       where: { firmId, ...(customerId ? { customerId } : {}) },
-      include: { customer: { select: { id: true, partyName: true } } },
+      include: {
+        customer: { select: { id: true, partyName: true } },
+        allocations: {
+          include: { invoice: { select: { id: true, invoiceNumber: true } } },
+        },
+      },
       orderBy: { receiptDate: "desc" },
       take: 200,
     });
-    return ok(receipts);
+    return ok(
+      receipts.map((r) => ({
+        ...r,
+        allocatedTotal: round2(r.allocations.reduce((s, a) => s + a.amount, 0)),
+        allocations: r.allocations.map((a) => ({
+          invoiceId: a.invoiceId,
+          invoiceNumber: a.invoice.invoiceNumber,
+          amount: a.amount,
+        })),
+      }))
+    );
   } catch (e) {
     return handleApiError(e);
   }
@@ -48,6 +65,10 @@ export async function POST(request: NextRequest) {
       mode: getStr(body.mode) || "NEFT",
       utrRef: getStr(body.utrRef),
       notes: getStr(body.notes),
+      allocations: asRecordArray(body.allocations).map((a) => ({
+        invoiceId: getStr(a.invoiceId),
+        amount: getNum(a.amount),
+      })),
     });
 
     return ok(result, 201);

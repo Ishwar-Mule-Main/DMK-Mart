@@ -45,6 +45,7 @@ model Firm {
   purchaseReturns   PurchaseReturn[]
   vendorPayments    VendorPayment[]
   customerReceipts  CustomerReceipt[]
+  receiptAllocations ReceiptAllocation[]
   accounts          ChartOfAccount[]
   journalEntries    JournalEntry[]
   inventoryMovements InventoryMovement[]
@@ -231,6 +232,7 @@ model Invoice {
 
   lineItems    InvoiceLineItem[]
   salesReturns SalesReturn[]
+  receiptAllocations ReceiptAllocation[]
 
   @@unique([firmId, invoiceNumber])
   @@index([firmId, invoiceDate])
@@ -364,7 +366,29 @@ model CustomerReceipt {
   notes       String   @default("")
   createdAt   DateTime @default(now())
 
+  allocations ReceiptAllocation[]
+
   @@index([firmId, receiptDate])
+}
+
+// ─── RECEIPT ALLOCATIONS (per-invoice settlement tracking) ───────
+// A CustomerReceipt may settle specific credit invoices. Allocation rows
+// make AR aging precise: invoice outstanding = grandTotal − Σ allocations
+// − Σ credit notes. Remainder (amount > Σ allocations) stays on account.
+
+model ReceiptAllocation {
+  id        String   @id @default(cuid())
+  firmId    String
+  firm      Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  receiptId String
+  receipt   CustomerReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id])
+  amount    Float
+  createdAt DateTime @default(now())
+
+  @@index([firmId, invoiceId])
+  @@index([firmId, receiptId])
 }
 
 // ─── ACCOUNTING — Chart of Accounts & Journals ───────────────────

@@ -83,7 +83,7 @@ export function Header() {
               <ChevronDown className="h-3.5 w-3.5 text-dmk-text-muted shrink-0" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-64 bg-dmk-tertiary border-dmk-border-medium">
+          <DropdownMenuContent align="start" className="w-64 bg-dmk-bg-tertiary border-dmk-border-medium">
             <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-dmk-text-muted">
               Firms · Owner Workspace
             </DropdownMenuLabel>
@@ -124,7 +124,7 @@ export function Header() {
               <ChevronDown className="h-3.5 w-3.5 text-dmk-text-muted" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="bg-dmk-tertiary border-dmk-border-medium">
+          <DropdownMenuContent align="start" className="bg-dmk-bg-tertiary border-dmk-border-medium">
             <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-dmk-text-muted">
               Financial Year (Apr–Mar)
             </DropdownMenuLabel>
@@ -175,7 +175,7 @@ export function Header() {
               )}
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80 bg-dmk-tertiary border-dmk-border-medium">
+          <DropdownMenuContent align="end" className="w-80 bg-dmk-bg-tertiary border-dmk-border-medium">
             <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-dmk-text-muted flex items-center gap-2">
               <ShieldCheck className="h-3.5 w-3.5 text-dmk-warning" /> Low Stock Alerts
             </DropdownMenuLabel>

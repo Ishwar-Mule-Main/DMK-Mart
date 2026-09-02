@@ -231,3 +231,38 @@ Work Log:
 Stage Summary:
 - Platform remains balanced and green. New capabilities this cycle: ⌘K command palette (power-user navigation + actions + deep search), dashboard drill-downs, WAC inventory valuation report (Phase 3 task 3.7 closed), motion polish per Midnight Ledger motion tokens.
 - Risks: none open. Suggested next cycle: per-invoice settlement tracking (precise aging), GSTR-2B reconciliation view, dashboard sparklines, firm-level onboarding checklist.
+
+---
+Task ID: 13
+Agent: ATLAS (cron webDevReview — cycle 13)
+Task: QA assessment + per-invoice settlement tracking (precise AR aging) + dashboard sparklines
+
+Work Log:
+- QA smoke: boot 200, dashboard/receipts views healthy, no console errors, lint 0/0, TB balanced ₹11,01,084.08 → project STABLE, proceeded to the top backlog feature.
+- FEATURE: Per-invoice settlement tracking (AR subledger) — end-to-end:
+  · Schema: new `ReceiptAllocation` model (firmId, receiptId, invoiceId, amount) + relations on Firm / CustomerReceipt / Invoice; `db:push` additive, no data loss.
+  · Engine: `_lib/settlement.ts` — computeOpenInvoices() computes precise outstanding per credit invoice = grandTotal − Σ allocations − Σ credit notes (sales returns with invoiceId), with ageDays/bucket/creditDays/dueDate/overdueDays; createAllocations() validates inside the receipt transaction (invoice must be firm+customer+POSTED+CREDIT; per-invoice cumulative ≤ outstanding; Σ allocations ≤ receipt amount; remainder stays on account) and returns settlement summary; settledTotalsByInvoice() for register badges.
+  · payments.ts: createCustomerReceipt accepts optional allocations → creates allocation rows in-tx → ledger particulars record "— adj INV/0006 ₹1,500.00, …" → journal narration "settled N invoices"; response adds applied + allocatedTotal.
+  · New route GET /api/v1/ledger/aging-invoices: precise invoice-wise AR rows + totals (buckets, overdue) + party rollup (with per-party unapplied) + AR subledger reconciliation (open invoices − unapplied receipts + party openings = GL receivables, difference badge).
+  · customer-receipts GET now returns allocations[] + allocatedTotal; POST parses allocations.
+  · invoices GET attaches settled/credited/outstanding for POSTED credit invoices (no rows → fully outstanding).
+- FRONTEND:
+  · receipts.tsx: table gained "Settled against" column (INV chips + amounts, "+N more", "· on acct ₹X" remainder, italic "On account" fallback); Record Receipt dialog gained a settlement panel — open-invoice table (age badge, outstanding, per-invoice allocate input), "Auto-allocate (oldest first)" button, live "Allocated ₹X · On account ₹Y" strip, Clear all, over-allocation error (client) + server 422 surfaced; submit passes allocations.
+  · aging.tsx: 3rd tab "Invoice-wise (precise)" — KPIs (Open invoices, Overdue ₹, Current 0–30, 90+), subledger reconciliation strip with RECONCILED ✓ / Δ badge, by-party chips with unapplied notes, party filter Select, invoice table (invoice # + billed, party + receipts/credit-note sub-line, age badge + days, due date + terms, outstanding, WITHIN TERMS / OVERDUE Nd badge), CSV export, recalculate; scroll container min-height guard for short viewports.
+  · invoice-register.tsx: new "Outstanding" column — orange ₹ for open credit invoices, SETTLED badge when fully paid, "—" for cash/UPI/counter rows; CSV includes Outstanding.
+  · dashboard.tsx + shared.tsx: KpiCard `spark`/`sparkColor` props + inline-SVG Sparkline (gradient area, end-dot, useId) — Today's Sales (7-day, orange) and Month Sales (month-to-date, blue) sparklines; dashboard API adds monthTrend (MTD daily totals).
+- STYLING/FIXES:
+  · FIXED pre-existing dead token: `bg-dmk-tertiary` didn't resolve (token is `--color-dmk-bg-tertiary`) → header dropdowns + my new code use `bg-dmk-bg-tertiary`.
+  · Design system: added missing `.dmk-badge-gold` CSS + "gold" BadgeTone (61–90 bucket badge now uses it).
+- Verification (live, agent-browser + curl):
+  · Aging-invoices math: 4 open invoices ₹38,906.58; INV/0001 correctly nets ₹471.42 credit note; reconciliation identity Δ = 0 exactly (38,906.58 − 5,000 + 0 = 33,906.58 GL).
+  · Settlement E2E via API: ₹2,000 receipt split 1,500→INV/0006 + 500→INV/0001 → outstandings 1,509 / 10,585.58; guards verified: ERR_ALLOCATION_EXCEEDS_RECEIPT and ERR_ALLOCATION_EXCEEDS_INVOICE ("exceeds outstanding ₹1,509.00 on INV/0006") both 422 with clear messages; no data pollution from rejected tests.
+  · Settlement E2E via UI: dialog shows open invoices w/ live outstanding; auto-allocate filled ₹3,000 oldest-first; receipt posted; toast "settled 1 invoice (₹3,000.00)"; table row shows INV chip.
+  · Register outstanding column verified (INV/0006 ₹1,509 · INV/0001 ₹7,585.58 · counter "—").
+  · Sparklines verified on dashboard; reconciliation strip RECONCILED ✓; mobile 390px dialog stacks cleanly; TB ΣDr=ΣCr=₹11,01,084.08 after all mutations; lint 0/0; tsc clean (app code); dev log clean.
+
+Stage Summary:
+- AR is now a true subledger: per-invoice outstanding (receipts + credit notes), precise invoice-wise aging with overdue-by-credit-days flags, and a self-proving reconciliation strip (open invoices − unapplied + openings = GL). Receipts can be allocated oldest-first or manually; party ledger narrations carry adjustments.
+- Fixed a real pre-existing styling bug (bg-dmk-tertiary dead class) and completed the badge system (gold).
+- Risks: none open. Dev server had to be restarted once to pick up the regenerated Prisma client (global singleton) — note for future schema changes: restart dev after `prisma generate` if a new model is queried immediately.
+- Suggested next cycle: GSTR-2B reconciliation import view · settle-by-allocation from party ledger row context · PDF/print export polish for statements · AP-side settlement tracking (vendor payments ↔ POs).

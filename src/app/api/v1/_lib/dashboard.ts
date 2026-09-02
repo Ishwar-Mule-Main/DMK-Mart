@@ -21,6 +21,7 @@ export interface DashboardData {
   damagedValue: number;
   lowStockCount: number;
   salesTrend: Array<{ date: string; total: number }>;
+  monthTrend: Array<{ date: string; total: number }>;
   topProducts: Array<{ productId: string; sku: string; name: string; qty: number; value: number }>;
   arAging: { d0_30: number; d31_60: number; d61_90: number; d90plus: number; total: number };
   recentTransactions: Array<{
@@ -99,6 +100,23 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
         .reduce((s, inv) => s + inv.grandTotal, 0)
     );
     salesTrend.push({ date: dayStart.toISOString().slice(0, 10), total });
+  }
+
+  // Month-to-date trend — daily totals for the sparkline on the Month Sales KPI
+  const monthInvoices = await db.invoice.findMany({
+    where: { firmId, status: "POSTED", invoiceDate: { gte: monthStart } },
+    select: { invoiceDate: true, grandTotal: true },
+  });
+  const monthTrend: Array<{ date: string; total: number }> = [];
+  for (let i = 0; i <= now.getDate() - 1; i++) {
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), 1 + i);
+    const dayEnd = addDays(dayStart, 1);
+    const total = round2(
+      monthInvoices
+        .filter((inv) => inv.invoiceDate >= dayStart && inv.invoiceDate < dayEnd)
+        .reduce((s, inv) => s + inv.grandTotal, 0)
+    );
+    monthTrend.push({ date: dayStart.toISOString().slice(0, 10), total });
   }
 
   // Top products — last 30 days by qty & value
@@ -211,6 +229,7 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
     damagedValue,
     lowStockCount,
     salesTrend,
+    monthTrend,
     topProducts,
     arAging: ar.totals,
     recentTransactions: recent,

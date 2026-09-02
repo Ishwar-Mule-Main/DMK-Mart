@@ -8,6 +8,7 @@ import { ACC, postJournal } from "@/lib/journal";
 import { round2 } from "@/lib/gst";
 import { BusinessError } from "./api";
 import { addCustomerLedger, addVendorLedger, updateCustomerBalance, updateVendorBalance } from "./party";
+import { createAllocations, type AllocationInput } from "./settlement";
 
 export interface VendorPaymentInput {
   vendorId: string;
@@ -93,6 +94,8 @@ export interface CustomerReceiptInput {
   mode: string;
   utrRef?: string;
   notes?: string;
+  /** Optional per-invoice settlement plan (precise AR tracking). */
+  allocations?: AllocationInput[];
 }
 
 export async function createCustomerReceipt(
@@ -121,24 +124,41 @@ export async function createCustomerReceipt(
       },
     });
 
+    // Optional per-invoice settlement (validated; remainder stays on account)
+    const applied = await createAllocations(tx, {
+      firmId: firm.id,
+      receiptId: created.id,
+      customerId: customer.id,
+      receiptAmount: amount,
+      allocations: input.allocations ?? [],
+    });
+    const allocated = round2(applied.reduce((s, a) => s + a.amount, 0));
+
     const newBalance = await updateCustomerBalance(tx, customer.id, -amount);
+    const adjNote = applied.length
+      ? ` — adj ${applied.map((a) => `${a.invoiceNumber} ₹${a.amount.toFixed(2)}`).join(", ")}`
+      : "";
     await addCustomerLedger(tx, customer.id, {
       entryDate: input.receiptDate,
       voucherType: "RECEIPT",
       voucherNo: input.utrRef || `RCPT-${created.id.slice(-6).toUpperCase()}`,
-      particulars: `Receipt by ${input.mode}${input.utrRef ? ` (Ref ${input.utrRef})` : ""}`,
+      particulars: `Receipt by ${input.mode}${input.utrRef ? ` (Ref ${input.utrRef})` : ""}${adjNote}`,
       debit: 0,
       credit: amount,
     });
 
-    return { receipt: created, newBalance };
+    return { receipt: created, newBalance, applied, allocated };
   });
+
+  const narration = `Receipt from ${customer.partyName}${input.utrRef ? ` — Ref ${input.utrRef}` : ""}${
+    result.applied.length ? ` — settled ${result.applied.length} invoice${result.applied.length !== 1 ? "s" : ""}` : " — on account"
+  }`;
 
   const journal = await postJournal({
     firmId: firm.id,
     voucherType: "RECEIPT",
     postingDate: input.receiptDate,
-    narration: `Receipt from ${customer.partyName}${input.utrRef ? ` — Ref ${input.utrRef}` : ""}`,
+    narration,
     referenceDocId: result.receipt.id,
     lines: [
       { accountCode: input.mode === "CASH" ? ACC.CASH : ACC.BANK, entrySide: "DEBIT", amount },
@@ -154,6 +174,8 @@ export async function createCustomerReceipt(
   return {
     receipt: result.receipt,
     customerBalance: result.newBalance,
+    applied: result.applied,
+    allocatedTotal: result.allocated,
     journal,
     ...(warning ? { warning } : {}),
   };

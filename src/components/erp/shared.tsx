@@ -48,6 +48,8 @@ export function KpiCard({
   tone = "default",
   onClick,
   drillHint,
+  spark,
+  sparkColor,
 }: {
   label: string;
   value: string;
@@ -56,6 +58,9 @@ export function KpiCard({
   tone?: "default" | "orange" | "blue" | "gold" | "success" | "danger" | "info";
   onClick?: () => void;
   drillHint?: string;
+  /** Optional micro-trend series (numbers) rendered as an SVG sparkline. */
+  spark?: number[];
+  sparkColor?: string;
 }) {
   const toneMap: Record<string, string> = {
     default: "text-dmk-text-primary",
@@ -75,6 +80,7 @@ export function KpiCard({
       </div>
       <span className={cn("font-money text-[20px] font-semibold leading-none", toneMap[tone])}>{value}</span>
       {sub && <span className="text-[11px] text-dmk-text-muted">{sub}</span>}
+      {spark && spark.length >= 2 && <Sparkline data={spark} color={sparkColor} />}
       {clickable && drillHint && (
         <span className="text-[10px] font-semibold uppercase tracking-wider text-dmk-blue/80">{drillHint}</span>
       )}
@@ -97,7 +103,56 @@ export function KpiCard({
   return <div className="dmk-kpi p-4 flex flex-col gap-2">{CardInner}</div>;
 }
 
-type BadgeTone = "success" | "warning" | "danger" | "info" | "dr" | "cr" | "neutral";
+// ─── Sparkline (inline SVG micro-trend for KPI cards) ───────────
+
+const SPARK_W = 100;
+const SPARK_H = 22;
+const SPARK_PAD = 2;
+
+export function Sparkline({ data, color = "var(--accent-blue)", className }: { data: number[]; color?: string; className?: string }) {
+  const gid = React.useId();
+  if (!data || data.length < 2) return null;
+  const max = Math.max(...data);
+  const min = Math.min(...data);
+  const range = max - min || 1;
+  const stepX = (SPARK_W - SPARK_PAD * 2) / (data.length - 1);
+  const coords = data.map((v, i) => {
+    const x = SPARK_PAD + i * stepX;
+    const y = SPARK_PAD + (SPARK_H - SPARK_PAD * 2) * (1 - (v - min) / range);
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  });
+  const line = coords.join(" ");
+  const area = `${SPARK_PAD},${SPARK_H - SPARK_PAD} ${line} ${SPARK_W - SPARK_PAD},${SPARK_H - SPARK_PAD}`;
+  const last = coords[coords.length - 1].split(",");
+  return (
+    <svg
+      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+      preserveAspectRatio="none"
+      className={cn("h-[22px] w-full", className)}
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.28} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill={`url(#${gid})`} />
+      <polyline
+        points={line}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <circle cx={Number(last[0])} cy={Number(last[1])} r={1.8} fill={color} />
+    </svg>
+  );
+}
+
+type BadgeTone = "success" | "warning" | "danger" | "info" | "dr" | "cr" | "neutral" | "gold";
 
 export function Badge({ tone, children }: { tone: BadgeTone; children: React.ReactNode }) {
   return <span className={`dmk-badge dmk-badge-${tone}`}>{children}</span>;

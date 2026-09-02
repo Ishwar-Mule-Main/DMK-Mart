@@ -57,6 +57,7 @@ interface DashboardResponse {
   damagedValue: number;
   lowStockCount: number;
   salesTrend: Array<{ date: string; total: number }>;
+  monthTrend?: Array<{ date: string; total: number }>;
   topProducts: Array<{ productId: string; sku: string; name: string; qty: number; value: number }>;
   arAging: { d0_30: number; d31_60: number; d61_90: number; d90plus: number; total: number };
   recentTransactions: Array<{
@@ -178,6 +179,16 @@ export default function DashboardView() {
     ];
   }, [data]);
 
+  // Sparkline series for the sales KPI cards
+  const trendSpark = React.useMemo(
+    () => (data?.salesTrend ?? []).map((p) => p.total),
+    [data]
+  );
+  const monthSpark = React.useMemo(
+    () => (data?.monthTrend ?? []).map((p) => p.total),
+    [data]
+  );
+
   const lowStockRail = lowStock.slice(0, 5);
 
   return (
@@ -215,8 +226,10 @@ export default function DashboardView() {
           {/* ── KPI row (click to drill down) ───────────── */}
           <div className="dmk-enter-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <KpiCard label="Today's Sales" value={formatINR(data.todaySales)} tone="orange" icon={IndianRupee}
+              spark={trendSpark} sparkColor="#FF6B00"
               onClick={() => setView("sales/invoices")} drillHint="Invoice Register" />
             <KpiCard label="Month Sales" value={formatINR(data.monthSales)} tone="blue" icon={CalendarDays}
+              spark={monthSpark} sparkColor="#2563EB"
               onClick={() => setView("reports")} drillHint="Sales Report" />
             <KpiCard
               label="Receivables"

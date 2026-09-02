@@ -98,7 +98,7 @@ export default function InvoiceRegisterView() {
   function exportCsv() {
     const list = rows ?? [];
     downloadCSV("invoice-register.csv", [
-      ["Invoice #", "Date", "Customer / Walk-in", "Type", "Payment", "Taxable", "Tax", "Round off", "Grand Total"],
+      ["Invoice #", "Date", "Customer / Walk-in", "Type", "Payment", "Taxable", "Tax", "Round off", "Grand Total", "Outstanding"],
       ...list.map((i) => [
         i.invoiceNumber,
         i.invoiceDate.slice(0, 10),
@@ -109,6 +109,7 @@ export default function InvoiceRegisterView() {
         (Number(i.totalCgst) + Number(i.totalSgst) + Number(i.totalIgst)).toFixed(2),
         Number(i.roundOff).toFixed(2),
         Number(i.grandTotal).toFixed(2),
+        i.paymentMode === "CREDIT" && i.outstanding !== undefined ? i.outstanding.toFixed(2) : "",
       ]),
     ]);
   }
@@ -150,7 +151,7 @@ export default function InvoiceRegisterView() {
           ) : rows.length === 0 ? (
             <EmptyState icon={ReceiptText} title="No invoices found" hint="Create one from B2B Fast Billing or the Counter POS." />
           ) : (
-            <table className="dmk-table min-w-[900px]">
+            <table className="dmk-table min-w-[1020px]">
               <thead>
                 <tr>
                   <th>Invoice #</th>
@@ -161,12 +162,16 @@ export default function InvoiceRegisterView() {
                   <th className="text-right">Taxable</th>
                   <th className="text-right">Tax</th>
                   <th className="text-right">Grand Total</th>
+                  <th className="text-right">Outstanding</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
                 {rows.map((i) => {
                   const tax = Number(i.totalCgst) + Number(i.totalSgst) + Number(i.totalIgst);
+                  const isCredit = i.paymentMode === "CREDIT" && i.status === "POSTED";
+                  const osd = i.outstanding;
+                  const settled = isCredit && osd !== undefined && osd <= 0.009;
                   return (
                     <tr key={i.id}>
                       <td className="font-money text-[12.5px] text-dmk-text-primary">{i.invoiceNumber}</td>
@@ -179,6 +184,19 @@ export default function InvoiceRegisterView() {
                       <td className="num text-[12.5px] text-dmk-text-secondary">{formatINR(Number(i.subtotal))}</td>
                       <td className="num text-[12.5px] text-dmk-text-secondary">{formatINR(tax)}</td>
                       <td className="num text-[13px] font-semibold text-dmk-text-primary">{formatINR(Number(i.grandTotal))}</td>
+                      <td className="num text-right whitespace-nowrap">
+                        {i.isCounterSale || i.paymentMode !== "CREDIT" ? (
+                          <span className="text-[11px] text-dmk-text-muted">—</span>
+                        ) : osd === undefined ? (
+                          <span className="text-[11px] text-dmk-text-muted">…</span>
+                        ) : settled ? (
+                          <Badge tone="success">SETTLED</Badge>
+                        ) : (
+                          <span className={cn("font-money text-[12.5px] font-semibold", osd > 0.009 ? "text-dmk-orange" : "text-dmk-text-muted")}>
+                            {formatINR(osd)}
+                          </span>
+                        )}
+                      </td>
                       <td className="text-right">
                         <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => openDetail(i.id)}>
                           <Eye className="h-3.5 w-3.5" /> View

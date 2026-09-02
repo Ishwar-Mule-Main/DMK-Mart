@@ -234,6 +234,7 @@ body {
 .dmk-badge-dr      { background: rgba(255, 107, 0, 0.15); color: #ff6b00; }
 .dmk-badge-cr      { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
 .dmk-badge-neutral { background: rgba(107, 122, 153, 0.15); color: #a7b4cc; }
+.dmk-badge-gold    { background: rgba(255, 204, 0, 0.14); color: #ffcc00; }
 
 /* Focus ring on inputs */
 .dmk-input:focus-visible {
