@@ -46,6 +46,8 @@ model Firm {
   vendorPayments    VendorPayment[]
   customerReceipts  CustomerReceipt[]
   receiptAllocations ReceiptAllocation[]
+  paymentAllocations PaymentAllocation[]
+  gstr2bRecords     Gstr2bRecord[]
   accounts          ChartOfAccount[]
   journalEntries    JournalEntry[]
   inventoryMovements InventoryMovement[]
@@ -154,6 +156,7 @@ model Vendor {
   ledgerEntries     LedgerEntry[]
 
   @@index([firmId, vendorName])
+  @@index([firmId, gstin])
 }
 
 // ─── PURCHASE ORDERS (PO → GRN lifecycle) ────────────────────────
@@ -179,6 +182,7 @@ model PurchaseOrder {
 
   items           PurchaseOrderItem[]
   purchaseReturns PurchaseReturn[]
+  paymentAllocations PaymentAllocation[]
 
   @@unique([firmId, poNumber])
   @@index([firmId, status])
@@ -350,7 +354,49 @@ model VendorPayment {
   notes        String   @default("")
   createdAt    DateTime @default(now())
 
+  allocations PaymentAllocation[]
+
   @@index([firmId, paymentDate])
+}
+
+// ─── AP SETTLEMENT (vendor payment ↔ PO allocation) ──────────────
+
+model PaymentAllocation {
+  id              String        @id @default(cuid())
+  firmId          String
+  firm            Firm          @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  paymentId       String
+  payment         VendorPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  amount          Float
+  createdAt       DateTime      @default(now())
+
+  @@index([firmId, purchaseOrderId])
+  @@index([firmId, paymentId])
+}
+
+// ─── GSTR-2B IMPORT (ITC reconciliation source rows) ─────────────
+
+model Gstr2bRecord {
+  id            String   @id @default(cuid())
+  firmId        String
+  firm          Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  period        String   // "2026-08" return month
+  gstin         String   // supplier GSTIN
+  tradeName     String   @default("")
+  invoiceNo     String   // supplier's invoice number
+  invoiceDate   DateTime
+  taxableValue  Float
+  igst          Float    @default(0)
+  cgst          Float    @default(0)
+  sgst          Float    @default(0)
+  itcAvailable  Boolean  @default(true) // GSTR-2B ITC available flag
+  placeOfSupply String   @default("")
+  createdAt     DateTime @default(now())
+
+  @@unique([firmId, period, gstin, invoiceNo])
+  @@index([firmId, period])
 }
 
 model CustomerReceipt {

@@ -9,6 +9,7 @@ import { round2 } from "@/lib/gst";
 import { BusinessError } from "./api";
 import { addCustomerLedger, addVendorLedger, updateCustomerBalance, updateVendorBalance } from "./party";
 import { createAllocations, type AllocationInput } from "./settlement";
+import { createPaymentAllocations } from "./settlement-ap";
 
 export interface VendorPaymentInput {
   vendorId: string;
@@ -17,6 +18,8 @@ export interface VendorPaymentInput {
   mode: string;
   utrRef?: string;
   notes?: string;
+  /** Optional per-PO settlement plan (precise AP tracking). */
+  allocations?: AllocationInput[];
 }
 
 const VALID_MODES = ["NEFT", "UPI", "CHEQUE", "CASH"];
@@ -49,24 +52,39 @@ export async function createVendorPayment(
       },
     });
 
+    // Optional per-PO settlement (validated; remainder stays on account)
+    const applied = await createPaymentAllocations(tx, {
+      firmId: firm.id,
+      paymentId: created.id,
+      vendorId: vendor.id,
+      paymentAmount: amount,
+      allocations: input.allocations ?? [],
+    });
+    const allocated = round2(applied.reduce((s, a) => s + a.amount, 0));
+
     const newBalance = await updateVendorBalance(tx, vendor.id, -amount);
+    const adjNote = applied.length
+      ? ` — adj ${applied.map((a) => `${a.poNumber} ₹${a.amount.toFixed(2)}`).join(", ")}`
+      : "";
     await addVendorLedger(tx, vendor.id, {
       entryDate: input.paymentDate,
       voucherType: "PAYMENT",
       voucherNo: input.utrRef || `PAY-${created.id.slice(-6).toUpperCase()}`,
-      particulars: `Payment by ${input.mode}${input.utrRef ? ` (Ref ${input.utrRef})` : ""}`,
+      particulars: `Payment by ${input.mode}${input.utrRef ? ` (Ref ${input.utrRef})` : ""}${adjNote}`,
       debit: amount,
       credit: 0,
     });
 
-    return { payment: created, newBalance };
+    return { payment: created, newBalance, applied, allocated };
   });
 
   const journal = await postJournal({
     firmId: firm.id,
     voucherType: "PAYMENT",
     postingDate: input.paymentDate,
-    narration: `Payment to ${vendor.vendorName}${input.utrRef ? ` — Ref ${input.utrRef}` : ""}`,
+    narration: `Payment to ${vendor.vendorName}${input.utrRef ? ` — Ref ${input.utrRef}` : ""}${
+      result.applied.length ? ` — settled ${result.applied.length} bill${result.applied.length !== 1 ? "s" : ""}` : " — on account"
+    }`,
     referenceDocId: result.payment.id,
     lines: [
       { accountCode: ACC.AP, entrySide: "DEBIT", amount },
@@ -82,6 +100,8 @@ export async function createVendorPayment(
   return {
     payment: result.payment,
     vendorBalance: result.newBalance,
+    applied: result.applied,
+    allocatedTotal: result.allocated,
     journal,
     ...(warning ? { warning } : {}),
   };

@@ -26,7 +26,12 @@ export async function GET(request: NextRequest) {
     const vendorId = getStr(sp.get("vendorId"));
     const payments = await db.vendorPayment.findMany({
       where: { firmId, ...(vendorId ? { vendorId } : {}) },
-      include: { vendor: { select: { id: true, vendorName: true } } },
+      include: {
+        vendor: { select: { id: true, vendorName: true } },
+        allocations: {
+          select: { amount: true, purchaseOrder: { select: { poNumber: true } } },
+        },
+      },
       orderBy: { paymentDate: "desc" },
       take: 200,
     });
@@ -48,6 +53,14 @@ export async function POST(request: NextRequest) {
       mode: getStr(body.mode) || "NEFT",
       utrRef: getStr(body.utrRef),
       notes: getStr(body.notes),
+      allocations: Array.isArray(body.allocations)
+        ? body.allocations
+            .map((a: unknown) => {
+              const r = asRecord(a);
+              return { invoiceId: getStr(r.purchaseOrderId ?? r.poId ?? r.invoiceId), amount: getNum(r.amount) };
+            })
+            .filter((a: { invoiceId: string; amount: number }) => a.invoiceId && a.amount > 0)
+        : [],
     });
 
     return ok(result, 201);

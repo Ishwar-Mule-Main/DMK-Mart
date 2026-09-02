@@ -32,6 +32,7 @@ export type ViewId =
   | "finance/statements"
   | "finance/daybook"
   | "finance/aging"
+  | "finance/gstr2b"
   | "docs/invoices"
   | "docs/notes"
   | "reports"

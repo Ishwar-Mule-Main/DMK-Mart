@@ -93,6 +93,7 @@ const SECTIONS: NavSection[] = [
       { id: "finance/statements", label: "Statements (TB · P&L · BS)", icon: PieChart },
       { id: "finance/daybook", label: "Day Book", icon: CalendarDays },
       { id: "finance/aging", label: "AR / AP Aging", icon: Timer },
+      { id: "finance/gstr2b", label: "GSTR-2B Recon", icon: FileCheck2 },
     ],
   },
   {

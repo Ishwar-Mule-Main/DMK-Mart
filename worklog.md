@@ -266,3 +266,38 @@ Stage Summary:
 - Fixed a real pre-existing styling bug (bg-dmk-tertiary dead class) and completed the badge system (gold).
 - Risks: none open. Dev server had to be restarted once to pick up the regenerated Prisma client (global singleton) — note for future schema changes: restart dev after `prisma generate` if a new model is queried immediately.
 - Suggested next cycle: GSTR-2B reconciliation import view · settle-by-allocation from party ledger row context · PDF/print export polish for statements · AP-side settlement tracking (vendor payments ↔ POs).
+
+---
+Task ID: 14
+Agent: ATLAS (cron webDevReview — cycle 14)
+Task: QA assessment + AP-side settlement tracking (per-PO) + GSTR-2B reconciliation view + styling polish
+
+Work Log:
+- QA smoke first: boot 200, zero console errors (after viewport fix — browser was stuck at 390px from prior cycle, sidebar clicks were no-ops until viewport reset to 1440×900), lint 0/0, TB balanced ₹11,01,084.08 → project STABLE → proceeded to the top two backlog features.
+- FEATURE A: AP-side settlement tracking (vendor payments ↔ CONFIRMED POs), full mirror of the AR subledger:
+  · Schema: `PaymentAllocation` (firmId, paymentId, purchaseOrderId, amount) + relations on Firm/VendorPayment/PurchaseOrder + @@index([firmId,gstin]) on Vendor; `db:push` additive; dev server restarted to pick up regenerated Prisma client.
+  · Engine: `_lib/settlement-ap.ts` — computeOpenPurchaseOrders() (outstanding = grandTotal − Σ payment allocations − Σ debit notes w/ poId; age buckets; due from vendor paymentTerms "NET_30" parser), createPaymentAllocations() (in-tx validation: firm+vendor+CONFIRMED, positive, cumulative ≤ outstanding, Σ ≤ payment), settledTotalsByPo().
+  · payments.ts: createVendorPayment accepts allocations → PaymentAllocation rows in-tx → vendor ledger particulars carry "— adj PO/0002 ₹x, …" → journal narration "settled N bills — on account" fallback; response adds applied + allocatedTotal.
+  · vendor-payments route: GET includes allocations w/ poNumber; POST parses allocations[] (accepts purchaseOrderId|poId|invoiceId keys).
+  · New route GET /api/v1/ledger/aging-pos: PO-wise AP rows + totals + vendor rollup (w/ unapplied + standalone debit notes) + AP subledger reconciliation — identity includes STANDALONE DEBIT NOTES (poId=null) term; fixed initial Δ −224.20 (seed's DN/0001 is a standalone note) → now self-proving Δ = 0 exactly.
+- FEATURE A UI:
+  · vendor-payments.tsx: "SETTLED AGAINST" column (PO chips + amounts, +N more, "· on acct", italic "On account"), search now covers PO #, 4th KPI "Bill-wise settled %" (allocated/total), CSV export gained Settled Against + On Account columns; Record Payment dialog gained settlement panel — open-bill table (age badge, partial-paid sub-line, per-bill allocate input), Auto-allocate (oldest first), live Allocated/On-account strip + Clear all, client over-allocation error + server 422 surfaced, submit disabled while over-allocated.
+  · aging.tsx: 4th tab "PO-wise (precise)" — KPIs (Open bills, Overdue ₹, Current 0–30, 90+), reconciliation strip (open bills − unapplied payments + openings − standalone debit notes = GL payables, RECONCILED ✓ badge), vendor filter + rollup chips, bill table (PO # + billed, vendor + payments/debit-note sub-line, age, due + Nd terms, outstanding, WITHIN TERMS / OVERDUE Nd), CSV export, recalculate; stagger animation on KPI grids (both precise tabs).
+- FEATURE B: GSTR-2B reconciliation (import + match + view):
+  · Schema: `Gstr2bRecord` (period YYYY-MM, supplier gstin/tradeName, invoiceNo/date, taxable, igst/cgst/sgst, itcAvailable, placeOfSupply; unique [firmId,period,gstin,invoiceNo]).
+  · Route /api/v1/gstr2b: POST import (csv text OR rows[]; robust CSV parser — quoted cells, header aliases, ₹/comma stripping, Indian dd/mm/yyyy dates, ITC Y/N) replaces the period in-tx; GET reconciliation — books side = CONFIRMED POs with poDate in period, two-pass matching (GSTIN + grand ±₹1/±0.5% → GSTIN + taxable), statuses MATCHED (w/ matched PO #) / AMOUNT_MISMATCH (GSTIN known, no amount fit — classic period cut) / MISSING_IN_BOOKS / MISSING_IN_2B (books-only), summary KPIs incl. itc2b, itcBooks, matchedItc, missingItc, extraTax, netItcRisk.
+  · New view gstr2b.tsx (nav Finance → "GSTR-2B Recon", palette entry, ViewId finance/gstr2b): period month-picker, gold Import CTA, 6 KPI cards, "How matching works" strip, supplier-rows table (status badge + matched PO #, GSTIN, ITC flag, red/amber row tints), "In books, missing in 2B" table with clean-period ✓ state, CSV export; Import dialog (month, file upload, paste textarea w/ preview, sample rows loader, replace-warning note).
+- STYLING: dmk-enter-stagger cascades on all new KPI rows (gstr2b, vendor payments, both aging precise tabs); gold primary CTA per design system for compliance action; status badge vocabulary (green MATCHED / amber AMOUNT MISMATCH / red MISSING IN BOOKS / info MISSING IN 2B); aging page subtitle updated to mention PO-wise; mobile 390px verified on all three surfaces (KPIs stack 2-up, dialogs scroll, tables scroll-x).
+- Verification (live API + browser):
+  · Settlement E2E API: ₹40,000 payment split 34,338→PO/0002 (fully settled) + 5,662→PO/0004 → outstandings 0 / 13,513; narration "settled 2 bills"; guards ERR_ALLOCATION_EXCEEDS_PAYMENT / ERR_ALLOCATION_EXCEEDS_PO ("exceeds outstanding ₹0.00 on …") / ERR_ALLOCATION_INVALID (cross-vendor PO) all 422 with clear messages; no data pollution.
+  · Settlement E2E UI: dialog shows open bills w/ live outstanding (partial-paid sub-line "paid ₹5,662.00"); auto-allocate filled ₹13,513; payment posted; table shows PO chip; Bill-wise settled 61%→68%; Sri Balaji payable → 0.
+  · GSTR-2B E2E: Aug import (4 rows) → 2 matched + 1 AMOUNT_MISMATCH (SB/26-27/4512: 2B dated 30/08 but PO/0004 GRN 02/09 — genuine period cut, engine correct) + 1 MISSING_IN_BOOKS (SP-77123, ITC ₹1,764 at risk); Sep import → fully matched, clean-period ✓; sample-rows import via UI dialog verified (replace-per-period works, Aug → 3 rows / 2 matched / 1 missing).
+  · Books: TB asOf Sep-3 ΣDr=ΣCr=₹10,47,571.08 (= 11,01,084.08 − 53,513 session payments — exact); AR recon Δ 0; AP recon Δ 0; BS balanced; dev.log clean; fresh console 0 errors; tsc 0; lint 0/0.
+- Notes: transient "Module not found ./views/gstr2b" console errors were stale dev.log entries from the wiring window (app-shell edited before view file saved) — resolved on next compile; do not chase if seen mid-scaffold.
+
+Stage Summary:
+- AP is now a true subledger mirroring AR: per-PO outstanding (payments + debit notes), PO-wise aging with vendor-terms overdue flags, self-proving reconciliation that also accounts for standalone debit notes, and bill-wise payment allocation (auto oldest-first or manual) with ledger narrations.
+- GSTR-2B reconciliation closes the ITC loop: portal CSV in → supplier-vs-books exceptions out (matched / mismatch / missing either side) with risk KPIs, before GST filing.
+- Platform stays paisa-balanced across every mutation; both subledgers reconcile to the GL at Δ=0.
+- Risks: none open. GSTR-2B matching is amount-based (supplier invoice # ≠ our PO #); if vendor invoice numbers are later stored on POs, matching can upgrade to bill-number-first.
+- Suggested next cycle: settle-by-allocation from party-ledger row context · invoice/PO PDF print pipeline polish · dashboard "ITC at risk" drill into GSTR-2B · customer statement PDF export.

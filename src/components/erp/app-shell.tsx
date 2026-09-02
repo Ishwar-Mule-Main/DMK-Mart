@@ -37,6 +37,7 @@ import PartyLedgersView from "./views/party-ledgers";
 import StatementsView from "./views/statements";
 import DaybookView from "./views/daybook";
 import AgingView from "./views/aging";
+import Gstr2bView from "./views/gstr2b";
 import ReportsView from "./views/reports";
 import AiCopilotView from "./views/ai-copilot";
 import SettingsView from "./views/settings";
@@ -66,6 +67,7 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   "finance/statements": StatementsView,
   "finance/daybook": DaybookView,
   "finance/aging": AgingView,
+  "finance/gstr2b": Gstr2bView,
   reports: ReportsView,
   ai: AiCopilotView,
   settings: SettingsView,

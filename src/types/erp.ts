@@ -415,3 +415,113 @@ export interface ApiResponse<T> {
   error?: string;
   code?: string;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// AP SETTLEMENT (per-PO tracking — mirror of AR invoice aging)
+// ═══════════════════════════════════════════════════════════════
+
+export interface OpenPurchaseOrderRow {
+  poId: string;
+  poNumber: string;
+  vendorId: string;
+  vendorName: string;
+  poDate: string;
+  grandTotal: number;
+  settled: number;
+  credited: number;
+  outstanding: number;
+  ageDays: number;
+  bucket: "0-30" | "31-60" | "61-90" | "90+";
+  paymentDays: number;
+  dueDate: string;
+  overdueDays: number;
+  isOverdue: boolean;
+}
+
+export interface PoAgingResponse {
+  type: "AP_PO";
+  firmName: string;
+  asOf: string;
+  rows: OpenPurchaseOrderRow[];
+  totals: {
+    outstanding: number;
+    overdue: number;
+    buckets: { d0_30: number; d31_60: number; d61_90: number; d90plus: number };
+    openPOs: number;
+    overduePOs: number;
+  };
+  vendors: Array<{
+    vendorId: string;
+    vendorName: string;
+    outstanding: number;
+    poCount: number;
+    oldestPoDate: string | null;
+    oldestPoNo: string;
+    unapplied?: number;
+    standaloneDebits?: number;
+  }>;
+  reconciliation: {
+    openPOs: number;
+    unappliedPayments: number;
+    openingBalances: number;
+    standaloneDebitNotes: number;
+    glPayables: number;
+    difference: number;
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GSTR-2B RECONCILIATION
+// ═══════════════════════════════════════════════════════════════
+
+export interface Gstr2bRecordRow {
+  id: string;
+  gstin: string;
+  tradeName: string;
+  invoiceNo: string;
+  invoiceDate: string;
+  taxableValue: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  itcAvailable: boolean;
+  placeOfSupply: string;
+  grand: number;
+  status: "MATCHED" | "AMOUNT_MISMATCH" | "MISSING_IN_BOOKS";
+  matchedPoNumber: string | null;
+}
+
+export interface Gstr2bBooksRow {
+  poId: string;
+  poNumber: string;
+  vendorName: string;
+  gstin: string;
+  taxable: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  grand: number;
+  status: "MISSING_IN_2B";
+}
+
+export interface Gstr2bResponse {
+  period: string;
+  firmName: string;
+  firmGstin: string;
+  records: Gstr2bRecordRow[];
+  books: Gstr2bBooksRow[];
+  booksTotal: number;
+  summary: {
+    records2b: number;
+    matched: number;
+    mismatches: number;
+    missingInBooks: number;
+    missingIn2b: number;
+    itc2b: number;
+    itcBooks: number;
+    matchedItc: number;
+    missingItc: number;
+    extraTax: number;
+    netItcRisk: number;
+  };
+}

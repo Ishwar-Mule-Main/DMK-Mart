@@ -163,6 +163,13 @@ Blockers: none.
 - Blockers: none
 - NEXT ACTION: Maintenance mode — cron webDevReview runs every 15 min (QA + incremental features)
 
+### Session: 2026-09-03 04:34 (cron cycle 14)
+- Phase: Enhancement cycles (post-MVP)
+- Completed: AP settlement tracking (PaymentAllocation model, per-PO outstanding, /ledger/aging-pos w/ self-proving recon incl. standalone debit notes, bill-wise vendor payments UI) · GSTR-2B reconciliation (Gstr2bRecord import + 2-pass GSTIN/amount matching vs CONFIRMED POs, /api/v1/gstr2b, new Finance view w/ ITC risk KPIs)
+- Decisions: AP identity = open bills − unapplied payments + openings − standalone debit notes (poId=null DN term required for Δ=0); 2B matching amount-based (±₹1/±0.5%) since supplier bill # isn't stored on POs; period-cut mismatches are expected Aug-bill/Sep-GRN artifacts
+- Verification: TB ₹10,47,571.08 BALANCED (post ₹53,513 payments) · AR + AP subledger recon Δ=0 · guards 422 verified · tsc+lint 0/0 · mobile+desktop browser-verified
+- NEXT ACTION: next cycle — party-ledger allocation context · print pipeline polish · dashboard ITC-at-risk drill
+
 ### Session: 2026-09-03 03:49 (cron cycle 12)
 - Phase: Enhancement cycles (post-MVP)
 - Completed: ⌘K command palette (nav+actions+deep search+firm switch) · KPI drill-downs (6 cards → modules) · Valuation (WAC) report API+UI (Phase 3.7 closed) · motion system (dmk-enter / stagger / focus rings / drill affordances)

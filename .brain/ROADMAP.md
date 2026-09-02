@@ -19,4 +19,6 @@
 | 15 | Frontend: Invoices & Docs (A4 preview/print), Reports + CSV export, AI Copilot, Settings | ✅ |
 | 16 | QA: lint, dev server, agent-browser E2E (golden paths), fixes | ✅ |
 | 18 | Cycle 12: ⌘K palette, KPI drill-downs, WAC valuation report, motion polish | ✅ |
+| 19 | Cycle 13: per-invoice AR settlement (ReceiptAllocation) + precise invoice aging + sparklines | ✅ |
+| 20 | Cycle 14: per-PO AP settlement (PaymentAllocation) + PO-wise aging + GSTR-2B reconciliation view | ✅ |
 | 17 | Worklog + cron webDevReview every 15 min | ✅ |
