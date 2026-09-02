@@ -1,0 +1,593 @@
+     1→"use client";
+     2→
+     3→// ═══════════════════════════════════════════════════════════════
+     4→// SALES — CUSTOMER RECEIPTS (R7) + PER-INVOICE SETTLEMENT
+     5→// Money in against receivables: Dr Bank/Cash, Cr Customer A/R.
+     6→// Optional settlement: allocate the receipt against specific open
+     7→// credit invoices (oldest-first auto or manual) → precise AR aging.
+     8→// ═══════════════════════════════════════════════════════════════
+     9→
+    10→import * as React from "react";
+    11→import { AlertTriangle, CalendarClock, Download, HandCoins, Loader2, Plus, Search, Sparkles } from "lucide-react";
+    12→import { useErpStore } from "@/store/erp-store";
+    13→import { apiGet, apiPost, ApiError } from "@/lib/api-client";
+    14→import { formatINR, formatDate, toISODate, downloadCSV } from "@/lib/format";
+    15→import type { Customer, CustomerReceipt, InvoiceAgingResponse, OpenInvoiceRow } from "@/types/erp";
+    16→import { PageHeader, Badge, EmptyState, LoadingRows, SearchInput, Field, inputCls } from "@/components/erp/shared";
+    17→import { Button } from "@/components/ui/button";
+    18→import { Input } from "@/components/ui/input";
+    19→import { Textarea } from "@/components/ui/textarea";
+    20→import {
+    21→  Dialog,
+    22→  DialogContent,
+    23→  DialogDescription,
+    24→  DialogFooter,
+    25→  DialogHeader,
+    26→  DialogTitle,
+    27→} from "@/components/ui/dialog";
+    28→import {
+    29→  Select,
+    30→  SelectContent,
+    31→  SelectItem,
+    32→  SelectTrigger,
+    33→  SelectValue,
+    34→} from "@/components/ui/select";
+    35→import { useToast } from "@/hooks/use-toast";
+    36→import { cn } from "@/lib/utils";
+    37→
+    38→const MODES = ["NEFT", "UPI", "CHEQUE", "CASH"] as const;
+    39→
+    40→function modeTone(mode: string): "success" | "info" | "warning" | "neutral" {
+    41→  switch (mode) {
+    42→    case "NEFT": return "info";
+    43→    case "UPI": return "success";
+    44→    case "CHEQUE": return "warning";
+    45→    default: return "neutral";
+    46→  }
+    47→}
+    48→
+    49→function bucketTone(bucket: OpenInvoiceRow["bucket"]): "info" | "warning" | "gold" | "danger" {
+    50→  if (bucket === "0-30") return "info";
+    51→  if (bucket === "31-60") return "warning";
+    52→  if (bucket === "61-90") return "gold";
+    53→  return "danger";
+    54→}
+    55→
+    56→export default function ReceiptsView() {
+    57→  const { toast } = useToast();
+    58→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+    59→
+    60→  const [receipts, setReceipts] = React.useState<CustomerReceipt[] | null>(null);
+    61→  const [customers, setCustomers] = React.useState<Customer[] | null>(null);
+    62→  const [custFilter, setCustFilter] = React.useState("all");
+    63→  const [query, setQuery] = React.useState("");
+    64→  const [newOpen, setNewOpen] = React.useState(false);
+    65→  const [refresh, setRefresh] = React.useState(0);
+    66→
+    67→  React.useEffect(() => {
+    68→    if (!activeFirmId) return;
+    69→    let alive = true;
+    70→    (async () => {
+    71→      try {
+    72→        const res = await apiGet<CustomerReceipt[]>("/api/v1/customer-receipts", {
+    73→          firmId: activeFirmId,
+    74→          customerId: custFilter === "all" ? undefined : custFilter,
+    75→        });
+    76→        if (alive) setReceipts(res);
+    77→      } catch (e) {
+    78→        if (alive) {
+    79→          setReceipts([]);
+    80→          if (e instanceof ApiError) toast({ variant: "destructive", title: "Could not load receipts", description: e.message });
+    81→        }
+    82→      }
+    83→    })();
+    84→    return () => {
+    85→      alive = false;
+    86→    };
+    87→  }, [activeFirmId, custFilter, refresh]);
+    88→
+    89→  React.useEffect(() => {
+    90→    if (!activeFirmId) return;
+    91→    let alive = true;
+    92→    apiGet<Customer[]>("/api/v1/customers", { firmId: activeFirmId, type: "B2B" })
+    93→      .then((res) => alive && setCustomers(res))
+    94→      .catch(() => alive && setCustomers([]));
+    95→    return () => {
+    96→      alive = false;
+    97→    };
+    98→  }, [activeFirmId]);
+    99→
+   100→  const customerMap = React.useMemo(() => new Map((customers ?? []).map((c) => [c.id, c])), [customers]);
+   101→
+   102→  const visible = React.useMemo(() => {
+   103→    const list = receipts ?? [];
+   104→    const q = query.trim().toLowerCase();
+   105→    if (!q) return list;
+   106→    return list.filter((r) => {
+   107→      const cust = r.customer?.partyName ?? customerMap.get(r.customerId)?.partyName ?? "";
+   108→      return (
+   109→        cust.toLowerCase().includes(q) ||
+   110→        (r.utrRef ?? "").toLowerCase().includes(q) ||
+   111→        (r.notes ?? "").toLowerCase().includes(q) ||
+   112→        (r.allocations ?? []).some((a) => a.invoiceNumber.toLowerCase().includes(q))
+   113→      );
+   114→    });
+   115→  }, [receipts, query, customerMap]);
+   116→
+   117→  function exportCsv() {
+   118→    downloadCSV("customer-receipts.csv", [
+   119→      ["Date", "Customer", "Mode", "UTR / Ref", "Settled against", "On account", "Notes", "Amount"],
+   120→      ...visible.map((r) => {
+   121→        const allocs = r.allocations ?? [];
+   122→        const allocated = allocs.reduce((s, a) => s + a.amount, 0);
+   123→        return [
+   124→          r.receiptDate.slice(0, 10),
+   125→          r.customer?.partyName ?? customerMap.get(r.customerId)?.partyName ?? r.customerId,
+   126→          r.mode,
+   127→          r.utrRef,
+   128→          allocs.map((a) => `${a.invoiceNumber} ₹${a.amount.toFixed(2)}`).join("; "),
+   129→          (Number(r.amount) - allocated).toFixed(2),
+   130→          r.notes,
+   131→          Number(r.amount).toFixed(2),
+   132→        ];
+   133→      }),
+   134→    ]);
+   135→  }
+   136→
+   137→  if (!activeFirmId) {
+   138→    return <EmptyState icon={HandCoins} title="No active firm" hint="Select a firm from the header switcher." />;
+   139→  }
+   140→
+   141→  return (
+   142→    <div className="space-y-4">
+   143→      <PageHeader
+   144→        title="Customer Receipts"
+   145→        subtitle="Collections against receivables — allocate to invoices for precise aging (R7)"
+   146→        icon={HandCoins}
+   147→        actions={
+   148→          <Button size="sm" className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90" onClick={() => setNewOpen(true)}>
+   149→            <Plus className="h-4 w-4" /> Record Receipt
+   150→          </Button>
+   151→        }
+   152→      />
+   153→
+   154→      <div className="dmk-card p-3 flex flex-col sm:flex-row gap-2">
+   155→        <div className="relative flex-1">
+   156→          <SearchInput value={query} onChange={setQuery} placeholder="Search customer, UTR, invoice # or notes…" className="pl-9" />
+   157→          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
+   158→        </div>
+   159→        <Select value={custFilter} onValueChange={(v) => setCustFilter(v)}>
+   160→          <SelectTrigger className={cn(inputCls, "sm:w-64")}>
+   161→            <SelectValue placeholder="Customer" />
+   162→          </SelectTrigger>
+   163→          <SelectContent className="max-h-64">
+   164→            <SelectItem value="all">All customers</SelectItem>
+   165→            {(customers ?? []).map((c) => (
+   166→              <SelectItem key={c.id} value={c.id}>{c.partyName}</SelectItem>
+   167→            ))}
+   168→          </SelectContent>
+   169→        </Select>
+   170→        <Button size="sm" variant="outline" onClick={exportCsv} disabled={visible.length === 0} className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover">
+   171→          <Download className="h-4 w-4" /> Export CSV
+   172→        </Button>
+   173→      </div>
+   174→
+   175→      <div className="dmk-card overflow-hidden">
+   176→        <div className="overflow-x-auto">
+   177→          {receipts === null ? (
+   178→            <LoadingRows rows={6} />
+   179→          ) : visible.length === 0 ? (
+   180→            <EmptyState icon={HandCoins} title="No receipts" hint="Record a receipt to reduce a customer's outstanding balance." />
+   181→          ) : (
+   182→            <table className="dmk-table min-w-[880px]">
+   183→              <thead>
+   184→                <tr>
+   185→                  <th>Date</th>
+   186→                  <th>Customer</th>
+   187→                  <th>Settled against</th>
+   188→                  <th>Mode</th>
+   189→                  <th>UTR / Ref</th>
+   190→                  <th>Notes</th>
+   191→                  <th className="text-right">Amount</th>
+   192→                </tr>
+   193→              </thead>
+   194→              <tbody>
+   195→                {visible.map((r) => {
+   196→                  const allocs = r.allocations ?? [];
+   197→                  const allocated = allocs.reduce((s, a) => s + a.amount, 0);
+   198→                  const onAccount = Number(r.amount) - allocated;
+   199→                  return (
+   200→                    <tr key={r.id} className="group">
+   201→                      <td className="text-[12.5px] text-dmk-text-secondary whitespace-nowrap">{formatDate(r.receiptDate)}</td>
+   202→                      <td className="max-w-[220px] truncate text-[13px] font-medium">{r.customer?.partyName ?? customerMap.get(r.customerId)?.partyName ?? r.customerId}</td>
+   203→                      <td className="max-w-[280px]">
+   204→                        {allocs.length === 0 ? (
+   205→                          <span className="text-[11.5px] text-dmk-text-muted italic">On account</span>
+   206→                        ) : (
+   207→                          <div className="flex flex-wrap items-center gap-1.5">
+   208→                            {allocs.slice(0, 2).map((a) => (
+   209→                              <span
+   210→                                key={a.invoiceId}
+   211→                                className="inline-flex items-center gap-1 rounded-md border border-dmk-border-subtle bg-dmk-input-well px-1.5 py-0.5 text-[10.5px] font-medium text-dmk-text-secondary"
+   212→                                title={`${a.invoiceNumber}: ${formatINR(a.amount)}`}
+   213→                              >
+   214→                                <span className="font-money text-[10px] text-dmk-info">{a.invoiceNumber}</span>
+   215→                                <span className="font-money text-[10px] text-dmk-text-primary">{formatINR(a.amount)}</span>
+   216→                              </span>
+   217→                            ))}
+   218→                            {allocs.length > 2 && (
+   219→                              <span className="text-[10.5px] text-dmk-text-muted">+{allocs.length - 2} more</span>
+   220→                            )}
+   221→                            {onAccount > 0.009 && (
+   222→                              <span className="text-[10.5px] text-dmk-text-muted">· on acct {formatINR(onAccount)}</span>
+   223→                            )}
+   224→                          </div>
+   225→                        )}
+   226→                      </td>
+   227→                      <td><Badge tone={modeTone(r.mode)}>{r.mode}</Badge></td>
+   228→                      <td className="font-money text-[11.5px] text-dmk-text-secondary">{r.utrRef || "—"}</td>
+   229→                      <td className="max-w-[180px] truncate text-[12px] text-dmk-text-muted">{r.notes || "—"}</td>
+   230→                      <td className="num text-[13px] font-semibold text-dmk-success">{formatINR(Number(r.amount))}</td>
+   231→                    </tr>
+   232→                  );
+   233→                })}
+   234→              </tbody>
+   235→            </table>
+   236→          )}
+   237→        </div>
+   238→      </div>
+   239→
+   240→      <NewReceiptDialog
+   241→        open={newOpen}
+   242→        onOpenChange={setNewOpen}
+   243→        customers={customers}
+   244→        onCreated={() => setRefresh((r) => r + 1)}
+   245→      />
+   246→    </div>
+   247→  );
+   248→}
+   249→
+   250→// ═══════════════════════════════════════════════════════════════
+   251→// Record receipt dialog — with invoice settlement allocation
+   252→// ═══════════════════════════════════════════════════════════════
+   253→
+   254→function NewReceiptDialog({
+   255→  open,
+   256→  onOpenChange,
+   257→  customers,
+   258→  onCreated,
+   259→}: {
+   260→  open: boolean;
+   261→  onOpenChange: (o: boolean) => void;
+   262→  customers: Customer[] | null;
+   263→  onCreated: () => void;
+   264→}) {
+   265→  const { toast } = useToast();
+   266→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   267→  const [customerId, setCustomerId] = React.useState("");
+   268→  const [amount, setAmount] = React.useState("");
+   269→  const [mode, setMode] = React.useState<(typeof MODES)[number]>("NEFT");
+   270→  const [utrRef, setUtrRef] = React.useState("");
+   271→  const [receiptDate, setReceiptDate] = React.useState(toISODate(new Date()));
+   272→  const [notes, setNotes] = React.useState("");
+   273→  const [saving, setSaving] = React.useState(false);
+   274→
+   275→  // ── Settlement state ──
+   276→  const [openInvoices, setOpenInvoices] = React.useState<OpenInvoiceRow[] | null>(null);
+   277→  const [invLoading, setInvLoading] = React.useState(false);
+   278→  const [allocs, setAllocs] = React.useState<Record<string, string>>({});
+   279→
+   280→  const selected = (customers ?? []).find((c) => c.id === customerId);
+   281→  const outstanding = Number(selected?.closingBalance ?? 0);
+   282→  const amt = Number(amount) || 0;
+   283→
+   284→  const allocationTotal = React.useMemo(
+   285→    () => Object.values(allocs).reduce((s, v) => s + (Number(v) || 0), 0),
+   286→    [allocs]
+   287→  );
+   288→  const onAccount = amt - allocationTotal;
+   289→  const overAllocated = allocationTotal > amt + 0.009;
+   290→  const overpay = !!selected && amt > outstanding && outstanding >= 0 && amt > 0;
+   291→  const hasAllocations = Object.values(allocs).some((v) => (Number(v) || 0) > 0);
+   292→
+   293→  // Fetch open invoices whenever the dialog opens for a customer
+   294→  React.useEffect(() => {
+   295→    if (!open || !activeFirmId || !customerId) {
+   296→      setOpenInvoices(null);
+   297→      return;
+   298→    }
+   299→    let alive = true;
+   300→    setInvLoading(true);
+   301→    apiGet<InvoiceAgingResponse>("/api/v1/ledger/aging-invoices", {
+   302→      firmId: activeFirmId,
+   303→      customerId,
+   304→    })
+   305→      .then((res) => {
+   306→        if (alive) setOpenInvoices(res.rows ?? []);
+   307→      })
+   308→      .catch(() => {
+   309→        if (alive) setOpenInvoices([]);
+   310→      })
+   311→      .finally(() => {
+   312→        if (alive) setInvLoading(false);
+   313→      });
+   314→    return () => {
+   315→      alive = false;
+   316→    };
+   317→  }, [open, activeFirmId, customerId]);
+   318→
+   319→  React.useEffect(() => {
+   320→    if (!open) {
+   321→      setCustomerId("");
+   322→      setAmount("");
+   323→      setMode("NEFT");
+   324→      setUtrRef("");
+   325→      setNotes("");
+   326→      setReceiptDate(toISODate(new Date()));
+   327→      setAllocs({});
+   328→      setOpenInvoices(null);
+   329→    }
+   330→  }, [open]);
+   331→
+   332→  // Reset allocations when the customer changes
+   333→  React.useEffect(() => {
+   334→    setAllocs({});
+   335→  }, [customerId]);
+   336→
+   337→  function autoAllocateOldestFirst() {
+   338→    if (!openInvoices || amt <= 0) return;
+   339→    const next: Record<string, string> = {};
+   340→    let remaining = Math.round(amt * 100) / 100;
+   341→    for (const inv of openInvoices) {
+   342→      if (remaining <= 0.009) break;
+   343→      const take = Math.min(remaining, inv.outstanding);
+   344→      next[inv.invoiceId] = (Math.round(take * 100) / 100).toFixed(2);
+   345→      remaining = Math.round((remaining - take) * 100) / 100;
+   346→    }
+   347→    setAllocs(next);
+   348→  }
+   349→
+   350→  function setAlloc(invId: string, value: string) {
+   351→    setAllocs((prev) => ({ ...prev, [invId]: value }));
+   352→  }
+   353→
+   354→  const openInvCount = openInvoices?.length ?? 0;
+   355→
+   356→  async function submit() {
+   357→    if (!activeFirmId) return;
+   358→    if (!customerId) {
+   359→      toast({ variant: "destructive", title: "Customer required", description: "Pick the B2B customer this receipt belongs to." });
+   360→      return;
+   361→    }
+   362→    if (amt <= 0) {
+   363→      toast({ variant: "destructive", title: "Invalid amount", description: "Amount must be greater than zero." });
+   364→      return;
+   365→    }
+   366→    if (overAllocated) {
+   367→      toast({ variant: "destructive", title: "Allocation exceeds receipt", description: `Allocated ${formatINR(allocationTotal)} but the receipt is ${formatINR(amt)}.` });
+   368→      return;
+   369→    }
+   370→    setSaving(true);
+   371→    try {
+   372→      const allocations = Object.entries(allocs)
+   373→        .map(([invoiceId, v]) => ({ invoiceId, amount: Number(v) || 0 }))
+   374→        .filter((a) => a.amount > 0);
+   375→      const res = await apiPost<{ applied: Array<{ invoiceNumber: string }>; allocatedTotal: number }>(
+   376→        "/api/v1/customer-receipts",
+   377→        {
+   378→          firmId: activeFirmId,
+   379→          customerId,
+   380→          receiptDate,
+   381→          amount: amt,
+   382→          mode,
+   383→          utrRef: utrRef.trim(),
+   384→          notes: notes.trim(),
+   385→          allocations,
+   386→        }
+   387→      );
+   388→      const settledCount = res.applied?.length ?? 0;
+   389→      toast({
+   390→        title: "Receipt recorded",
+   391→        description:
+   392→          settledCount > 0
+   393→            ? `${formatINR(amt)} via ${mode} — settled ${settledCount} invoice${settledCount !== 1 ? "s" : ""} (${formatINR(res.allocatedTotal ?? 0)})`
+   394→            : `${formatINR(amt)} via ${mode}${selected ? ` — ${selected.partyName}` : ""} (on account)`,
+   395→      });
+   396→      onCreated();
+   397→      onOpenChange(false);
+   398→    } catch (e) {
+   399→      const msg = e instanceof ApiError ? e.message : "Could not record receipt.";
+   400→      toast({ variant: "destructive", title: "Receipt failed", description: msg });
+   401→    } finally {
+   402→      setSaving(false);
+   403→    }
+   404→  }
+   405→
+   406→  return (
+   407→    <Dialog open={open} onOpenChange={onOpenChange}>
+   408→      <DialogContent className="sm:max-w-2xl dmk-elevated border-dmk-border-medium">
+   409→        <DialogHeader>
+   410→          <DialogTitle className="text-dmk-text-primary">Record customer receipt</DialogTitle>
+   411→          <DialogDescription className="text-dmk-text-muted">
+   412→            Payment received against outstanding receivable — optionally settle specific invoices for precise aging.
+   413→          </DialogDescription>
+   414→        </DialogHeader>
+   415→        <div className="space-y-3">
+   416→          <div className="grid grid-cols-2 gap-3">
+   417→            <Field label="Customer (B2B) *">
+   418→              <Select value={customerId} onValueChange={setCustomerId}>
+   419→                <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder="Select customer" /></SelectTrigger>
+   420→                <SelectContent className="max-h-64">
+   421→                  {(customers ?? []).map((c) => {
+   422→                    const bal = Number(c.closingBalance);
+   423→                    return (
+   424→                      <SelectItem key={c.id} value={c.id}>
+   425→                        {c.partyName} — {bal > 0.005 ? `Dr ${formatINR(bal)}` : "Clear"}
+   426→                      </SelectItem>
+   427→                    );
+   428→                  })}
+   429→                </SelectContent>
+   430→              </Select>
+   431→            </Field>
+   432→            <Field label="Amount ₹ *">
+   433→              <Input type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={cn(inputCls, "font-money")} placeholder="0.00" />
+   434→            </Field>
+   435→            <Field label="Mode *">
+   436→              <Select value={mode} onValueChange={(v) => setMode(v as (typeof MODES)[number])}>
+   437→                <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue /></SelectTrigger>
+   438→                <SelectContent>
+   439→                  {MODES.map((m) => (
+   440→                    <SelectItem key={m} value={m}>{m}</SelectItem>
+   441→                  ))}
+   442→                </SelectContent>
+   443→              </Select>
+   444→            </Field>
+   445→            <Field label="UTR / cheque ref">
+   446→              <Input value={utrRef} onChange={(e) => setUtrRef(e.target.value)} className={cn(inputCls, "font-money")} placeholder="e.g. UTIB2026…" />
+   447→            </Field>
+   448→            <Field label="Receipt date">
+   449→              <Input type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} className={inputCls} />
+   450→            </Field>
+   451→            <Field label="Notes">
+   452→              <Input value={notes} onChange={(e) => setNotes(e.target.value)} className={inputCls} placeholder="optional" />
+   453→            </Field>
+   454→          </div>
+   455→
+   456→          {selected && (
+   457→            <div className="dmk-well px-3 py-2.5 flex items-center justify-between text-[12.5px]">
+   458→              <span className="text-dmk-text-muted">Current outstanding</span>
+   459→              <span className={cn("font-money font-semibold", outstanding > 0.005 ? "text-dmk-orange" : "text-dmk-success")}>
+   460→                {outstanding > 0.005 ? `Dr ${formatINR(outstanding)}` : "Clear"}
+   461→              </span>
+   462→            </div>
+   463→          )}
+   464→
+   465→          {/* ── Invoice settlement section ── */}
+   466→          {customerId && (
+   467→            <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 overflow-hidden">
+   468→              <div className="flex items-center justify-between px-3 py-2 border-b border-dmk-border-subtle">
+   469→                <div className="flex items-center gap-2">
+   470→                  <CalendarClock className="h-3.5 w-3.5 text-dmk-info" />
+   471→                  <span className="text-[12px] font-semibold text-dmk-text-primary">Settle against open invoices</span>
+   472→                  {invLoading ? (
+   473→                    <Loader2 className="h-3 w-3 animate-spin text-dmk-text-muted" />
+   474→                  ) : (
+   475→                    <span className="text-[10.5px] text-dmk-text-muted">
+   476→                      {openInvCount > 0 ? `${openInvCount} open` : "none open"}
+   477→                    </span>
+   478→                  )}
+   479→                </div>
+   480→                <Button
+   481→                  type="button"
+   482→                  size="sm"
+   483→                  variant="outline"
+   484→                  onClick={autoAllocateOldestFirst}
+   485→                  disabled={amt <= 0 || openInvCount === 0}
+   486→                  className="h-7 gap-1.5 px-2 text-[11px] border-dmk-border-medium text-dmk-info hover:bg-dmk-hover"
+   487→                >
+   488→                  <Sparkles className="h-3 w-3" /> Auto-allocate (oldest first)
+   489→                </Button>
+   490→              </div>
+   491→
+   492→              {invLoading ? (
+   493→                <div className="px-3 py-4 text-[12px] text-dmk-text-muted">Loading open invoices…</div>
+   494→              ) : openInvCount === 0 ? (
+   495→                <div className="px-3 py-3 text-[11.5px] text-dmk-text-muted italic">
+   496→                  No open credit invoices — the full amount will be recorded <span className="not-italic font-medium text-dmk-text-secondary">on account</span>.
+   497→                </div>
+   498→              ) : (
+   499→                <div className="max-h-44 overflow-y-auto">
+   500→                  <table className="w-full text-[12px]">
+   501→                    <thead className="sticky top-0 bg-dmk-bg-tertiary z-10">
+   502→                      <tr className="text-[10.5px] uppercase tracking-wide text-dmk-text-muted">
+   503→                        <th className="text-left font-semibold px-3 py-1.5">Invoice</th>
+   504→                        <th className="text-left font-semibold px-2 py-1.5">Age</th>
+   505→                        <th className="text-right font-semibold px-2 py-1.5">Outstanding</th>
+   506→                        <th className="text-right font-semibold px-3 py-1.5 w-28">Allocate ₹</th>
+   507→                      </tr>
+   508→                    </thead>
+   509→                    <tbody>
+   510→                      {openInvoices!.map((inv) => {
+   511→                        const v = Number(allocs[inv.invoiceId] || 0);
+   512→                        return (
+   513→                          <tr key={inv.invoiceId} className={cn("border-t border-dmk-border-subtle/60", v > 0 && "bg-dmk-info/5")}>
+   514→                            <td className="px-3 py-1.5">
+   515→                              <span className="font-money text-[11.5px] text-dmk-text-primary">{inv.invoiceNumber}</span>
+   516→                              <span className="ml-2 text-[10.5px] text-dmk-text-muted">{formatDate(inv.invoiceDate)}</span>
+   517→                            </td>
+   518→                            <td className="px-2 py-1.5">
+   519→                              <Badge tone={bucketTone(inv.bucket)}>{inv.bucket}</Badge>
+   520→                              {inv.isOverdue && <span className="ml-1 text-[10px] font-semibold text-dmk-danger">{inv.overdueDays}d late</span>}
+   521→                            </td>
+   522→                            <td className="px-2 py-1.5 text-right font-money text-dmk-text-secondary">{formatINR(inv.outstanding)}</td>
+   523→                            <td className="px-3 py-1.5">
+   524→                              <Input
+   525→                                type="number"
+   526→                                min={0}
+   527→                                max={inv.outstanding}
+   528→                                step="0.01"
+   529→                                value={allocs[inv.invoiceId] ?? ""}
+   530→                                onChange={(e) => setAlloc(inv.invoiceId, e.target.value)}
+   531→                                className="h-7 bg-dmk-input-well border-dmk-border-subtle text-right font-money text-[11.5px] text-dmk-text-primary dmk-input"
+   532→                                placeholder="0.00"
+   533→                                aria-label={`Allocate to ${inv.invoiceNumber}`}
+   534→                              />
+   535→                            </td>
+   536→                          </tr>
+   537→                        );
+   538→                      })}
+   539→                    </tbody>
+   540→                  </table>
+   541→                </div>
+   542→              )}
+   543→
+   544→              {/* Allocation summary strip */}
+   545→              {amt > 0 && (
+   546→                <div className="flex items-center justify-between px-3 py-2 border-t border-dmk-border-subtle bg-dmk-bg-tertiary/70 text-[11.5px]">
+   547→                  <span className="text-dmk-text-muted">
+   548→                    Allocated <span className={cn("font-money font-semibold", overAllocated ? "text-dmk-danger" : "text-dmk-info")}>{formatINR(allocationTotal)}</span>
+   549→                    {" · "}On account <span className="font-money font-semibold text-dmk-text-secondary">{formatINR(Math.max(0, onAccount))}</span>
+   550→                  </span>
+   551→                  {hasAllocations && (
+   552→                    <button
+   553→                      type="button"
+   554→                      onClick={() => setAllocs({})}
+   555→                      className="text-[10.5px] text-dmk-text-muted hover:text-dmk-text-primary underline underline-offset-2"
+   556→                    >
+   557→                      Clear all
+   558→                    </button>
+   559→                  )}
+   560→                </div>
+   561→              )}
+   562→            </div>
+   563→          )}
+   564→
+   565→          {overAllocated && (
+   566→            <div className="flex items-start gap-2 rounded-md border border-dmk-danger/30 bg-[rgba(239,68,68,0.08)] px-3 py-2">
+   567→              <AlertTriangle className="h-4 w-4 text-dmk-danger shrink-0 mt-0.5" />
+   568→              <p className="text-[11.5px] text-dmk-danger leading-snug">
+   569→                Allocated {formatINR(allocationTotal)} exceeds the receipt amount {formatINR(amt)} — reduce an allocation or raise the receipt amount.
+   570→              </p>
+   571→            </div>
+   572→          )}
+   573→
+   574→          {!overAllocated && overpay && (
+   575→            <div className="flex items-start gap-2 rounded-md border border-dmk-warning/30 bg-[rgba(245,158,11,0.08)] px-3 py-2">
+   576→              <AlertTriangle className="h-4 w-4 text-dmk-warning shrink-0 mt-0.5" />
+   577→              <p className="text-[11.5px] text-dmk-warning leading-snug">
+   578→                Amount {formatINR(amt)} exceeds the outstanding {formatINR(outstanding)} — the excess will show as an advance (customer balance goes negative / Cr).
+   579→              </p>
+   580→            </div>
+   581→          )}
+   582→        </div>
+   583→        <DialogFooter>
+   584→          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
+   585→          <Button onClick={submit} disabled={saving || !customerId || overAllocated} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+   586→            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Record receipt
+   587→          </Button>
+   588→        </DialogFooter>
+   589→      </DialogContent>
+   590→    </Dialog>
+   591→  );
+   592→}
+   593→

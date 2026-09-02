@@ -21,12 +21,15 @@ import {
 } from "recharts";
 import {
   AlertTriangle,
+  ArrowRight,
   Banknote,
   Boxes,
   CalendarDays,
+  FileCheck2,
   HandCoins,
   IndianRupee,
   RefreshCw,
+  ShieldCheck,
   ShoppingBag,
   TrendingUp,
   Wallet,
@@ -79,6 +82,26 @@ interface LowStockMini {
   purchaseCost: number;
 }
 
+interface Gstr2bPulse {
+  period: string;
+  records2b: number;
+  matched: number;
+  mismatches: number;
+  missingInBooks: number;
+  missingIn2b: number;
+  itc2b: number;
+  itcBooks: number;
+  matchedItc: number;
+  missingItc: number;
+  extraTax: number;
+  netItcRisk: number;
+}
+
+function currentPeriod(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 // ─── Chart constants (Midnight Ledger palette) ──────────────────
 
 const CHART_BLUE = "#2563EB";
@@ -128,6 +151,7 @@ export default function DashboardView() {
 
   const [data, setData] = React.useState<DashboardResponse | null>(null);
   const [lowStock, setLowStock] = React.useState<LowStockMini[]>([]);
+  const [gstPulse, setGstPulse] = React.useState<Gstr2bPulse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [refreshKey, setRefreshKey] = React.useState(0);
@@ -137,14 +161,21 @@ export default function DashboardView() {
     setLoading(true);
     setError(null);
     try {
-      const [dash, low] = await Promise.all([
+      const [dash, low, gst] = await Promise.all([
         apiGet<DashboardResponse>("/api/v1/dashboard", { firmId: activeFirmId }),
         apiGet<LowStockMini[]>("/api/v1/inventory/low-stock", { firmId: activeFirmId }).catch(
           () => [] as LowStockMini[]
         ),
+        apiGet<{ summary: Gstr2bPulse }>("/api/v1/gstr2b", {
+          firmId: activeFirmId,
+          period: currentPeriod(),
+        })
+          .then((r) => r.summary ?? null)
+          .catch(() => null),
       ]);
       setData(dash);
       setLowStock(Array.isArray(low) ? low : []);
+      setGstPulse(gst);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load dashboard");
     } finally {
@@ -268,6 +299,9 @@ export default function DashboardView() {
               drillHint="Stock Levels"
             />
           </div>
+
+          {/* ── GST compliance pulse (GSTR-2B current period) ── */}
+          {gstPulse && <GstPulseCard pulse={gstPulse} onDrill={() => setView("finance/gstr2b")} />}
 
           {/* ── Trend + AR aging ────────────────────────── */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -499,6 +533,130 @@ export default function DashboardView() {
           </div>
         </>
       ) : null}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GST compliance pulse — GSTR-2B vs books for the current period
+// Status ribbon: clean → green, exceptions → amber/red, no data →
+// neutral import prompt. Whole card drills into the recon view.
+// ═══════════════════════════════════════════════════════════════
+
+function GstPulseCard({ pulse, onDrill }: { pulse: Gstr2bPulse; onDrill: () => void }) {
+  const noData = pulse.records2b === 0 && pulse.missingIn2b === 0;
+  const clean = !noData && pulse.netItcRisk <= 0.009 && pulse.missingInBooks === 0 && pulse.mismatches === 0;
+  const atRisk = pulse.missingInBooks > 0 || pulse.netItcRisk > 0.009;
+  const warn = !noData && !clean && !atRisk; // mismatches / books-only extras
+
+  const status = noData
+    ? { label: "NO 2B DATA", tone: "neutral" as const, dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
+    : clean
+      ? { label: "CLEAN PERIOD", tone: "success" as const, dot: "bg-dmk-success", ring: "border-dmk-success/30" }
+      : atRisk
+        ? { label: "ITC AT RISK", tone: "danger" as const, dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
+        : { label: "REVIEW EXCEPTIONS", tone: "warning" as const, dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
+
+  const matchRate = pulse.records2b > 0 ? Math.round((pulse.matched / pulse.records2b) * 100) : 0;
+
+  const stats = [
+    { label: "ITC · Books", value: formatINR(pulse.itcBooks), cls: "text-dmk-text-primary" },
+    { label: "ITC · 2B", value: formatINR(pulse.itc2b), cls: "text-dmk-text-primary" },
+    { label: "Matched", value: `${pulse.matched}/${pulse.records2b} bills`, cls: "text-dmk-success" },
+    {
+      label: "At risk",
+      value: formatINR(Math.max(0, pulse.netItcRisk)),
+      cls: atRisk ? "text-dmk-danger" : "text-dmk-text-secondary",
+    },
+  ];
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`GST compliance ${status.label} — open GSTR-2B reconciliation`}
+      onClick={onDrill}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onDrill();
+        }
+      }}
+      className={cn(
+        "dmk-card p-4 dmk-kpi-clickable relative overflow-hidden border",
+        status.ring,
+        "dmk-enter"
+      )}
+    >
+      <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+        {/* Status block */}
+        <div className="flex items-center gap-3 min-w-0 lg:w-[280px] shrink-0">
+          <div className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border",
+            noData
+              ? "bg-dmk-input-well border-dmk-border-subtle"
+              : clean
+                ? "bg-[rgba(34,197,94,0.1)] border-dmk-success/30"
+                : atRisk
+                  ? "bg-[rgba(239,68,68,0.1)] border-dmk-danger/30"
+                  : "bg-[rgba(245,158,11,0.1)] border-dmk-warning/30"
+          )}>
+            {noData ? (
+              <FileCheck2 className="h-5 w-5 text-dmk-text-muted" strokeWidth={1.75} />
+            ) : clean ? (
+              <ShieldCheck className="h-5 w-5 text-dmk-success" strokeWidth={1.75} />
+            ) : (
+              <AlertTriangle className={cn("h-5 w-5", atRisk ? "text-dmk-danger" : "text-dmk-warning")} strokeWidth={1.75} />
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+              GST Compliance · GSTR-2B
+            </p>
+            <p className="text-[14.5px] font-bold text-dmk-text-primary flex items-center gap-2">
+              <span className={cn("h-1.5 w-1.5 rounded-full animate-pulse", status.dot)} />
+              {status.label}
+            </p>
+            <p className="text-[10.5px] text-dmk-text-muted font-money">Period {pulse.period}</p>
+          </div>
+        </div>
+
+        {/* Mini stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 min-w-0">
+          {stats.map((s) => (
+            <div key={s.label} className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/50 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">{s.label}</p>
+              <p className={cn("font-money text-[14px] font-semibold mt-0.5 truncate", s.cls)}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Match-rate meter + drill */}
+        <div className="lg:w-[190px] shrink-0 flex flex-col gap-1.5">
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+            <span>Match rate</span>
+            <span className="font-money text-dmk-text-secondary">{matchRate}%</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-dmk-input-well overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500",
+                matchRate >= 100 ? "bg-dmk-success" : matchRate >= 60 ? "bg-dmk-warning" : "bg-dmk-danger"
+              )}
+              style={{ width: `${matchRate}%` }}
+            />
+          </div>
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-dmk-blue/80 mt-0.5">
+            GSTR-2B Recon <ArrowRight className="h-3 w-3" />
+          </span>
+        </div>
+      </div>
+
+      {noData && (
+        <p className="mt-3 text-[11.5px] text-dmk-text-muted border-t border-dmk-border-subtle pt-2.5">
+          No 2B records imported for the current period — import the portal CSV to verify input tax credit before filing.
+        </p>
+      )}
     </div>
   );
 }

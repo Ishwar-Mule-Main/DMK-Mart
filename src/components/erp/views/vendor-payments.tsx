@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { consumePendingVendor } from "@/lib/settle-bus";
 import { cn } from "@/lib/utils";
 
 interface PayAllocation {
@@ -126,6 +127,25 @@ export default function VendorPaymentsView() {
   const [query, setQuery] = React.useState("");
   const [refresh, setRefresh] = React.useState(0);
   const [payOpen, setPayOpen] = React.useState(false);
+  const [presetVendor, setPresetVendor] = React.useState<string | null>(null);
+
+  // Settle-from-context: party ledger "Pay" deep-links here (cycle 15).
+  // Handles both orders: event while mounted, or pending slot consumed on mount.
+  React.useEffect(() => {
+    const pending = consumePendingVendor();
+    if (pending) {
+      setPresetVendor(pending);
+      setPayOpen(true);
+    }
+    function onSettle(e: Event) {
+      const d = (e as CustomEvent).detail ?? {};
+      if (!d?.partyId) return;
+      setPresetVendor(String(d.partyId));
+      setPayOpen(true);
+    }
+    window.addEventListener("dmk:settle-vendor", onSettle);
+    return () => window.removeEventListener("dmk:settle-vendor", onSettle);
+  }, []);
 
   React.useEffect(() => {
     if (!activeFirmId) return;
@@ -303,8 +323,12 @@ export default function VendorPaymentsView() {
 
       <RecordPaymentDialog
         open={payOpen}
-        onOpenChange={setPayOpen}
+        onOpenChange={(o) => {
+          setPayOpen(o);
+          if (!o) setPresetVendor(null);
+        }}
         vendors={vendors}
+        presetVendorId={presetVendor}
         onSaved={() => setRefresh((r) => r + 1)}
       />
     </div>
@@ -318,11 +342,13 @@ function RecordPaymentDialog({
   open,
   onOpenChange,
   vendors,
+  presetVendorId,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   vendors: Vendor[];
+  presetVendorId?: string | null;
   onSaved: () => void;
 }) {
   const { toast } = useToast();
@@ -389,8 +415,52 @@ function RecordPaymentDialog({
       setNotes("");
       setAllocs({});
       setOpenPOs(null);
+      autoAllocArmed.current = false;
     }
   }, [open]);
+
+  // ── Settle-from-context preset (cycle 15): preselect vendor + amount ──
+  const presetApplied = React.useRef<string | null>(null);
+  const autoAllocArmed = React.useRef(false);
+  React.useEffect(() => {
+    if (!open || !presetVendorId) {
+      if (!open) presetApplied.current = null;
+      return;
+    }
+    if (presetApplied.current === presetVendorId) return;
+    presetApplied.current = presetVendorId;
+    setVendorId(presetVendorId);
+    autoAllocArmed.current = true;
+  }, [open, presetVendorId]);
+
+  // Prefill amount with the vendor's current payable once the vendor is applied
+  React.useEffect(() => {
+    if (!open || !presetVendorId || vendorId !== presetVendorId) return;
+    if (amount !== "") return;
+    const bal = Number(vendors.find((v) => v.id === vendorId)?.closingBalance ?? 0);
+    if (bal > 0.005) setAmount(bal.toFixed(2));
+  }, [open, presetVendorId, vendorId, amount, vendors]);
+
+  // Auto-allocate the preset payment oldest-first once open bills arrive
+  React.useEffect(() => {
+    if (!autoAllocArmed.current) return;
+    if (!openPOs || openPOs.length === 0) return;
+    const total = Number(vendors.find((v) => v.id === presetVendorId)?.closingBalance ?? 0);
+    if (total <= 0.005) {
+      autoAllocArmed.current = false;
+      return;
+    }
+    autoAllocArmed.current = false;
+    const next: Record<string, string> = {};
+    let remaining = Math.round(total * 100) / 100;
+    for (const po of openPOs) {
+      if (remaining <= 0.009) break;
+      const take = Math.min(remaining, po.outstanding);
+      next[po.poId] = (Math.round(take * 100) / 100).toFixed(2);
+      remaining = Math.round((remaining - take) * 100) / 100;
+    }
+    setAllocs(next);
+  }, [openPOs, presetVendorId, vendors]);
 
   // Reset allocations when the vendor changes
   React.useEffect(() => {

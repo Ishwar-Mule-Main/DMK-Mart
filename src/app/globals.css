@@ -298,6 +298,39 @@ body {
   }
 }
 
+/* ─── Portal-based chrome-free printing (printA4 / A4PrintPortal) ───
+   The print copy lives as a direct child of <body> and is invisible
+   everywhere EXCEPT while body carries .printing-a4 (set by printA4()).
+   Every other body child is dropped from print layout, so the output
+   is exactly the document — from any view, with zero chrome leakage. */
+.dmk-print-root {
+  display: none;
+}
+@media print {
+  body.printing-a4 > *:not(.dmk-print-root) {
+    display: none !important;
+  }
+  body.printing-a4 .dmk-print-root {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body.printing-a4 .print-a4 {
+    width: 100% !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  /* Multi-page tables: keep rows intact and repeat headers */
+  body.printing-a4 .print-a4 tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  body.printing-a4 .print-a4 thead {
+    display: table-header-group;
+  }
+}
+
 /* Motion tokens */
 :root {
   --duration-fast: 150ms;

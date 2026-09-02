@@ -5,10 +5,12 @@
 // Customers (Dr-positive) | Vendors (Cr-positive); statement card
 // with running balanceAfter and Dr/Cr suffix. Coded against
 // /customers, /vendors, /ledger/party response shapes.
+// Cycle 15: A4 statement print pipeline + settle-from-row context
+// (SALES/PURCHASE rows deep-link into pre-filled settlement dialogs).
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { BookOpenText, Building2, Download, Truck, User } from "lucide-react";
+import { ArrowRight, BookOpenText, Building2, Download, HandCoins, Loader2, Printer, Truck, User, X } from "lucide-react";
 
 import {
   Badge,
@@ -21,11 +23,21 @@ import {
 } from "../shared";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { apiGet } from "@/lib/api-client";
-import { downloadCSV, formatINR, toISODate } from "@/lib/format";
+import { amountInWords, downloadCSV, formatINR, formatDate, fyLabel, toISODate } from "@/lib/format";
 import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { A4PrintPortal, printA4 } from "@/components/erp/print-portal";
+import { requestSettleCustomer, requestSettleVendor } from "@/lib/settle-bus";
+import type { Firm } from "@/types/erp";
 
 type BadgeTone = "success" | "warning" | "danger" | "info" | "dr" | "cr" | "neutral";
 
@@ -88,6 +100,9 @@ function balanceParts(bal: number, partyType: "CUSTOMER" | "VENDOR"): { amount: 
   return { amount: Math.abs(bal), suffix };
 }
 
+/** Voucher rows that can be settled directly from the statement (deep-link). */
+const SETTLEABLE = new Set(["SALES", "PURCHASE"]);
+
 export default function PartyLedgersView() {
   return (
     <div className="space-y-4">
@@ -122,6 +137,8 @@ export default function PartyLedgersView() {
 
 function PartyTab({ partyType }: { partyType: "CUSTOMER" | "VENDOR" }) {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const activeFirm = useErpStore((s) => s.firms.find((f) => f.id === s.activeFirmId));
+  const setView = useErpStore((s) => s.setView);
   const { toast } = useToast();
 
   const [query, setQuery] = React.useState("");
@@ -131,6 +148,7 @@ function PartyTab({ partyType }: { partyType: "CUSTOMER" | "VENDOR" }) {
   const [ledger, setLedger] = React.useState<PartyLedgerResponse | null>(null);
   const [ledgerLoading, setLedgerLoading] = React.useState(false);
   const [ledgerError, setLedgerError] = React.useState<string | null>(null);
+  const [printOpen, setPrintOpen] = React.useState(false);
 
   // Party directory (debounced server search)
   React.useEffect(() => {
@@ -248,6 +266,21 @@ function PartyTab({ partyType }: { partyType: "CUSTOMER" | "VENDOR" }) {
   const opening = balanceParts(ledger?.opening ?? 0, partyType);
   const closing = balanceParts(ledger?.closing ?? 0, partyType);
 
+  /** Deep-link into the pre-filled settlement dialog on the right module. */
+  function settleFromRow(row: LedgerEntryRow) {
+    if (!selectedId) return;
+    const isSales = row.voucherType === "SALES";
+    if (isSales) requestSettleCustomer(selectedId);
+    else requestSettleVendor(selectedId);
+    setView(isSales ? "sales/receipts" : "purchase/payments");
+    toast({
+      title: isSales ? "Opening receipt dialog" : "Opening payment dialog",
+      description: `${row.voucherNo || "Document"} pre-selected — confirm the settlement there.`,
+    });
+  }
+
+  const closingWords = ledger && Math.abs(ledger.closing) > 0.005 ? amountInWords(Math.abs(ledger.closing)) : null;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 items-start">
       {/* ── Party list ─────────────────────────────────── */}
@@ -319,53 +352,96 @@ function PartyTab({ partyType }: { partyType: "CUSTOMER" | "VENDOR" }) {
           <ErrorText>{ledgerError}</ErrorText>
         ) : ledger ? (
           <>
-            {/* Party header */}
-            <div className="dmk-card p-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="text-[16px] font-bold text-dmk-text-primary truncate">{ledger.party.name}</h2>
-                <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                  <Badge tone={isCustomer ? "info" : "warning"}>
-                    {isCustomer
-                      ? (ledger.party.customerType === "B2C_COUNTER" ? "B2C COUNTER" : "B2B CUSTOMER")
-                      : (ledger.party.vendorType ?? "VENDOR")}
-                  </Badge>
-                  <span className="text-[11.5px] text-dmk-text-muted">
-                    State code {ledger.party.stateCode || "—"}
-                  </span>
-                  {isCustomer && (ledger.party.creditLimit ?? 0) > 0 && (
+            {/* Party header — letterhead-style with gold accent */}
+            <div className="dmk-card p-4 relative overflow-hidden">
+              <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-dmk-gold via-dmk-orange to-transparent" />
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-[16px] font-bold text-dmk-text-primary truncate">{ledger.party.name}</h2>
+                  <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                    <Badge tone={isCustomer ? "info" : "warning"}>
+                      {isCustomer
+                        ? (ledger.party.customerType === "B2C_COUNTER" ? "B2C COUNTER" : "B2B CUSTOMER")
+                        : (ledger.party.vendorType ?? "VENDOR")}
+                    </Badge>
                     <span className="text-[11.5px] text-dmk-text-muted">
-                      Credit limit {formatINR(ledger.party.creditLimit ?? 0)} · {ledger.party.creditDays ?? 0} days
+                      State code {ledger.party.stateCode || "—"}
                     </span>
+                    {isCustomer && (ledger.party.creditLimit ?? 0) > 0 && (
+                      <span className="text-[11.5px] text-dmk-text-muted">
+                        Credit limit {formatINR(ledger.party.creditLimit ?? 0)} · {ledger.party.creditDays ?? 0} days
+                      </span>
+                    )}
+                    {!isCustomer && ledger.party.brand && (
+                      <span className="text-[11.5px] text-dmk-text-muted">Brand: {ledger.party.brand}</span>
+                    )}
+                    {selectedParty?.gstin && (
+                      <span className="text-[11.5px] text-dmk-text-muted font-money">GSTIN {selectedParty.gstin}</span>
+                    )}
+                    {selectedParty?.phone && (
+                      <span className="text-[11.5px] text-dmk-text-muted">☎ {selectedParty.phone}</span>
+                    )}
+                    {!isCustomer && selectedParty?.paymentTerms && (
+                      <span className="text-[11.5px] text-dmk-text-muted">Terms: {selectedParty.paymentTerms}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPrintOpen(true)}
+                    className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
+                  >
+                    <Printer className="h-3.5 w-3.5" /> Print Statement
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={exportLedger}
+                    className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Export CSV
+                  </Button>
+                </div>
+              </div>
+
+              {/* Balance flow: Opening → activity → Closing */}
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 px-3 py-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">Opening</span>
+                  {opening.suffix ? (
+                    <Badge tone={opening.suffix === "Dr" ? "dr" : "cr"}>{formatINR(opening.amount)} {opening.suffix}</Badge>
+                  ) : (
+                    <Badge tone="neutral">NIL</Badge>
                   )}
-                  {!isCustomer && ledger.party.brand && (
-                    <span className="text-[11.5px] text-dmk-text-muted">Brand: {ledger.party.brand}</span>
-                  )}
-                  {selectedParty?.gstin && (
-                    <span className="text-[11.5px] text-dmk-text-muted font-money">GSTIN {selectedParty.gstin}</span>
-                  )}
-                  {selectedParty?.phone && (
-                    <span className="text-[11.5px] text-dmk-text-muted">☎ {selectedParty.phone}</span>
-                  )}
-                  {!isCustomer && selectedParty?.paymentTerms && (
-                    <span className="text-[11.5px] text-dmk-text-muted">Terms: {selectedParty.paymentTerms}</span>
+                </div>
+                <ArrowRight className="h-3.5 w-3.5 text-dmk-text-disabled" />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+                    {ledger.entries.length} txn{ledger.entries.length !== 1 ? "s" : ""}
+                  </span>
+                  <span className="text-[11px] text-dmk-text-muted">
+                    Dr {formatINR(ledger.entries.reduce((s, r) => s + r.debitAmount, 0))} · Cr {formatINR(ledger.entries.reduce((s, r) => s + r.creditAmount, 0))}
+                  </span>
+                </div>
+                <ArrowRight className="h-3.5 w-3.5 text-dmk-text-disabled" />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">Closing</span>
+                  {closing.suffix ? (
+                    <Badge tone={closing.suffix === "Dr" ? "dr" : "cr"}>{formatINR(closing.amount)} {closing.suffix}</Badge>
+                  ) : (
+                    <Badge tone="success">SETTLED</Badge>
                   )}
                 </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={exportLedger}
-                className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover shrink-0"
-              >
-                <Download className="h-3.5 w-3.5" /> Export CSV
-              </Button>
             </div>
 
             {/* Statement table */}
             <div className="dmk-card overflow-hidden">
-              <div className="overflow-x-auto max-h-[calc(100vh-420px)] overflow-y-auto">
+              <div className="overflow-x-auto max-h-[calc(100vh-480px)] overflow-y-auto">
                 <table className="dmk-table">
-                  <thead>
+                  <thead className="sticky top-0 z-10">
                     <tr>
                       <th>Date</th>
                       <th>Type</th>
@@ -374,6 +450,7 @@ function PartyTab({ partyType }: { partyType: "CUSTOMER" | "VENDOR" }) {
                       <th className="num text-right">Debit (₹)</th>
                       <th className="num text-right">Credit (₹)</th>
                       <th className="num text-right">Balance (₹)</th>
+                      <th aria-label="Actions" />
                     </tr>
                   </thead>
                   <tbody>
@@ -401,11 +478,20 @@ function PartyTab({ partyType }: { partyType: "CUSTOMER" | "VENDOR" }) {
                           ? `${formatINR(opening.amount)} ${opening.suffix}`
                           : formatINR(0)}
                       </td>
+                      <td />
                     </tr>
-                    {ledger.entries.map((r) => {
+                    {ledger.entries.map((r, idx) => {
                       const bal = balanceParts(r.balanceAfter, partyType);
+                      const settleable = SETTLEABLE.has(r.voucherType) && Math.abs(r.balanceAfter) > 0.005;
                       return (
-                        <tr key={r.id}>
+                        <tr
+                          key={r.id}
+                          className={cn(
+                            "group/row transition-colors",
+                            idx % 2 === 1 && "bg-dmk-input-well/30",
+                            "hover:bg-dmk-hover/70"
+                          )}
+                        >
                           <td><DateText d={r.entryDate} /></td>
                           <td>
                             <Badge tone={VOUCHER_TONE[r.voucherType] ?? "neutral"}>{r.voucherType}</Badge>
@@ -427,12 +513,36 @@ function PartyTab({ partyType }: { partyType: "CUSTOMER" | "VENDOR" }) {
                           <td className="num text-right font-money text-dmk-text-primary">
                             {bal.suffix ? `${formatINR(bal.amount)} ${bal.suffix}` : formatINR(0)}
                           </td>
+                          <td className="text-right pr-3">
+                            {settleable ? (
+                              <button
+                                type="button"
+                                onClick={() => settleFromRow(r)}
+                                title={
+                                  r.voucherType === "SALES"
+                                    ? `Record a receipt against ${r.voucherNo || "this invoice"}`
+                                    : `Record a payment against ${r.voucherNo || "this bill"}`
+                                }
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide",
+                                  "opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all",
+                                  "border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover",
+                                  r.voucherType === "SALES"
+                                    ? "text-dmk-success hover:border-dmk-success/40"
+                                    : "text-dmk-info hover:border-dmk-info/40"
+                                )}
+                              >
+                                <HandCoins className="h-3 w-3" />
+                                {r.voucherType === "SALES" ? "Settle" : "Pay"}
+                              </button>
+                            ) : null}
+                          </td>
                         </tr>
                       );
                     })}
                     {ledger.entries.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="text-center text-dmk-text-muted py-6">
+                        <td colSpan={8} className="text-center text-dmk-text-muted py-6">
                           No transactions posted yet — only the opening balance.
                         </td>
                       </tr>
@@ -462,14 +572,294 @@ function PartyTab({ partyType }: { partyType: "CUSTOMER" | "VENDOR" }) {
                       >
                         {closing.suffix ? `${formatINR(closing.amount)} ${closing.suffix}` : formatINR(0)}
                       </td>
+                      <td />
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
+
+            {/* A4 statement print preview */}
+            <StatementPrintDialog
+              open={printOpen}
+              onOpenChange={setPrintOpen}
+              ledger={ledger}
+              partyType={partyType}
+              firm={activeFirm}
+              openingWords={
+                opening.suffix && Math.abs(opening.amount) > 0.005 ? amountInWords(opening.amount) : null
+              }
+              closingWords={closingWords}
+            />
           </>
         ) : null}
       </div>
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// A4 STATEMENT OF ACCOUNT — print preview + chrome-free printing
+// ═══════════════════════════════════════════════════════════════
+
+function StatementSheet({
+  ledger,
+  partyType,
+  firm,
+  openingWords,
+  closingWords,
+}: {
+  ledger: PartyLedgerResponse;
+  partyType: "CUSTOMER" | "VENDOR";
+  firm?: Firm;
+  openingWords: string | null;
+  closingWords: string | null;
+}) {
+  const isCustomer = partyType === "CUSTOMER";
+  const opening = balanceParts(ledger.opening, partyType);
+  const closing = balanceParts(ledger.closing, partyType);
+  const totalDr = ledger.entries.reduce((s, r) => s + r.debitAmount, 0);
+  const totalCr = ledger.entries.reduce((s, r) => s + r.creditAmount, 0);
+  const mono = { fontFamily: "var(--font-jetbrains), monospace" };
+
+  return (
+    <div
+      className="print-a4 bg-white text-gray-900 w-[794px] min-h-[1123px] px-10 py-8 flex flex-col shadow-lg"
+      style={{ fontFamily: "Inter, sans-serif" }}
+    >
+      {/* Letterhead */}
+      <div className="flex items-start justify-between gap-6 border-b-2 border-gray-800 pb-4">
+        <div className="min-w-0 flex">
+          {firm?.logoUrl ? (
+            <img src={firm.logoUrl} alt="" className="h-12 w-12 rounded object-cover mr-3 shrink-0" />
+          ) : (
+            <div className="h-12 w-12 rounded bg-gray-900 text-white flex items-center justify-center text-lg font-bold mr-3 shrink-0">
+              {(firm?.firmName ?? "DMK").slice(0, 1)}
+            </div>
+          )}
+          <div className="min-w-0">
+            <h2 className="text-[20px] font-bold leading-tight text-gray-900">{firm?.firmName ?? "DMK Mart"}</h2>
+            <p className="text-[10.5px] text-gray-600 mt-0.5 whitespace-pre-line leading-snug">{firm?.address ?? ""}</p>
+            <div className="text-[10.5px] text-gray-700 mt-1 space-x-3">
+              <span>
+                GSTIN:{" "}
+                <span className="font-semibold" style={mono}>
+                  {firm?.gstin ?? "—"}
+                </span>
+              </span>
+              {firm?.phone && <span>Ph: {firm.phone}</span>}
+              {firm?.email && <span>{firm.email}</span>}
+            </div>
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-[18px] font-extrabold tracking-wide text-gray-900 uppercase">Statement of Account</p>
+          <p className="text-[10.5px] text-gray-500 mt-1">
+            Financial Year {firm?.financialYear ?? fyLabel(new Date())} · as of {formatDate(new Date())}
+          </p>
+          <span className="inline-block mt-2 text-[9.5px] font-bold uppercase tracking-wider text-gray-700 border border-gray-400 rounded px-2 py-0.5">
+            {isCustomer ? "Receivable Statement" : "Payable Statement"}
+          </span>
+        </div>
+      </div>
+
+      {/* Party + summary */}
+      <div className="grid grid-cols-2 gap-6 border-b border-gray-300 py-3">
+        <div>
+          <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+            {isCustomer ? "Bill To" : "Supplier"}
+          </p>
+          <p className="text-[13.5px] font-bold text-gray-900 leading-snug">{ledger.party.name}</p>
+          <p className="text-[10.5px] text-gray-700 mt-1">
+            GSTIN:{" "}
+            <span className="font-semibold" style={mono}>
+              {ledger.party.gstin || "URP / Unregistered"}
+            </span>
+          </p>
+          <p className="text-[10.5px] text-gray-600 mt-0.5">
+            State code {ledger.party.stateCode || "—"}
+            {ledger.party.phone ? ` · ☎ ${ledger.party.phone}` : ""}
+          </p>
+          {isCustomer && (ledger.party.creditLimit ?? 0) > 0 && (
+            <p className="text-[10.5px] text-gray-600">
+              Credit limit ₹{Number(ledger.party.creditLimit).toFixed(2)} · {ledger.party.creditDays ?? 0} days
+            </p>
+          )}
+          {!isCustomer && ledger.party.paymentTerms && (
+            <p className="text-[10.5px] text-gray-600">Payment terms: {ledger.party.paymentTerms}</p>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] content-start" style={mono}>
+          <span className="text-gray-500">Opening balance:</span>
+          <span className="font-semibold text-right">
+            {opening.suffix ? `${opening.suffix} ₹${opening.amount.toFixed(2)}` : "NIL"}
+          </span>
+          <span className="text-gray-500">Transactions:</span>
+          <span className="font-semibold text-right">{ledger.entries.length}</span>
+          <span className="text-gray-500">Total debits:</span>
+          <span className="font-semibold text-right">₹{totalDr.toFixed(2)}</span>
+          <span className="text-gray-500">Total credits:</span>
+          <span className="font-semibold text-right">₹{totalCr.toFixed(2)}</span>
+        </div>
+      </div>
+
+      {/* Entries */}
+      <table className="w-full border-collapse mt-3 text-[10.5px]" style={mono}>
+        <thead>
+          <tr className="bg-gray-100">
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[72px]">Date</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[64px]">Voucher</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[92px]">Number</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left">Particulars</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[72px]">Debit ₹</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[72px]">Credit ₹</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[88px]">Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="border border-gray-300 px-1.5 py-1 font-semibold" colSpan={6}>
+              Opening Balance
+            </td>
+            <td className="border border-gray-300 px-1.5 py-1 text-right font-semibold">
+              {opening.suffix ? `${opening.suffix} ${opening.amount.toFixed(2)}` : "0.00"}
+            </td>
+          </tr>
+          {ledger.entries.map((r) => {
+            const bal = balanceParts(r.balanceAfter, partyType);
+            return (
+              <tr key={r.id}>
+                <td className="border border-gray-300 px-1.5 py-1 whitespace-nowrap">{formatDate(r.entryDate)}</td>
+                <td className="border border-gray-300 px-1.5 py-1">{r.voucherType.replace("_", " ")}</td>
+                <td className="border border-gray-300 px-1.5 py-1">{r.voucherNo || "—"}</td>
+                <td className="border border-gray-300 px-1.5 py-1 truncate max-w-[220px]">{r.particulars || "—"}</td>
+                <td className="border border-gray-300 px-1.5 py-1 text-right">{r.debitAmount ? r.debitAmount.toFixed(2) : "—"}</td>
+                <td className="border border-gray-300 px-1.5 py-1 text-right">{r.creditAmount ? r.creditAmount.toFixed(2) : "—"}</td>
+                <td className="border border-gray-300 px-1.5 py-1 text-right font-semibold">
+                  {bal.suffix ? `${bal.suffix} ${bal.amount.toFixed(2)}` : "0.00"}
+                </td>
+              </tr>
+            );
+          })}
+          <tr className="bg-gray-100 font-bold">
+            <td className="border border-gray-300 px-1.5 py-1.5" colSpan={4}>
+              Totals
+            </td>
+            <td className="border border-gray-300 px-1.5 py-1.5 text-right">{totalDr.toFixed(2)}</td>
+            <td className="border border-gray-300 px-1.5 py-1.5 text-right">{totalCr.toFixed(2)}</td>
+            <td className="border border-gray-300 px-1.5 py-1.5 text-right">
+              {closing.suffix ? `${closing.suffix} ${closing.amount.toFixed(2)}` : "0.00"}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Closing balance block */}
+      <div className="mt-3 border border-gray-300 rounded p-3 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-500">
+            Closing balance {closing.suffix ? `(${closing.suffix})` : "(Settled)"}
+          </p>
+          <p className="text-[15px] font-extrabold text-gray-900 mt-0.5" style={mono}>
+            ₹{(closing.suffix ? closing.amount : 0).toFixed(2)} {closing.suffix ?? ""}
+          </p>
+          {closingWords && (
+            <p className="text-[10.5px] text-gray-600 mt-1 leading-snug">
+              <span className="font-semibold text-gray-700">In words:</span> {closingWords}
+            </p>
+          )}
+          {openingWords && (
+            <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">
+              Opening was {openingWords} {opening.suffix ?? ""}
+            </p>
+          )}
+        </div>
+        <div className="text-center shrink-0 pt-2">
+          <div className="w-40 border-t border-gray-400 pt-1 text-[9.5px] text-gray-500">
+            For {firm?.firmName ?? "DMK Mart"} — Authorised Signatory
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-auto pt-4 border-t border-gray-200 text-[9px] text-gray-400 flex items-center justify-between">
+        <span>
+          System-generated statement · DMK Mart ERP · {isCustomer ? "subject to credit policy" : "subject to agreed vendor terms"}
+        </span>
+        <span style={mono}>Page 1 · {new Date().toLocaleDateString("en-IN")}</span>
+      </div>
+    </div>
+  );
+}
+
+function StatementPrintDialog({
+  open,
+  onOpenChange,
+  ledger,
+  partyType,
+  firm,
+  openingWords,
+  closingWords,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  ledger: PartyLedgerResponse;
+  partyType: "CUSTOMER" | "VENDOR";
+  firm?: Firm;
+  openingWords: string | null;
+  closingWords: string | null;
+}) {
+  const SCALE = 0.66;
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="no-print sm:max-w-3xl max-h-[92vh] overflow-hidden flex flex-col border-dmk-border-medium dmk-elevated">
+          <DialogHeader>
+            <DialogTitle className="text-dmk-text-primary">Statement of account — A4 preview</DialogTitle>
+            <DialogDescription className="text-dmk-text-muted">
+              Letterhead statement for {ledger.party.name} — print via the system dialog (chrome-free output).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-auto dmk-well rounded-lg p-3 flex justify-center">
+            <div
+              className="overflow-hidden rounded-md border border-dmk-border-subtle shrink-0"
+              style={{ width: 794 * SCALE, height: 1123 * SCALE }}
+            >
+              <div style={{ transform: `scale(${SCALE})`, transformOrigin: "top left", width: 794 }}>
+                <StatementSheet
+                  ledger={ledger}
+                  partyType={partyType}
+                  firm={firm}
+                  openingWords={openingWords}
+                  closingWords={closingWords}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover"
+            >
+              <X className="h-4 w-4" /> Close
+            </Button>
+            <Button onClick={printA4} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+              <Printer className="h-4 w-4" /> Print statement
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {open && (
+        <A4PrintPortal>
+          <StatementSheet
+            ledger={ledger}
+            partyType={partyType}
+            firm={firm}
+            openingWords={openingWords}
+            closingWords={closingWords}
+          />
+        </A4PrintPortal>
+      )}
+    </>
   );
 }

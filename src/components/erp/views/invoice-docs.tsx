@@ -18,6 +18,7 @@ import { PageHeader, Badge, EmptyState, LoadingRows, SearchInput } from "@/compo
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { A4PrintPortal, printA4 } from "@/components/erp/print-portal";
 
 type InvoiceListRow = Omit<Invoice, "customer"> & {
   customer?: { id: string; partyName: string; customerType?: string; stateCode?: string } | null;
@@ -124,7 +125,7 @@ export default function InvoiceDocsView() {
                   </button>
                 ))}
               </div>
-              <Button size="sm" className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90" onClick={() => window.print()} disabled={!invoice}>
+              <Button size="sm" className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90" onClick={printA4} disabled={!invoice}>
                 <Printer className="h-4 w-4" /> Print
               </Button>
             </div>
@@ -200,6 +201,13 @@ export default function InvoiceDocsView() {
           )}
         </div>
       </div>
+
+      {/* Chrome-free print copy — the ONLY thing that reaches paper */}
+      {invoice && (
+        <A4PrintPortal>
+          <A4TaxInvoice invoice={invoice} firm={firm} />
+        </A4PrintPortal>
+      )}
     </div>
   );
 }

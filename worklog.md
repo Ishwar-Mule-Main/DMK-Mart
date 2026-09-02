@@ -301,3 +301,28 @@ Stage Summary:
 - Platform stays paisa-balanced across every mutation; both subledgers reconcile to the GL at Δ=0.
 - Risks: none open. GSTR-2B matching is amount-based (supplier invoice # ≠ our PO #); if vendor invoice numbers are later stored on POs, matching can upgrade to bill-number-first.
 - Suggested next cycle: settle-by-allocation from party-ledger row context · invoice/PO PDF print pipeline polish · dashboard "ITC at risk" drill into GSTR-2B · customer statement PDF export.
+
+---
+Task ID: 15
+Agent: ATLAS (cron webDevReview — cycle 15)
+Task: QA assessment + statement A4 print pipeline + settle-from-ledger deep links + dashboard GST pulse
+
+Work Log:
+- QA first: worklog review, dev.log tail clean, lint 0/0, agent-browser boot → zero console errors; walked Aging (all 4 tabs, AR + PO-wise recon strips RECONCILED ✓), GSTR-2B view (Sep matched, ITC ₹2,925), Billing, Receipts (dialog opens). TB via API ΣDr=ΣCr=₹10,87,571.08 Δ=0 → project STABLE → proceeded to features.
+- FALSE-ALARM DEBUG (worth remembering): a grep/Read of receipts.tsx line 269 appeared to show `const ode, setMode]` (missing `[m`) — suspected corruption + stale tsbuildinfo. Hex-dump proved the file actually contains `const [mode, setMode]`; terminal output layers strip `[m` as an ANSI-reset fragment. Deleted tsconfig.tsbuildinfo as hygiene (regenerates). LESSON: never trust terminal-rendered brackets — verify with python byte repr before "fixing".
+- FEATURE A — Chrome-free A4 print pipeline (fixes a real pre-existing bug: printed invoices would have included header/sidebar since only invoice-docs marked chrome no-print):
+  · New `src/components/erp/print-portal.tsx`: `printA4()` (adds body.printing-a4 around window.print(), removes on afterprint + 3s safety) and `A4PrintPortal` (portal to body, `.dmk-print-root`).
+  · globals.css: print rules — body.printing-a4 hides every body child except .dmk-print-root; sheet padding/margin zeroed for exact page fit; tr page-break-inside avoid; thead repeats.
+  · invoice-docs: Print button now printA4() + portal print copy → verified via headless Chrome print-to-PDF: single page, TAX INVOICE present, ZERO shell leakage (previously 2-page leak risk).
+- FEATURE B — Party statement A4 print (R7/R16): new StatementSheet (letterhead w/ logo-or-monogram, GSTIN block, "Statement of Account", Bill-To + opening/txns/Dr/Cr totals grid, full entries table w/ running Dr/Cr balances, totals row, closing block w/ amount-in-words — deduped "Only" — signature line, system-generated footer) + StatementPrintDialog (scaled 66% live preview, Print → printA4, portal copy mounts only while open). Verified: print PDF = exactly 1 page, statement only, no chrome.
+- FEATURE C — Settle-from-context deep links: `src/lib/settle-bus.ts` (requestSettleCustomer/Vendor dispatch window event AND park a one-shot pending slot; views consume on mount → race-free regardless of mount order). party-ledgers rows: hover-reveal "Settle" (SALES, green) / "Pay" (PURCHASE, blue) chips on rows w/ nonzero running balance → navigates to Receipts / Vendor Payments with dialog pre-opened. Both dialogs accept preset id: preselect party, prefill amount = current outstanding/payable, auto-allocate oldest-first once open docs arrive. E2E browser-verified both directions (Latur ₹4,094.58 → INV/0001 allocated; DMK Polymers ₹5,326 → open PO allocated). No data posted (cancelled dialogs).
+- FEATURE D — Dashboard GST compliance pulse: loads GET /api/v1/gstr2b current period; ribbon card between KPIs and charts — status (CLEAN PERIOD green / REVIEW EXCEPTIONS amber / ITC AT RISK red / NO 2B DATA neutral w/ import hint), pulsing status dot, 4 mini-stats (ITC books, ITC 2B, matched bills, at-risk ₹), match-rate meter bar (green/amber/red), whole card keyboard-accessible drill → finance/gstr2b. Verified CLEAN PERIOD w/ 100% meter + drill navigation.
+- STYLING: party header gold letterhead gradient strip; balance flow strip (Opening → N txns Dr/Cr totals → Closing badges w/ arrows); zebra statement rows + sticky thead + hover reveal actions; dmk-enter on pulse card; mobile 390px verified (list/statement stack, header wraps).
+- Regression: TB Δ=0 · AR recon Δ=0 (33,906.58 − 5,000 = 28,906.58) · AP recon Δ=0 (30,326 − 25,100 − 224.20 = 5,001.80) · console errors zero across Dashboard/Aging/GSTR-2B/Invoice Register/Vendor Payments/Stock/Journals/Reports/B2C · lint 0/0 · tsc (app) 0 · transient 500s on low-stock seen only at compile boundaries during edits (dev-mode race; endpoint 200 after).
+
+Stage Summary:
+- The print pipeline is now deterministic: any view can print a pixel-exact A4 document with zero chrome leakage; tax invoices AND party statements both verified via actual PDF rendering.
+- AR/AP settlement is reachable from where the owner thinks about it: the party ledger row now deep-links into a pre-filled, auto-allocated settlement dialog (event + pending-slot bus, race-free).
+- The dashboard now answers "is my ITC safe this month?" at a glance and drills into the recon view.
+- Risks: none open. Statement print assumes A4 portrait single-firm letterhead (fine per R16); if a ledger has hundreds of rows the statement grows to multiple pages — thead repeat + row break rules already in place.
+- Suggested next cycle: vendor bill-number capture on POs to upgrade GSTR-2B matching to bill-first · customer/vendor statement email/PDF export batching · dashboard overdue-receivables pulse card (mirror of GST pulse) · aging view drill into filtered party ledger.

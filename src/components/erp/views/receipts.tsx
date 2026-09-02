@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { consumePendingCustomer } from "@/lib/settle-bus";
 import { cn } from "@/lib/utils";
 
 const MODES = ["NEFT", "UPI", "CHEQUE", "CASH"] as const;
@@ -63,6 +64,25 @@ export default function ReceiptsView() {
   const [query, setQuery] = React.useState("");
   const [newOpen, setNewOpen] = React.useState(false);
   const [refresh, setRefresh] = React.useState(0);
+  const [presetCustomer, setPresetCustomer] = React.useState<string | null>(null);
+
+  // Settle-from-context: party ledger "Settle" deep-links here (cycle 15).
+  // Handles both orders: event while mounted, or pending slot consumed on mount.
+  React.useEffect(() => {
+    const pending = consumePendingCustomer();
+    if (pending) {
+      setPresetCustomer(pending);
+      setNewOpen(true);
+    }
+    function onSettle(e: Event) {
+      const d = (e as CustomEvent).detail ?? {};
+      if (!d?.partyId) return;
+      setPresetCustomer(String(d.partyId));
+      setNewOpen(true);
+    }
+    window.addEventListener("dmk:settle-party", onSettle);
+    return () => window.removeEventListener("dmk:settle-party", onSettle);
+  }, []);
 
   React.useEffect(() => {
     if (!activeFirmId) return;
@@ -239,8 +259,12 @@ export default function ReceiptsView() {
 
       <NewReceiptDialog
         open={newOpen}
-        onOpenChange={setNewOpen}
+        onOpenChange={(o) => {
+          setNewOpen(o);
+          if (!o) setPresetCustomer(null);
+        }}
         customers={customers}
+        presetCustomerId={presetCustomer}
         onCreated={() => setRefresh((r) => r + 1)}
       />
     </div>
@@ -255,11 +279,13 @@ function NewReceiptDialog({
   open,
   onOpenChange,
   customers,
+  presetCustomerId,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   customers: Customer[] | null;
+  presetCustomerId?: string | null;
   onCreated: () => void;
 }) {
   const { toast } = useToast();
@@ -326,8 +352,52 @@ function NewReceiptDialog({
       setReceiptDate(toISODate(new Date()));
       setAllocs({});
       setOpenInvoices(null);
+      autoAllocArmed.current = false;
     }
   }, [open]);
+
+  // ── Settle-from-context preset (cycle 15): preselect customer + amount ──
+  const presetApplied = React.useRef<string | null>(null);
+  const autoAllocArmed = React.useRef(false);
+  React.useEffect(() => {
+    if (!open || !presetCustomerId) {
+      if (!open) presetApplied.current = null;
+      return;
+    }
+    if (presetApplied.current === presetCustomerId) return;
+    presetApplied.current = presetCustomerId;
+    setCustomerId(presetCustomerId);
+    autoAllocArmed.current = true;
+  }, [open, presetCustomerId]);
+
+  // Prefill amount with the customer's current outstanding once applied
+  React.useEffect(() => {
+    if (!open || !presetCustomerId || customerId !== presetCustomerId) return;
+    if (amount !== "") return;
+    const bal = Number((customers ?? []).find((c) => c.id === customerId)?.closingBalance ?? 0);
+    if (bal > 0.005) setAmount(bal.toFixed(2));
+  }, [open, presetCustomerId, customerId, amount, customers]);
+
+  // Auto-allocate the preset receipt oldest-first once open invoices arrive
+  React.useEffect(() => {
+    if (!autoAllocArmed.current) return;
+    if (!openInvoices || openInvoices.length === 0) return;
+    const total = Number((customers ?? []).find((c) => c.id === presetCustomerId)?.closingBalance ?? 0);
+    if (total <= 0.005) {
+      autoAllocArmed.current = false;
+      return;
+    }
+    autoAllocArmed.current = false;
+    const next: Record<string, string> = {};
+    let remaining = Math.round(total * 100) / 100;
+    for (const inv of openInvoices) {
+      if (remaining <= 0.009) break;
+      const take = Math.min(remaining, inv.outstanding);
+      next[inv.invoiceId] = (Math.round(take * 100) / 100).toFixed(2);
+      remaining = Math.round((remaining - take) * 100) / 100;
+    }
+    setAllocs(next);
+  }, [openInvoices, presetCustomerId, customers]);
 
   // Reset allocations when the customer changes
   React.useEffect(() => {
