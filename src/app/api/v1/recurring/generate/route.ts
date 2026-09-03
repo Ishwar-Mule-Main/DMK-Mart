@@ -55,6 +55,10 @@ interface RunResult {
   invoiceNumber?: string;
   grandTotal?: number;
   invoices?: number;
+  /** true = template was on a skip-window hold and cycles inside it were forgiven */
+  skipped?: boolean;
+  skippedCycles?: number;
+  holdUntil?: string;
   error?: string;
 }
 
@@ -89,6 +93,7 @@ export async function POST(request: NextRequest) {
     const runs: RunResult[] = [];
     let generated = 0;
     let failed = 0;
+    let skipped = 0;
 
     for (const t of templates) {
       const base = {
@@ -105,6 +110,59 @@ export async function POST(request: NextRequest) {
           failed++;
         }
         continue;
+      }
+
+      // ── Hold window (skipUntil): cycles due inside the window are
+      // forgiven — the schedule advances past the hold WITHOUT billing
+      // (no surprise back-billing when the hold lifts, even if
+      // generation is only run after the hold has passed). Cycles after
+      // the window still bill normally in the same run.
+      if (t.skipUntil && t.nextRunDate.getTime() <= t.skipUntil.getTime()) {
+        const holdCursor = new Date(t.nextRunDate.getTime());
+        let skippedCycles = 0;
+        let iterations = 0;
+        while (holdCursor.getTime() <= t.skipUntil.getTime() && iterations < 60) {
+          holdCursor.setTime(advance(holdCursor, t.frequency).getTime());
+          skippedCycles++;
+          iterations++;
+        }
+        if (iterations >= 60) {
+          // Absurd hold window — refuse rather than silently mangle the schedule
+          runs.push({
+            ...base,
+            ok: false,
+            error: "Hold window is too long for the template's frequency — edit the schedule or clear the hold",
+          });
+          failed++;
+          continue;
+        }
+        // A hold that pushes nextRunDate past the end date ends the schedule
+        const scheduleEnded = !!t.endDate && holdCursor.getTime() > t.endDate.getTime();
+        await db.recurringTemplate.update({
+          where: { id: t.id },
+          data: {
+            nextRunDate: holdCursor,
+            lastRunDate: asOfDate,
+            // Schedule over → retire the hold so the UI stops flagging it
+            ...(scheduleEnded ? { skipUntil: null } : {}),
+          },
+        });
+        runs.push({
+          ...base,
+          ok: true,
+          skipped: true,
+          skippedCycles,
+          holdUntil: t.skipUntil.toISOString(),
+        });
+        skipped++;
+        // Explicit run-now on a held template = "skip what's due, don't
+        // bill" (matches the action's tooltip; no surprise future-dated
+        // invoices). Batch runs fall through so already-due post-hold
+        // cycles catch up in the same pass.
+        if (templateId) continue;
+        if (scheduleEnded) continue;
+        // Fall through: bill the first post-hold cycle onwards in this run
+        t.nextRunDate = holdCursor;
       }
 
       // Explicit single runs bill exactly one cycle even if not yet due
@@ -134,6 +192,7 @@ export async function POST(request: NextRequest) {
             paymentMode: t.paymentMode,
             invoiceDate: new Date(cursor),
             lines,
+            templateId: t.id,
           });
           lastInvoiceId = result.invoice?.id ?? "";
           lastInvoiceNumber = result.invoice?.invoiceNumber ?? "";
@@ -192,7 +251,7 @@ export async function POST(request: NextRequest) {
       generated++;
     }
 
-    return ok({ runs, generated, failed });
+    return ok({ runs, generated, failed, skipped });
   } catch (e) {
     return handleApiError(e);
   }

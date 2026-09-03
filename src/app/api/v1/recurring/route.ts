@@ -142,6 +142,25 @@ export async function GET(request: NextRequest) {
     const todayStart = startOfDay(new Date()).getTime();
     const todayEnd = endOfDay(new Date()).getTime();
 
+    // ── Subscription ledger aggregates (one light query for all templates)
+    const stamped = await db.invoice.findMany({
+      where: { firmId, templateId: { not: null } },
+      select: { templateId: true, invoiceNumber: true, grandTotal: true, invoiceDate: true },
+      orderBy: { invoiceDate: "desc" },
+    });
+    const runsByTemplate = new Map<string, { count: number; billed: number; lastInvoiceNo: string; month: number }>();
+    const nowMonth = new Date();
+    for (const inv of stamped) {
+      if (!inv.templateId) continue;
+      const cur = runsByTemplate.get(inv.templateId) ?? { count: 0, billed: 0, lastInvoiceNo: "", month: 0 };
+      cur.count += 1;
+      cur.billed = round2(cur.billed + inv.grandTotal);
+      const d = new Date(inv.invoiceDate);
+      if (d.getFullYear() === nowMonth.getFullYear() && d.getMonth() === nowMonth.getMonth()) cur.month += 1;
+      if (!cur.lastInvoiceNo) cur.lastInvoiceNo = inv.invoiceNumber;
+      runsByTemplate.set(inv.templateId, cur);
+    }
+
     const rows = templates.map((t) => {
       const tierKey = tierKeys.includes(t.customer.assignedTier as (typeof tierKeys)[number])
         ? t.customer.assignedTier
@@ -166,12 +185,23 @@ export async function GET(request: NextRequest) {
       const overdueBy = nextRunTime < todayStart ? Math.floor((todayStart - nextRunTime) / 86400000) : 0;
       const units = Number.isInteger(totalUnits) ? String(totalUnits) : totalUnits.toFixed(1);
 
+      const runs = runsByTemplate.get(t.id) ?? { count: 0, billed: 0, lastInvoiceNo: "", month: 0 };
+      const onHold = !!t.skipUntil && t.skipUntil.getTime() >= todayStart;
+
       return {
         ...t,
         itemSummary: `${t.items.length} line${t.items.length === 1 ? "" : "s"} · ${units} units`,
         estValue: { estTaxable, estTax, estTotal },
-        dueToday,
-        overdueBy,
+        dueToday: dueToday && !onHold,
+        overdueBy: onHold ? 0 : overdueBy,
+        onHold,
+        holdUntilLabel: t.skipUntil
+          ? t.skipUntil.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+          : null,
+        runsCount: runs.count,
+        runsBilled: runs.billed,
+        runsThisMonth: runs.month,
+        lastRunInvoiceNo: runs.lastInvoiceNo,
         nextRunLabel: t.nextRunDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
       };
     });
@@ -218,6 +248,11 @@ export async function POST(request: NextRequest) {
     if (endDate && endDate.getTime() < startDate.getTime()) {
       throw new BusinessError("ERR_VALIDATION", "End date cannot be before the start date", 422);
     }
+    // Optional initial hold (skip cycles until date)
+    const skipUntil = getDateOrNull(body.skipUntil);
+    if (skipUntil && skipUntil.getTime() < startDate.getTime()) {
+      throw new BusinessError("ERR_VALIDATION", "Skip-until date cannot be before the start date", 422);
+    }
 
     const lines = await resolveLines(firm.id, asRecordArray(body.lines));
 
@@ -231,6 +266,7 @@ export async function POST(request: NextRequest) {
         startDate,
         endDate,
         nextRunDate: startDate,
+        skipUntil,
         notes: getStr(body.notes),
         autoPost: true,
         isActive: true,
@@ -274,6 +310,7 @@ export async function PATCH(request: NextRequest) {
       paymentMode?: string;
       startDate?: Date;
       endDate?: Date | null;
+      skipUntil?: Date | null;
       notes?: string;
       isActive?: boolean;
       nextRunDate?: Date;
@@ -325,6 +362,17 @@ export async function PATCH(request: NextRequest) {
     }
     if (body.notes !== undefined) data.notes = getStr(body.notes);
     if (body.isActive !== undefined) data.isActive = !!body.isActive;
+
+    // Hold window — a date pushes generation past it (cycles inside are
+    // skipped); null clears the hold.
+    if (body.skipUntil !== undefined) {
+      const skipUntil = getDateOrNull(body.skipUntil);
+      const effStart = data.startDate ?? existing.startDate;
+      if (skipUntil && skipUntil.getTime() < effStart.getTime()) {
+        throw new BusinessError("ERR_VALIDATION", "Skip-until date cannot be before the template start date", 422);
+      }
+      data.skipUntil = skipUntil;
+    }
 
     // Editing resets nextRunDate only if startDate changed
     if (startDateChanged) {

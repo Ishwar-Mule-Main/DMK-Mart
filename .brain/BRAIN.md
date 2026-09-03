@@ -176,3 +176,10 @@ Blockers: none.
 - Decisions: palette wired via window event "dmk:open-palette" (no store coupling); WAC from CONFIRMED PO receipts w/ last-cost fallback; snapshot reports (stock+valuation) share disabled date filters
 - Verification: TB ₹11,01,084.08 BALANCED · valuation variance +₹28,650 traced genuine · tsc+lint 0/0 · palette & drill-down browser-verified
 - NEXT ACTION: next cycle — per-invoice settlement tracking OR GSTR-2B reconciliation view OR dashboard sparklines
+
+### Session: 2026-09-03 08:48 (cron cycle 20)
+- Phase: Enhancement cycles (post-MVP)
+- Completed: Subscription ledger (Invoice.templateId stamp + /recurring/runs + runs dialog + N RUNS chips + Billed-This-Month KPI) · Hold/skip window (RecurringTemplate.skipUntil: cycles inside window forgiven, batch catches up post-hold, run-now skips only) · Backup v2 (recurringTemplates in envelope; restore accepts v1+v2, remaps templateId stamps; runs survive round-trip paisa-perfect) · AP overdue pulse card (dashboard trio: GST → AR → AP)
+- Decisions: invoice stamps use FK SetNull (history survives template deletion); hold = forgive (not back-bill) with 60-step cap; explicit run-now on held template never bills (tooltip-honest); v1 backups still restore (no templates, by design)
+- Verification: TB ₹10,73,350.05 Δ=0.00 · AR/AP recon Δ=0 · backup round-trip TB identical · guards 422/400 verified · tsc+lint 0/0 · desktop+mobile browser-verified
+- NEXT ACTION: next cycle — autoPost scheduler OR party-ledger allocation context OR pulse sparklines OR GSTR-2B period quick-nav

@@ -1,0 +1,940 @@
+     1→"use client";
+     2→
+     3→// ═══════════════════════════════════════════════════════════════
+     4→// SALES — RECURRING BILLING (standing-order templates)
+     5→// Templates auto-post tax invoices through the shared invoice
+     6→// engine: tier pricing + bulk discounts + GST + credit control +
+     7→// stock + ledger + journals. Gold action = generate all due now.
+     8→// ═══════════════════════════════════════════════════════════════
+     9→
+    10→import * as React from "react";
+    11→import {
+    12→  CalendarClock,
+    13→  CheckCircle2,
+    14→  Loader2,
+    15→  Pause,
+    16→  Pencil,
+    17→  Play,
+    18→  PlayCircle,
+    19→  Plus,
+    20→  RefreshCw,
+    21→  Search,
+    22→  Trash2,
+    23→  XCircle,
+    24→  Zap,
+    25→} from "lucide-react";
+    26→import { useErpStore, useActiveFirm } from "@/store/erp-store";
+    27→import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/api-client";
+    28→import { formatINR, formatDate, toISODate } from "@/lib/format";
+    29→import { calculateBulkPricing, TIERS } from "@/lib/pricing";
+    30→import type {
+    31→  Customer,
+    32→  Product,
+    33→  RecurringTemplate,
+    34→  RecurringGenerateResponse,
+    35→} from "@/types/erp";
+    36→import {
+    37→  PageHeader,
+    38→  Badge,
+    39→  EmptyState,
+    40→  LoadingRows,
+    41→  SearchInput,
+    42→  Field,
+    43→  inputCls,
+    44→  Money,
+    45→} from "@/components/erp/shared";
+    46→import { Button } from "@/components/ui/button";
+    47→import { Input } from "@/components/ui/input";
+    48→import { Textarea } from "@/components/ui/textarea";
+    49→import {
+    50→  Dialog,
+    51→  DialogContent,
+    52→  DialogDescription,
+    53→  DialogFooter,
+    54→  DialogHeader,
+    55→  DialogTitle,
+    56→} from "@/components/ui/dialog";
+    57→import {
+    58→  Select,
+    59→  SelectContent,
+    60→  SelectItem,
+    61→  SelectTrigger,
+    62→  SelectValue,
+    63→} from "@/components/ui/select";
+    64→import {
+    65→  AlertDialog,
+    66→  AlertDialogAction,
+    67→  AlertDialogCancel,
+    68→  AlertDialogContent,
+    69→  AlertDialogDescription,
+    70→  AlertDialogFooter,
+    71→  AlertDialogHeader,
+    72→  AlertDialogTitle,
+    73→} from "@/components/ui/alert-dialog";
+    74→import { useToast } from "@/hooks/use-toast";
+    75→import { cn } from "@/lib/utils";
+    76→
+    77→// ── local helpers (mirror server math exactly) ───────────────────
+    78→function round2(n: number): number {
+    79→  return Math.round((n + Number.EPSILON) * 100) / 100;
+    80→}
+    81→
+    82→function normalizeProducts(res: unknown): Product[] {
+    83→  if (Array.isArray(res)) return res as Product[];
+    84→  const obj = res as { products?: Product[] } | null;
+    85→  return obj?.products ?? [];
+    86→}
+    87→
+    88→const FREQUENCIES = [
+    89→  { value: "WEEKLY", label: "Weekly" },
+    90→  { value: "MONTHLY", label: "Monthly" },
+    91→  { value: "BIMONTHLY", label: "Every 2 months" },
+    92→  { value: "QUARTERLY", label: "Quarterly" },
+    93→];
+    94→
+    95→const PAYMENT_MODES = [
+    96→  { value: "CREDIT", label: "Credit" },
+    97→  { value: "CASH", label: "Cash" },
+    98→  { value: "UPI", label: "UPI" },
+    99→  { value: "CARD", label: "Card" },
+   100→  { value: "NEFT", label: "NEFT / Bank" },
+   101→];
+   102→
+   103→function paymentBadge(mode: string) {
+   104→  switch (mode) {
+   105→    case "CREDIT":
+   106→      return <Badge tone="warning">CREDIT</Badge>;
+   107→    case "CASH":
+   108→      return <Badge tone="success">CASH</Badge>;
+   109→    case "UPI":
+   110→      return <Badge tone="info">UPI</Badge>;
+   111→    case "NEFT":
+   112→      return <Badge tone="info">NEFT</Badge>;
+   113→    default:
+   114→      return <Badge tone="neutral">{mode}</Badge>;
+   115→  }
+   116→}
+   117→
+   118→function frequencyLabel(f: string): string {
+   119→  return FREQUENCIES.find((x) => x.value === f)?.label ?? f;
+   120→}
+   121→
+   122→/** Client replica of the server estimate (tier → bulk → GST). */
+   123→function estimateLine(
+   124→  product: Product,
+   125→  qty: number,
+   126→  manualPct: number | null,
+   127→  tierKey: string,
+   128→  intra: boolean
+   129→) {
+   130→  const tierPrice = (product[tierKey as keyof Product] as number) || 0;
+   131→  const base = tierPrice > 0 ? tierPrice : product.tier4Retailer;
+   132→  const bulk = calculateBulkPricing(base, qty, manualPct ?? 0);
+   133→  const rate = product.gstRate;
+   134→  const tax = intra
+   135→    ? round2(bulk.taxable * (rate / 200)) * 2
+   136→    : round2(bulk.taxable * (rate / 100));
+   137→  return { bulk, tax: round2(tax), total: round2(bulk.taxable + tax) };
+   138→}
+   139→
+   140→// ── form line shape ──────────────────────────────────────────────
+   141→interface Line {
+   142→  productId: string;
+   143→  qty: string;
+   144→  disc: string; // "" = auto
+   145→}
+   146→
+   147→const emptyLine: Line = { productId: "", qty: "", disc: "" };
+   148→
+   149→export default function RecurringView() {
+   150→  const { toast } = useToast();
+   151→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   152→  const activeFirm = useActiveFirm();
+   153→
+   154→  const [rows, setRows] = React.useState<RecurringTemplate[] | null>(null);
+   155→  const [refresh, setRefresh] = React.useState(0);
+   156→  const [query, setQuery] = React.useState("");
+   157→  const [statusFilter, setStatusFilter] = React.useState("ALL");
+   158→
+   159→  // customers + products directory for the dialog
+   160→  const [customers, setCustomers] = React.useState<Customer[]>([]);
+   161→  const [products, setProducts] = React.useState<Product[]>([]);
+   162→
+   163→  // dialog state
+   164→  const [formOpen, setFormOpen] = React.useState(false);
+   165→  const [editOf, setEditOf] = React.useState<RecurringTemplate | null>(null);
+   166→  const [saving, setSaving] = React.useState(false);
+   167→  const [formError, setFormError] = React.useState<string | null>(null);
+   168→
+   169→  const [name, setName] = React.useState("");
+   170→  const [customerId, setCustomerId] = React.useState("");
+   171→  const [frequency, setFrequency] = React.useState("MONTHLY");
+   172→  const [paymentMode, setPaymentMode] = React.useState("CREDIT");
+   173→  const [startDate, setStartDate] = React.useState(() => toISODate(new Date()));
+   174→  const [endDate, setEndDate] = React.useState("");
+   175→  const [notes, setNotes] = React.useState("");
+   176→  const [lines, setLines] = React.useState<Line[]>([{ ...emptyLine }]);
+   177→
+   178→  // row actions
+   179→  const [deleteOf, setDeleteOf] = React.useState<RecurringTemplate | null>(null);
+   180→  const [deleting, setDeleting] = React.useState(false);
+   181→  const [runningId, setRunningId] = React.useState<string | null>(null);
+   182→  const [generating, setGenerating] = React.useState(false);
+   183→  const [genResult, setGenResult] = React.useState<RecurringGenerateResponse | null>(null);
+   184→
+   185→  // ── load templates ────────────────────────────────────────────
+   186→  React.useEffect(() => {
+   187→    if (!activeFirmId) return;
+   188→    let alive = true;
+   189→    (async () => {
+   190→      try {
+   191→        const res = await apiGet<RecurringTemplate[]>("/api/v1/recurring", { firmId: activeFirmId });
+   192→        if (alive) setRows(res);
+   193→      } catch (e) {
+   194→        if (alive) {
+   195→          setRows([]);
+   196→          if (e instanceof ApiError)
+   197→            toast({ variant: "destructive", title: "Could not load templates", description: e.message });
+   198→        }
+   199→      }
+   200→    })();
+   201→    return () => {
+   202→      alive = false;
+   203→    };
+   204→  }, [activeFirmId, refresh, toast]);
+   205→
+   206→  // ── load directory once per firm ──────────────────────────────
+   207→  React.useEffect(() => {
+   208→    if (!activeFirmId) return;
+   209→    let alive = true;
+   210→    (async () => {
+   211→      const [c, p] = await Promise.allSettled([
+   212→        apiGet<Customer[]>("/api/v1/customers", { firmId: activeFirmId }),
+   213→        apiGet<Product[] | { products: Product[] }>("/api/v1/products", { firmId: activeFirmId, activeOnly: "true" }),
+   214→      ]);
+   215→      if (!alive) return;
+   216→      if (c.status === "fulfilled") setCustomers(c.value);
+   217→      if (p.status === "fulfilled") setProducts(normalizeProducts(p.value));
+   218→    })();
+   219→    return () => {
+   220→      alive = false;
+   221→    };
+   222→  }, [activeFirmId]);
+   223→
+   224→  // ── dialog helpers ────────────────────────────────────────────
+   225→  function openNew() {
+   226→    setEditOf(null);
+   227→    setName("");
+   228→    setCustomerId("");
+   229→    setFrequency("MONTHLY");
+   230→    setPaymentMode("CREDIT");
+   231→    setStartDate(toISODate(new Date()));
+   232→    setEndDate("");
+   233→    setNotes("");
+   234→    setLines([{ ...emptyLine }]);
+   235→    setFormError(null);
+   236→    setFormOpen(true);
+   237→  }
+   238→
+   239→  function openEdit(t: RecurringTemplate) {
+   240→    setEditOf(t);
+   241→    setName(t.name);
+   242→    setCustomerId(t.customerId);
+   243→    setFrequency(t.frequency);
+   244→    setPaymentMode(t.paymentMode);
+   245→    setStartDate(toISODate(new Date(t.startDate)));
+   246→    setEndDate(t.endDate ? toISODate(new Date(t.endDate)) : "");
+   247→    setNotes(t.notes);
+   248→    setLines(
+   249→      t.items.map((i) => ({
+   250→        productId: i.productId,
+   251→        qty: String(i.quantity),
+   252→        disc: i.manualDiscountPct === null || i.manualDiscountPct === undefined ? "" : String(i.manualDiscountPct),
+   253→      }))
+   254→    );
+   255→    setFormError(null);
+   256→    setFormOpen(true);
+   257→  }
+   258→
+   259→  const selectedCustomer = customers.find((c) => c.id === customerId);
+   260→  const intra =
+   261→    !selectedCustomer || !activeFirm ? true : selectedCustomer.stateCode === activeFirm.stateCode;
+   262→  const tierKey =
+   263→    selectedCustomer && TIERS.some((t) => t.key === selectedCustomer.assignedTier)
+   264→      ? selectedCustomer.assignedTier
+   265→      : "tier4Retailer";
+   266→
+   267→  // live preview (same math as the server estimate)
+   268→  const preview = React.useMemo(() => {
+   269→    let taxable = 0;
+   270→    let tax = 0;
+   271→    let valid = true;
+   272→    for (const l of lines) {
+   273→      const p = products.find((x) => x.id === l.productId);
+   274→      const qty = Number(l.qty);
+   275→      if (!p || !(qty > 0)) {
+   276→        valid = false;
+   277→        continue;
+   278→      }
+   279→      const est = estimateLine(p, qty, l.disc === "" ? null : Number(l.disc), tierKey, intra);
+   280→      taxable = round2(taxable + est.bulk.taxable);
+   281→      tax = round2(tax + est.tax);
+   282→    }
+   283→    return { taxable, tax, total: round2(taxable + tax), valid };
+   284→  }, [lines, products, tierKey, intra]);
+   285→
+   286→  function setLine(i: number, patch: Partial<Line>) {
+   287→    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+   288→  }
+   289→
+   290→  function validateForm(): string | null {
+   291→    if (!name.trim()) return "Template name is required.";
+   292→    if (!customerId) return "Select a customer for this standing order.";
+   293→    if (selectedCustomer?.customerType === "B2C_COUNTER" && paymentMode === "CREDIT")
+   294→      return "Counter customers are cash-and-carry — pick CASH, UPI or CARD.";
+   295→    const clean = lines.filter((l) => l.productId);
+   296→    if (clean.length === 0) return "Add at least one product line.";
+   297→    for (const l of clean) {
+   298→      if (!(Number(l.qty) > 0)) return "Every line needs a quantity greater than 0.";
+   299→      if (l.disc !== "" && (Number(l.disc) < 0 || Number(l.disc) > 100))
+   300→        return "Manual discount must be between 0 and 100.";
+   301→    }
+   302→    if (endDate && startDate && endDate < startDate) return "End date cannot be before the start date.";
+   303→    return null;
+   304→  }
+   305→
+   306→  async function submitTemplate() {
+   307→    const err = validateForm();
+   308→    if (err) {
+   309→      setFormError(err);
+   310→      return;
+   311→    }
+   312→    setSaving(true);
+   313→    setFormError(null);
+   314→    const payload = {
+   315→      firmId: activeFirmId,
+   316→      name: name.trim(),
+   317→      customerId,
+   318→      frequency,
+   319→      paymentMode,
+   320→      startDate,
+   321→      endDate: endDate || null,
+   322→      notes: notes.trim(),
+   323→      lines: lines
+   324→        .filter((l) => l.productId)
+   325→        .map((l) => ({
+   326→          productId: l.productId,
+   327→          quantity: Number(l.qty),
+   328→          manualDiscountPct: l.disc === "" ? null : Number(l.disc),
+   329→        })),
+   330→    };
+   331→    try {
+   332→      if (editOf) {
+   333→        await apiPatch<RecurringTemplate>("/api/v1/recurring", { id: editOf.id, ...payload });
+   334→        toast({ title: "Template updated", description: `“${payload.name}” saved.` });
+   335→      } else {
+   336→        await apiPost<RecurringTemplate>("/api/v1/recurring", payload);
+   337→        toast({ title: "Template created", description: `“${payload.name}” will auto-post invoices on schedule.` });
+   338→      }
+   339→      setFormOpen(false);
+   340→      setRefresh((r) => r + 1);
+   341→    } catch (e) {
+   342→      setFormError(e instanceof ApiError ? e.message : "Could not save the template.");
+   343→    } finally {
+   344→      setSaving(false);
+   345→    }
+   346→  }
+   347→
+   348→  // ── row actions ───────────────────────────────────────────────
+   349→  async function toggleActive(t: RecurringTemplate) {
+   350→    try {
+   351→      await apiPatch<RecurringTemplate>("/api/v1/recurring", {
+   352→        firmId: activeFirmId,
+   353→        id: t.id,
+   354→        isActive: !t.isActive,
+   355→      });
+   356→      toast({
+   357→        title: t.isActive ? "Template paused" : "Template resumed",
+   358→        description: t.isActive
+   359→          ? `“${t.name}” is excluded from generation while paused.`
+   360→          : `“${t.name}” is back on schedule.`,
+   361→      });
+   362→      setRefresh((r) => r + 1);
+   363→    } catch (e) {
+   364→      toast({
+   365→        variant: "destructive",
+   366→        title: "Update failed",
+   367→        description: e instanceof ApiError ? e.message : "Could not change template state.",
+   368→      });
+   369→    }
+   370→  }
+   371→
+   372→  async function confirmDelete() {
+   373→    if (!deleteOf) return;
+   374→    setDeleting(true);
+   375→    try {
+   376→      await apiDelete(`/api/v1/recurring?firmId=${activeFirmId}&id=${deleteOf.id}`);
+   377→      toast({ title: "Template deleted", description: `“${deleteOf.name}” removed. Posted invoices are untouched.` });
+   378→      setDeleteOf(null);
+   379→      setRefresh((r) => r + 1);
+   380→    } catch (e) {
+   381→      toast({
+   382→        variant: "destructive",
+   383→        title: "Delete failed",
+   384→        description: e instanceof ApiError ? e.message : "Could not delete this template.",
+   385→      });
+   386→    } finally {
+   387→      setDeleting(false);
+   388→    }
+   389→  }
+   390→
+   391→  async function runGenerate(templateId?: string) {
+   392→    if (!activeFirmId) return;
+   393→    if (templateId) setRunningId(templateId);
+   394→    else setGenerating(true);
+   395→    try {
+   396→      const res = await apiPost<RecurringGenerateResponse>("/api/v1/recurring/generate", {
+   397→        firmId: activeFirmId,
+   398→        ...(templateId ? { templateId } : {}),
+   399→      });
+   400→      if (templateId) {
+   401→        const run = res.runs[0];
+   402→        if (run?.ok) {
+   403→          toast({
+   404→            title: `Invoice ${run.invoiceNumber} generated`,
+   405→            description: `${run.templateName} · ${formatINR(run.grandTotal ?? 0)}${(run.invoices ?? 1) > 1 ? ` · ${(run.invoices ?? 1)} cycles caught up` : ""}`,
+   406→          });
+   407→        } else {
+   408→          toast({
+   409→            variant: "destructive",
+   410→            title: "Generation failed",
+   411→            description: run?.error ?? "No invoice was generated for this template.",
+   412→          });
+   413→        }
+   414→        setRefresh((r) => r + 1);
+   415→      } else {
+   416→        setGenResult(res);
+   417→        setRefresh((r) => r + 1);
+   418→      }
+   419→    } catch (e) {
+   420→      toast({
+   421→        variant: "destructive",
+   422→        title: "Generation failed",
+   423→        description: e instanceof ApiError ? e.message : "Could not run recurring generation.",
+   424→      });
+   425→    } finally {
+   426→      if (templateId) setRunningId(null);
+   427→      else setGenerating(false);
+   428→    }
+   429→  }
+   430→
+   431→  // ── derived KPIs ──────────────────────────────────────────────
+   432→  const list = rows ?? [];
+   433→  const filtered = list.filter((t) => {
+   434→    const q = query.trim().toLowerCase();
+   435→    const matchQ =
+   436→      !q ||
+   437→      t.name.toLowerCase().includes(q) ||
+   438→      t.customer?.partyName?.toLowerCase().includes(q) ||
+   439→      (t.items ?? []).some((i) => i.sku.toLowerCase().includes(q) || i.productName.toLowerCase().includes(q));
+   440→    const matchS =
+   441→      statusFilter === "ALL"
+   442→        ? true
+   443→        : statusFilter === "DUE"
+   444→          ? !!t.dueToday && t.isActive
+   445→          : statusFilter === "ACTIVE"
+   446→            ? t.isActive
+   447→            : !t.isActive;
+   448→    return matchQ && matchS;
+   449→  });
+   450→  const activeCount = list.filter((t) => t.isActive).length;
+   451→  const dueRows = list.filter((t) => t.dueToday && t.isActive);
+   452→  const dueValue = dueRows.reduce((s, t) => s + (t.estValue?.estTotal ?? 0), 0);
+   453→  const overdueCount = dueRows.filter((t) => (t.overdueBy ?? 0) > 0).length;
+   454→  const now = new Date();
+   455→  const genMonthCount = list.filter((t) => {
+   456→    if (!t.lastRunDate) return false;
+   457→    const d = new Date(t.lastRunDate);
+   458→    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+   459→  }).length;
+   460→
+   461→  return (
+   462→    <div className="space-y-4">
+   463→      <PageHeader
+   464→        title="Recurring Billing"
+   465→        subtitle="Standing-order templates → auto-posted tax invoices"
+   466→        icon={CalendarClock}
+   467→        actions={
+   468→          <>
+   469→            <Button
+   470→              size="sm"
+   471→              className="h-9 bg-dmk-gold text-[#0A0F1D] hover:bg-dmk-gold/90 disabled:opacity-40"
+   472→              disabled={generating || dueRows.length === 0}
+   473→              onClick={() => runGenerate()}
+   474→            >
+   475→              {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+   476→              Generate due now
+   477→              <span className="ml-1 rounded-full bg-[#0A0F1D]/15 px-1.5 text-[10.5px] font-bold">{dueRows.length}</span>
+   478→            </Button>
+   479→            <Button size="sm" className="h-9 bg-dmk-blue text-white hover:bg-dmk-blue/90" onClick={openNew}>
+   480→              <Plus className="h-4 w-4" /> New Template
+   481→            </Button>
+   482→          </>
+   483→        }
+   484→      />
+   485→
+   486→      {/* KPI strip */}
+   487→      <div className="dmk-enter-stagger grid grid-cols-2 lg:grid-cols-4 gap-3">
+   488→        <div className="dmk-kpi p-4 flex flex-col gap-2">
+   489→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Active Templates</span>
+   490→          <span className="font-money text-[20px] font-semibold leading-none text-dmk-text-primary">{activeCount}</span>
+   491→          <span className="text-[11px] text-dmk-text-muted">{list.length} total · {(list.length - activeCount)} paused</span>
+   492→        </div>
+   493→        <div className="dmk-kpi p-4 flex flex-col gap-2">
+   494→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Due Today</span>
+   495→          <span className="font-money text-[20px] font-semibold leading-none text-dmk-gold">{dueRows.length}</span>
+   496→          <span className={cn("text-[11px]", overdueCount > 0 ? "text-dmk-danger" : "text-dmk-text-muted")}>
+   497→            {overdueCount > 0 ? `${overdueCount} overdue — run generation` : "on schedule"}
+   498→          </span>
+   499→        </div>
+   500→        <div className="dmk-kpi p-4 flex flex-col gap-2">
+   501→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Due Value</span>
+   502→          <span className="font-money text-[20px] font-semibold leading-none text-dmk-orange">{formatINR(dueValue)}</span>
+   503→          <span className="text-[11px] text-dmk-text-muted">est. grand total incl. GST</span>
+   504→        </div>
+   505→        <div className="dmk-kpi p-4 flex flex-col gap-2">
+   506→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Generated This Month</span>
+   507→          <span className="font-money text-[20px] font-semibold leading-none text-dmk-text-primary">{genMonthCount}</span>
+   508→          <span className="text-[11px] text-dmk-text-muted">templates billed this month</span>
+   509→        </div>
+   510→      </div>
+   511→
+   512→      {/* filters */}
+   513→      <div className="flex flex-col sm:flex-row gap-2">
+   514→        <div className="relative flex-1">
+   515→          <SearchInput value={query} onChange={setQuery} placeholder="Search template, customer or SKU…" className="pl-9" />
+   516→          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
+   517→        </div>
+   518→        <Select value={statusFilter} onValueChange={setStatusFilter}>
+   519→          <SelectTrigger className={cn(inputCls, "w-full sm:w-[170px]")}>
+   520→            <SelectValue placeholder="All templates" />
+   521→          </SelectTrigger>
+   522→          <SelectContent>
+   523→            <SelectItem value="ALL">All templates</SelectItem>
+   524→            <SelectItem value="DUE">Due today</SelectItem>
+   525→            <SelectItem value="ACTIVE">Active only</SelectItem>
+   526→            <SelectItem value="PAUSED">Paused only</SelectItem>
+   527→          </SelectContent>
+   528→        </Select>
+   529→        <Button size="sm" variant="outline" className="h-9 border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary" onClick={() => setRefresh((r) => r + 1)}>
+   530→          <RefreshCw className="h-4 w-4" /> Refresh
+   531→        </Button>
+   532→      </div>
+   533→
+   534→      {/* template list */}
+   535→      <div className="dmk-card overflow-hidden">
+   536→        <div className="overflow-x-auto">
+   537→          {rows === null ? (
+   538→            <LoadingRows rows={6} />
+   539→          ) : filtered.length === 0 ? (
+   540→            <EmptyState
+   541→              icon={CalendarClock}
+   542→              title={list.length === 0 ? "No recurring templates" : "No templates match your filters"}
+   543→              hint={
+   544→                list.length === 0
+   545→                  ? "Create a standing order — e.g. “20 buckets every month to Latur trader” — and DMK Mart will auto-post the tax invoice on schedule."
+   546→                  : "Try a different search or switch the status filter."
+   547→              }
+   548→              action={
+   549→                list.length === 0 ? (
+   550→                  <Button size="sm" className="h-9 bg-dmk-blue text-white hover:bg-dmk-blue/90" onClick={openNew}>
+   551→                    <Plus className="h-4 w-4" /> New Template
+   552→                  </Button>
+   553→                ) : undefined
+   554→              }
+   555→            />
+   556→          ) : (
+   557→            <table className="dmk-table min-w-[1120px]">
+   558→              <thead>
+   559→                <tr>
+   560→                  <th>Template</th>
+   561→                  <th>Customer</th>
+   562→                  <th>Frequency</th>
+   563→                  <th>Payment</th>
+   564→                  <th>Items</th>
+   565→                  <th className="text-right">Est. Value</th>
+   566→                  <th>Next Run</th>
+   567→                  <th>Status</th>
+   568→                  <th className="text-right">Actions</th>
+   569→                </tr>
+   570→              </thead>
+   571→              <tbody>
+   572→                {filtered.map((t) => {
+   573→                  const overdue = (t.overdueBy ?? 0) > 0;
+   574→                  const dueToday = !!t.dueToday && !overdue;
+   575→                  return (
+   576→                    <tr key={t.id} className="group/row">
+   577→                      <td className="max-w-[220px]">
+   578→                        <span className="block truncate text-[13px] font-semibold text-dmk-text-primary">{t.name}</span>
+   579→                        {t.notes && (
+   580→                          <span className="block truncate text-[10.5px] text-dmk-text-muted" title={t.notes}>
+   581→                            {t.notes}
+   582→                          </span>
+   583→                        )}
+   584→                      </td>
+   585→                      <td className="max-w-[190px]">
+   586→                        <span className="block truncate text-[12.5px] font-medium text-dmk-text-primary">
+   587→                          {t.customer?.partyName ?? "—"}
+   588→                        </span>
+   589→                        <span className="block truncate text-[10.5px] text-dmk-text-muted">
+   590→                          {t.customer?.city || t.customer?.stateCode || ""}
+   591→                        </span>
+   592→                      </td>
+   593→                      <td>
+   594→                        <Badge tone="gold">{frequencyLabel(t.frequency)}</Badge>
+   595→                      </td>
+   596→                      <td>{paymentBadge(t.paymentMode)}</td>
+   597→                      <td className="text-[12.5px] text-dmk-text-secondary whitespace-nowrap">{t.itemSummary}</td>
+   598→                      <td className="text-right whitespace-nowrap">
+   599→                        <Money value={t.estValue?.estTotal ?? 0} className="text-[13px] font-semibold text-dmk-text-primary" />
+   600→                        <span className="block text-[10px] text-dmk-text-muted">
+   601→                          tax {formatINR(t.estValue?.estTax ?? 0)}
+   602→                        </span>
+   603→                      </td>
+   604→                      <td className="whitespace-nowrap">
+   605→                        {overdue ? (
+   606→                          <span className="inline-flex items-center gap-1 rounded-md bg-[rgba(239,68,68,0.12)] px-2 py-1 text-[11px] font-semibold text-dmk-danger">
+   607→                            OVERDUE by {t.overdueBy}d
+   608→                          </span>
+   609→                        ) : dueToday ? (
+   610→                          <span className="inline-flex items-center gap-1 rounded-md bg-dmk-gold/15 px-2 py-1 text-[11px] font-semibold text-dmk-gold">
+   611→                            DUE TODAY
+   612→                          </span>
+   613→                        ) : (
+   614→                          <span className="text-[12.5px] text-dmk-text-secondary">{t.nextRunLabel ?? formatDate(t.nextRunDate)}</span>
+   615→                        )}
+   616→                        {t.lastRunDate && (
+   617→                          <span className="block text-[10px] text-dmk-text-muted">last {formatDate(t.lastRunDate)}</span>
+   618→                        )}
+   619→                      </td>
+   620→                      <td>
+   621→                        {t.isActive ? <Badge tone="success">ACTIVE</Badge> : <Badge tone="neutral">PAUSED</Badge>}
+   622→                      </td>
+   623→                      <td>
+   624→                        <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
+   625→                          <button
+   626→                            onClick={() => runGenerate(t.id)}
+   627→                            disabled={runningId === t.id}
+   628→                            title="Run now — bill the next cycle immediately"
+   629→                            className="flex h-8 w-8 items-center justify-center rounded-md text-dmk-success hover:bg-dmk-hover disabled:opacity-40"
+   630→                          >
+   631→                            {runningId === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+   632→                          </button>
+   633→                          <button
+   634→                            onClick={() => openEdit(t)}
+   635→                            title="Edit template"
+   636→                            className="flex h-8 w-8 items-center justify-center rounded-md text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
+   637→                          >
+   638→                            <Pencil className="h-4 w-4" />
+   639→                          </button>
+   640→                          <button
+   641→                            onClick={() => toggleActive(t)}
+   642→                            title={t.isActive ? "Pause — stop auto generation" : "Resume schedule"}
+   643→                            className="flex h-8 w-8 items-center justify-center rounded-md text-dmk-warning hover:bg-dmk-hover"
+   644→                          >
+   645→                            {t.isActive ? <Pause className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
+   646→                          </button>
+   647→                          <button
+   648→                            onClick={() => setDeleteOf(t)}
+   649→                            title="Delete template"
+   650→                            className="flex h-8 w-8 items-center justify-center rounded-md text-dmk-danger hover:bg-dmk-hover"
+   651→                          >
+   652→                            <Trash2 className="h-4 w-4" />
+   653→                          </button>
+   654→                        </div>
+   655→                      </td>
+   656→                    </tr>
+   657→                  );
+   658→                })}
+   659→              </tbody>
+   660→            </table>
+   661→          )}
+   662→        </div>
+   663→      </div>
+   664→
+   665→      {/* New / Edit template dialog */}
+   666→      <Dialog open={formOpen} onOpenChange={setFormOpen}>
+   667→        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[680px]">
+   668→          <DialogHeader>
+   669→            <DialogTitle className="text-[16px] text-dmk-text-primary">
+   670→              {editOf ? "Edit Recurring Template" : "New Recurring Template"}
+   671→            </DialogTitle>
+   672→            <DialogDescription className="text-[12px] text-dmk-text-muted">
+   673→              Every cycle posts a real tax invoice through the billing engine — tier pricing, GST, credit control and stock all apply.
+   674→            </DialogDescription>
+   675→          </DialogHeader>
+   676→
+   677→          <div className="grid gap-3 py-1">
+   678→            <div className="grid gap-3 sm:grid-cols-2">
+   679→              <Field label="Template Name">
+   680→                <Input
+   681→                  className={inputCls}
+   682→                  value={name}
+   683→                  onChange={(e) => setName(e.target.value)}
+   684→                  placeholder="e.g. Latur monthly buckets"
+   685→                />
+   686→              </Field>
+   687→              <Field label="Customer">
+   688→                <Select value={customerId} onValueChange={setCustomerId}>
+   689→                  <SelectTrigger className={inputCls}>
+   690→                    <SelectValue placeholder="Select customer" />
+   691→                  </SelectTrigger>
+   692→                  <SelectContent className="max-h-64">
+   693→                    {customers.map((c) => (
+   694→                      <SelectItem key={c.id} value={c.id}>
+   695→                        {c.partyName}
+   696→                        {c.customerType === "B2C_COUNTER" ? " · Counter" : ""}
+   697→                      </SelectItem>
+   698→                    ))}
+   699→                  </SelectContent>
+   700→                </Select>
+   701→              </Field>
+   702→            </div>
+   703→
+   704→            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+   705→              <Field label="Frequency">
+   706→                <Select value={frequency} onValueChange={setFrequency}>
+   707→                  <SelectTrigger className={inputCls}>
+   708→                    <SelectValue />
+   709→                  </SelectTrigger>
+   710→                  <SelectContent>
+   711→                    {FREQUENCIES.map((f) => (
+   712→                      <SelectItem key={f.value} value={f.value}>
+   713→                        {f.label}
+   714→                      </SelectItem>
+   715→                    ))}
+   716→                  </SelectContent>
+   717→                </Select>
+   718→              </Field>
+   719→              <Field label="Payment">
+   720→                <Select value={paymentMode} onValueChange={setPaymentMode}>
+   721→                  <SelectTrigger className={inputCls}>
+   722→                    <SelectValue />
+   723→                  </SelectTrigger>
+   724→                  <SelectContent>
+   725→                    {PAYMENT_MODES.map((m) => (
+   726→                      <SelectItem key={m.value} value={m.value} disabled={selectedCustomer?.customerType === "B2C_COUNTER" && m.value === "CREDIT"}>
+   727→                        {m.label}
+   728→                      </SelectItem>
+   729→                    ))}
+   730→                  </SelectContent>
+   731→                </Select>
+   732→              </Field>
+   733→              <Field label="Start Date">
+   734→                <Input type="date" className={inputCls} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+   735→              </Field>
+   736→              <Field label="End Date (optional)">
+   737→                <Input type="date" className={inputCls} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+   738→              </Field>
+   739→            </div>
+   740→
+   741→            {/* line items editor */}
+   742→            <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/40 p-3">
+   743→              <div className="mb-2 flex items-center justify-between">
+   744→                <span className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Line Items</span>
+   745→                <Button
+   746→                  size="sm"
+   747→                  variant="outline"
+   748→                  className="h-7 border-dmk-border-medium bg-transparent px-2 text-[11.5px] text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
+   749→                  onClick={() => setLines((ls) => [...ls, { ...emptyLine }])}
+   750→                >
+   751→                  <Plus className="h-3.5 w-3.5" /> Add line
+   752→                </Button>
+   753→              </div>
+   754→              <div className="space-y-2">
+   755→                {lines.map((l, i) => {
+   756→                  const p = products.find((x) => x.id === l.productId);
+   757→                  const qty = Number(l.qty);
+   758→                  const est = p && qty > 0 ? estimateLine(p, qty, l.disc === "" ? null : Number(l.disc), tierKey, intra) : null;
+   759→                  return (
+   760→                    <div key={i} className="grid grid-cols-[1fr_76px_86px_28px] items-start gap-2">
+   761→                      <div className="min-w-0">
+   762→                        <Select value={l.productId} onValueChange={(v) => setLine(i, { productId: v })}>
+   763→                          <SelectTrigger className={cn(inputCls, "w-full")}>
+   764→                            <SelectValue placeholder="Search product…" />
+   765→                          </SelectTrigger>
+   766→                          <SelectContent className="max-h-64">
+   767→                            {products.map((p2) => (
+   768→                              <SelectItem key={p2.id} value={p2.id}>
+   769→                                <span className="font-mono text-[10.5px] text-dmk-text-muted">{p2.sku}</span> · {p2.name}
+   770→                              </SelectItem>
+   771→                            ))}
+   772→                          </SelectContent>
+   773→                        </Select>
+   774→                        {est && p && (
+   775→                          <span className="mt-0.5 block truncate text-[10px] text-dmk-text-muted">
+   776→                            ₹{est.bulk.unitPrice.toFixed(2)}/unit
+   777→                            {est.bulk.discountPct > 0 ? ` · bulk −${est.bulk.discountPct}%` : ""}
+   778→                            {l.disc !== "" ? ` · manual −${l.disc}%` : ""} · GST {p.gstRate}%
+   779→                          </span>
+   780→                        )}
+   781→                      </div>
+   782→                      <Input
+   783→                        type="number"
+   784→                        min="0"
+   785→                        step="any"
+   786→                        className={inputCls}
+   787→                        placeholder="Qty"
+   788→                        value={l.qty}
+   789→                        onChange={(e) => setLine(i, { qty: e.target.value })}
+   790→                      />
+   791→                      <Input
+   792→                        type="number"
+   793→                        min="0"
+   794→                        max="100"
+   795→                        step="any"
+   796→                        className={inputCls}
+   797→                        placeholder="Disc %"
+   798→                        title="Manual discount % — leave empty for automatic bulk discounts"
+   799→                        value={l.disc}
+   800→                        onChange={(e) => setLine(i, { disc: e.target.value })}
+   801→                      />
+   802→                      <button
+   803→                        onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls))}
+   804→                        title="Remove line"
+   805→                        className="flex h-9 w-7 items-center justify-center rounded-md text-dmk-text-muted hover:bg-dmk-hover hover:text-dmk-danger"
+   806→                      >
+   807→                        <Trash2 className="h-3.5 w-3.5" />
+   808→                      </button>
+   809→                    </div>
+   810→                  );
+   811→                })}
+   812→              </div>
+   813→
+   814→              {/* live estimate strip */}
+   815→              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-dmk-border-subtle bg-dmk-bg-primary/60 px-3 py-2">
+   816→                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+   817→                  Quick estimate {intra ? "· CGST + SGST" : "· IGST"}
+   818→                </span>
+   819→                <span className="flex items-center gap-3 font-money text-[12.5px]">
+   820→                  <span className="text-dmk-text-secondary">Taxable {formatINR(preview.taxable)}</span>
+   821→                  <span className="text-dmk-info">GST {formatINR(preview.tax)}</span>
+   822→                  <span className="font-semibold text-dmk-gold">Total {formatINR(preview.total)}</span>
+   823→                </span>
+   824→              </div>
+   825→            </div>
+   826→
+   827→            <Field label="Notes (optional)">
+   828→              <Textarea
+   829→                className={cn(inputCls, "min-h-[56px] resize-none")}
+   830→                value={notes}
+   831→                onChange={(e) => setNotes(e.target.value)}
+   832→                placeholder="e.g. Deliver via transporter, bill on 1st of every month"
+   833→              />
+   834→            </Field>
+   835→
+   836→            {formError && (
+   837→              <p className="rounded-md border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-[12px] text-dmk-danger">
+   838→                {formError}
+   839→              </p>
+   840→            )}
+   841→          </div>
+   842→
+   843→          <DialogFooter className="gap-2">
+   844→            <Button variant="outline" className="h-9 border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary" onClick={() => setFormOpen(false)} disabled={saving}>
+   845→              Cancel
+   846→            </Button>
+   847→            <Button className="h-9 bg-dmk-blue text-white hover:bg-dmk-blue/90" onClick={submitTemplate} disabled={saving}>
+   848→              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+   849→              {editOf ? "Save changes" : "Create template"}
+   850→            </Button>
+   851→          </DialogFooter>
+   852→        </DialogContent>
+   853→      </Dialog>
+   854→
+   855→      {/* generate result dialog */}
+   856→      <Dialog open={!!genResult} onOpenChange={(o) => !o && setGenResult(null)}>
+   857→        <DialogContent className="sm:max-w-[520px]">
+   858→          <DialogHeader>
+   859→            <DialogTitle className="text-[16px] text-dmk-text-primary">Generation Report</DialogTitle>
+   860→            <DialogDescription className="text-[12px] text-dmk-text-muted">
+   861→              {genResult?.generated ?? 0} template{(genResult?.generated ?? 0) === 1 ? "" : "s"} billed ·{" "}
+   862→              {genResult?.failed ?? 0} failed. Invoices and journals are posted.
+   863→            </DialogDescription>
+   864→          </DialogHeader>
+   865→          <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+   866→            {(genResult?.runs ?? []).map((run, i) => (
+   867→              <div
+   868→                key={`${run.templateId}-${i}`}
+   869→                className={cn(
+   870→                  "rounded-lg border px-3 py-2.5",
+   871→                  run.ok
+   872→                    ? "border-[rgba(34,197,94,0.25)] bg-[rgba(34,197,94,0.07)]"
+   873→                    : "border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.08)]"
+   874→                )}
+   875→              >
+   876→                <div className="flex items-center gap-2">
+   877→                  {run.ok ? (
+   878→                    <CheckCircle2 className="h-4 w-4 shrink-0 text-dmk-success" />
+   879→                  ) : (
+   880→                    <XCircle className="h-4 w-4 shrink-0 text-dmk-danger" />
+   881→                  )}
+   882→                  <span className="truncate text-[13px] font-semibold text-dmk-text-primary">{run.templateName}</span>
+   883→                  {run.ok && (
+   884→                    <span className="ml-auto whitespace-nowrap font-money text-[12.5px] font-semibold text-dmk-gold">
+   885→                      {formatINR(run.grandTotal ?? 0)}
+   886→                    </span>
+   887→                  )}
+   888→                </div>
+   889→                {run.ok ? (
+   890→                  <p className="mt-1 pl-6 text-[11.5px] text-dmk-text-secondary">
+   891→                    Invoice <span className="font-mono">{run.invoiceNumber}</span>
+   892→                    {(run.invoices ?? 1) > 1 ? ` · ${run.invoices} cycles caught up` : ""}
+   893→                  </p>
+   894→                ) : (
+   895→                  <p className="mt-1 pl-6 text-[11.5px] text-dmk-danger">{run.error}</p>
+   896→                )}
+   897→              </div>
+   898→            ))}
+   899→            {(genResult?.runs ?? []).length === 0 && (
+   900→              <p className="py-6 text-center text-[12.5px] text-dmk-text-muted">No templates were due.</p>
+   901→            )}
+   902→          </div>
+   903→          <DialogFooter>
+   904→            <Button className="h-9 bg-dmk-blue text-white hover:bg-dmk-blue/90" onClick={() => setGenResult(null)}>
+   905→              Done
+   906→            </Button>
+   907→          </DialogFooter>
+   908→        </DialogContent>
+   909→      </Dialog>
+   910→
+   911→      {/* delete confirm */}
+   912→      <AlertDialog open={!!deleteOf} onOpenChange={(o) => !o && setDeleteOf(null)}>
+   913→        <AlertDialogContent>
+   914→          <AlertDialogHeader>
+   915→            <AlertDialogTitle>Delete “{deleteOf?.name}”?</AlertDialogTitle>
+   916→            <AlertDialogDescription>
+   917→              The template and its lines will be removed from the schedule. Invoices already posted stay in your books.
+   918→            </AlertDialogDescription>
+   919→          </AlertDialogHeader>
+   920→          <AlertDialogFooter>
+   921→            <AlertDialogCancel className="h-9 border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
+   922→              Cancel
+   923→            </AlertDialogCancel>
+   924→            <AlertDialogAction
+   925→              className="h-9 bg-dmk-danger text-white hover:bg-dmk-danger/90"
+   926→              disabled={deleting}
+   927→              onClick={(e) => {
+   928→                e.preventDefault();
+   929→                confirmDelete();
+   930→              }}
+   931→            >
+   932→              {deleting && <Loader2 className="h-4 w-4 animate-spin" />} Delete
+   933→            </AlertDialogAction>
+   934→          </AlertDialogFooter>
+   935→        </AlertDialogContent>
+   936→      </AlertDialog>
+   937→    </div>
+   938→  );
+   939→}
+   940→

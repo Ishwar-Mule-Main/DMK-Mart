@@ -10,7 +10,10 @@
 import * as React from "react";
 import {
   CalendarClock,
+  CalendarOff,
   CheckCircle2,
+  History,
+  IndianRupee,
   Loader2,
   Pause,
   Pencil,
@@ -19,6 +22,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  SkipForward,
   Trash2,
   XCircle,
   Zap,
@@ -32,6 +36,7 @@ import type {
   Product,
   RecurringTemplate,
   RecurringGenerateResponse,
+  RecurringRunsResponse,
 } from "@/types/erp";
 import {
   PageHeader,
@@ -149,6 +154,7 @@ const emptyLine: Line = { productId: "", qty: "", disc: "" };
 export default function RecurringView() {
   const { toast } = useToast();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const setView = useErpStore((s) => s.setView);
   const activeFirm = useActiveFirm();
 
   const [rows, setRows] = React.useState<RecurringTemplate[] | null>(null);
@@ -172,6 +178,7 @@ export default function RecurringView() {
   const [paymentMode, setPaymentMode] = React.useState("CREDIT");
   const [startDate, setStartDate] = React.useState(() => toISODate(new Date()));
   const [endDate, setEndDate] = React.useState("");
+  const [skipUntil, setSkipUntil] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [lines, setLines] = React.useState<Line[]>([{ ...emptyLine }]);
 
@@ -181,6 +188,12 @@ export default function RecurringView() {
   const [runningId, setRunningId] = React.useState<string | null>(null);
   const [generating, setGenerating] = React.useState(false);
   const [genResult, setGenResult] = React.useState<RecurringGenerateResponse | null>(null);
+
+  // run-history (subscription ledger) dialog
+  const [runsOf, setRunsOf] = React.useState<RecurringTemplate | null>(null);
+  const [runsData, setRunsData] = React.useState<RecurringRunsResponse | null>(null);
+  const [runsLoading, setRunsLoading] = React.useState(false);
+  const [runsError, setRunsError] = React.useState<string | null>(null);
 
   // ── load templates ────────────────────────────────────────────
   React.useEffect(() => {
@@ -230,6 +243,7 @@ export default function RecurringView() {
     setPaymentMode("CREDIT");
     setStartDate(toISODate(new Date()));
     setEndDate("");
+    setSkipUntil("");
     setNotes("");
     setLines([{ ...emptyLine }]);
     setFormError(null);
@@ -244,6 +258,7 @@ export default function RecurringView() {
     setPaymentMode(t.paymentMode);
     setStartDate(toISODate(new Date(t.startDate)));
     setEndDate(t.endDate ? toISODate(new Date(t.endDate)) : "");
+    setSkipUntil(t.skipUntil ? toISODate(new Date(t.skipUntil)) : "");
     setNotes(t.notes);
     setLines(
       t.items.map((i) => ({
@@ -300,6 +315,7 @@ export default function RecurringView() {
         return "Manual discount must be between 0 and 100.";
     }
     if (endDate && startDate && endDate < startDate) return "End date cannot be before the start date.";
+    if (skipUntil && startDate && skipUntil < startDate) return "Skip-until date cannot be before the start date.";
     return null;
   }
 
@@ -319,6 +335,7 @@ export default function RecurringView() {
       paymentMode,
       startDate,
       endDate: endDate || null,
+      skipUntil: skipUntil || null,
       notes: notes.trim(),
       lines: lines
         .filter((l) => l.productId)
@@ -346,6 +363,18 @@ export default function RecurringView() {
   }
 
   // ── row actions ───────────────────────────────────────────────
+  function openRuns(t: RecurringTemplate) {
+    if (!activeFirmId) return;
+    setRunsOf(t);
+    setRunsData(null);
+    setRunsError(null);
+    setRunsLoading(true);
+    apiGet<RecurringRunsResponse>("/api/v1/recurring/runs", { firmId: activeFirmId, templateId: t.id })
+      .then((res) => setRunsData(res))
+      .catch((e) => setRunsError(e instanceof ApiError ? e.message : "Could not load run history."))
+      .finally(() => setRunsLoading(false));
+  }
+
   async function toggleActive(t: RecurringTemplate) {
     try {
       await apiPatch<RecurringTemplate>("/api/v1/recurring", {
@@ -399,7 +428,12 @@ export default function RecurringView() {
       });
       if (templateId) {
         const run = res.runs[0];
-        if (run?.ok) {
+        if (run?.ok && run.skipped) {
+          toast({
+            title: `Skipped ${run.skippedCycles ?? 1} cycle${(run.skippedCycles ?? 1) === 1 ? "" : "s"}`,
+            description: `${run.templateName} is on hold until ${run.holdUntil ? formatDate(run.holdUntil) : "the hold date"} — schedule advanced without billing.`,
+          });
+        } else if (run?.ok) {
           toast({
             title: `Invoice ${run.invoiceNumber} generated`,
             description: `${run.templateName} · ${formatINR(run.grandTotal ?? 0)}${(run.invoices ?? 1) > 1 ? ` · ${(run.invoices ?? 1)} cycles caught up` : ""}`,
@@ -442,21 +476,24 @@ export default function RecurringView() {
         ? true
         : statusFilter === "DUE"
           ? !!t.dueToday && t.isActive
-          : statusFilter === "ACTIVE"
-            ? t.isActive
-            : !t.isActive;
+          : statusFilter === "HOLD"
+            ? !!t.onHold
+            : statusFilter === "ACTIVE"
+              ? t.isActive
+              : !t.isActive;
     return matchQ && matchS;
   });
   const activeCount = list.filter((t) => t.isActive).length;
   const dueRows = list.filter((t) => t.dueToday && t.isActive);
   const dueValue = dueRows.reduce((s, t) => s + (t.estValue?.estTotal ?? 0), 0);
   const overdueCount = dueRows.filter((t) => (t.overdueBy ?? 0) > 0).length;
-  const now = new Date();
-  const genMonthCount = list.filter((t) => {
-    if (!t.lastRunDate) return false;
-    const d = new Date(t.lastRunDate);
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-  }).length;
+  const holdCount = list.filter((t) => t.onHold).length;
+  // Subscription invoices posted this month (from templateId-stamped rows)
+  const monthRuns = list.reduce((s, t) => s + (t.runsThisMonth ?? 0), 0);
+  const monthRunsValue = list.reduce(
+    (s, t) => s + (t.runsThisMonth ?? 0) * (t.estValue?.estTotal ?? 0),
+    0
+  );
 
   return (
     <div className="space-y-4">
@@ -486,26 +523,38 @@ export default function RecurringView() {
       {/* KPI strip */}
       <div className="dmk-enter-stagger grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="dmk-kpi p-4 flex flex-col gap-2">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Active Templates</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Active Templates</span>
+            <CalendarClock className="h-3.5 w-3.5 text-dmk-blue/70" />
+          </div>
           <span className="font-money text-[20px] font-semibold leading-none text-dmk-text-primary">{activeCount}</span>
           <span className="text-[11px] text-dmk-text-muted">{list.length} total · {(list.length - activeCount)} paused</span>
         </div>
         <div className="dmk-kpi p-4 flex flex-col gap-2">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Due Today</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Due Today</span>
+            <Zap className="h-3.5 w-3.5 text-dmk-gold/70" />
+          </div>
           <span className="font-money text-[20px] font-semibold leading-none text-dmk-gold">{dueRows.length}</span>
           <span className={cn("text-[11px]", overdueCount > 0 ? "text-dmk-danger" : "text-dmk-text-muted")}>
-            {overdueCount > 0 ? `${overdueCount} overdue — run generation` : "on schedule"}
+            {overdueCount > 0 ? `${overdueCount} overdue — run generation` : list.some((t) => t.onHold) ? `${list.filter((t) => t.onHold).length} on hold` : "on schedule"}
           </span>
         </div>
         <div className="dmk-kpi p-4 flex flex-col gap-2">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Due Value</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Due Value</span>
+            <IndianRupee className="h-3.5 w-3.5 text-dmk-orange/70" />
+          </div>
           <span className="font-money text-[20px] font-semibold leading-none text-dmk-orange">{formatINR(dueValue)}</span>
           <span className="text-[11px] text-dmk-text-muted">est. grand total incl. GST</span>
         </div>
         <div className="dmk-kpi p-4 flex flex-col gap-2">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Generated This Month</span>
-          <span className="font-money text-[20px] font-semibold leading-none text-dmk-text-primary">{genMonthCount}</span>
-          <span className="text-[11px] text-dmk-text-muted">templates billed this month</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Billed This Month</span>
+            <History className="h-3.5 w-3.5 text-dmk-success/70" />
+          </div>
+          <span className="font-money text-[20px] font-semibold leading-none text-dmk-text-primary">{monthRuns}</span>
+          <span className="text-[11px] text-dmk-text-muted">invoices · ≈ {formatINR(monthRunsValue)} est.</span>
         </div>
       </div>
 
@@ -522,6 +571,9 @@ export default function RecurringView() {
           <SelectContent>
             <SelectItem value="ALL">All templates</SelectItem>
             <SelectItem value="DUE">Due today</SelectItem>
+            <SelectItem value="HOLD" disabled={holdCount === 0}>
+              On hold{holdCount > 0 ? ` (${holdCount})` : ""}
+            </SelectItem>
             <SelectItem value="ACTIVE">Active only</SelectItem>
             <SelectItem value="PAUSED">Paused only</SelectItem>
           </SelectContent>
@@ -570,10 +622,10 @@ export default function RecurringView() {
               </thead>
               <tbody>
                 {filtered.map((t) => {
-                  const overdue = (t.overdueBy ?? 0) > 0;
-                  const dueToday = !!t.dueToday && !overdue;
+                  const overdue = !t.onHold && (t.overdueBy ?? 0) > 0;
+                  const dueToday = !!t.dueToday && !overdue && !t.onHold;
                   return (
-                    <tr key={t.id} className="group/row">
+                    <tr key={t.id} className={cn("group/row", t.onHold && "opacity-80")}>
                       <td className="max-w-[220px]">
                         <span className="block truncate text-[13px] font-semibold text-dmk-text-primary">{t.name}</span>
                         {t.notes && (
@@ -602,7 +654,11 @@ export default function RecurringView() {
                         </span>
                       </td>
                       <td className="whitespace-nowrap">
-                        {overdue ? (
+                        {t.onHold ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-[rgba(245,158,11,0.12)] px-2 py-1 text-[11px] font-semibold text-dmk-warning">
+                            <CalendarOff className="h-3 w-3" /> HOLD · till {t.holdUntilLabel}
+                          </span>
+                        ) : overdue ? (
                           <span className="inline-flex items-center gap-1 rounded-md bg-[rgba(239,68,68,0.12)] px-2 py-1 text-[11px] font-semibold text-dmk-danger">
                             OVERDUE by {t.overdueBy}d
                           </span>
@@ -618,17 +674,35 @@ export default function RecurringView() {
                         )}
                       </td>
                       <td>
-                        {t.isActive ? <Badge tone="success">ACTIVE</Badge> : <Badge tone="neutral">PAUSED</Badge>}
+                        <div className="flex flex-col items-start gap-1">
+                          {t.isActive ? <Badge tone="success">ACTIVE</Badge> : <Badge tone="neutral">PAUSED</Badge>}
+                          {(t.runsCount ?? 0) > 0 && (
+                            <button
+                              onClick={() => openRuns(t)}
+                              title="Open run history — subscription ledger"
+                              className="inline-flex items-center gap-1 rounded-md bg-dmk-blue/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-dmk-info transition-colors hover:bg-dmk-blue/20"
+                            >
+                              <History className="h-2.5 w-2.5" /> {t.runsCount} RUN{(t.runsCount ?? 0) === 1 ? "" : "S"}
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
                           <button
                             onClick={() => runGenerate(t.id)}
                             disabled={runningId === t.id}
-                            title="Run now — bill the next cycle immediately"
+                            title={t.onHold ? "On hold — run now skips the due cycles" : "Run now — bill the next cycle immediately"}
                             className="flex h-8 w-8 items-center justify-center rounded-md text-dmk-success hover:bg-dmk-hover disabled:opacity-40"
                           >
-                            {runningId === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                            {runningId === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : t.onHold ? <SkipForward className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                          </button>
+                          <button
+                            onClick={() => openRuns(t)}
+                            title="Run history — subscription ledger"
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-dmk-info hover:bg-dmk-hover"
+                          >
+                            <History className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => openEdit(t)}
@@ -736,6 +810,33 @@ export default function RecurringView() {
               <Field label="End Date (optional)">
                 <Input type="date" className={inputCls} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </Field>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field
+                label="Skip cycles until (optional)"
+                hint="Vacation / stock-out hold — cycles due inside the window are skipped, not back-billed. Clear the date to lift the hold."
+              >
+                <Input
+                  type="date"
+                  className={cn(inputCls, skipUntil && "border-dmk-warning/50")}
+                  value={skipUntil}
+                  min={startDate}
+                  onChange={(e) => setSkipUntil(e.target.value)}
+                />
+              </Field>
+              {skipUntil ? (
+                <div className="flex items-end pb-1">
+                  <p className="flex items-center gap-1.5 rounded-md bg-[rgba(245,158,11,0.1)] px-2.5 py-2 text-[11px] font-semibold text-dmk-warning">
+                    <CalendarOff className="h-3.5 w-3.5 shrink-0" />
+                    On hold until {new Date(`${skipUntil}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-end pb-1">
+                  <p className="text-[11px] text-dmk-text-muted">No hold — the template bills every cycle on schedule.</p>
+                </div>
+              )}
             </div>
 
             {/* line items editor */}
@@ -859,6 +960,7 @@ export default function RecurringView() {
             <DialogTitle className="text-[16px] text-dmk-text-primary">Generation Report</DialogTitle>
             <DialogDescription className="text-[12px] text-dmk-text-muted">
               {genResult?.generated ?? 0} template{(genResult?.generated ?? 0) === 1 ? "" : "s"} billed ·{" "}
+              {(genResult?.skipped ?? 0) > 0 ? `${genResult?.skipped} skipped · ` : ""}
               {genResult?.failed ?? 0} failed. Invoices and journals are posted.
             </DialogDescription>
           </DialogHeader>
@@ -868,28 +970,40 @@ export default function RecurringView() {
                 key={`${run.templateId}-${i}`}
                 className={cn(
                   "rounded-lg border px-3 py-2.5",
-                  run.ok
+                  run.ok && !run.skipped
                     ? "border-[rgba(34,197,94,0.25)] bg-[rgba(34,197,94,0.07)]"
-                    : "border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.08)]"
+                    : run.ok && run.skipped
+                      ? "border-dmk-info/30 bg-dmk-info/[0.07]"
+                      : "border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.08)]"
                 )}
               >
                 <div className="flex items-center gap-2">
-                  {run.ok ? (
+                  {run.ok && !run.skipped ? (
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-dmk-success" />
+                  ) : run.ok && run.skipped ? (
+                    <SkipForward className="h-4 w-4 shrink-0 text-dmk-info" />
                   ) : (
                     <XCircle className="h-4 w-4 shrink-0 text-dmk-danger" />
                   )}
                   <span className="truncate text-[13px] font-semibold text-dmk-text-primary">{run.templateName}</span>
-                  {run.ok && (
+                  {run.ok && !run.skipped && (
                     <span className="ml-auto whitespace-nowrap font-money text-[12.5px] font-semibold text-dmk-gold">
                       {formatINR(run.grandTotal ?? 0)}
                     </span>
                   )}
+                  {run.ok && run.skipped && (
+                    <Badge tone="info">SKIPPED</Badge>
+                  )}
                 </div>
-                {run.ok ? (
+                {run.ok && !run.skipped ? (
                   <p className="mt-1 pl-6 text-[11.5px] text-dmk-text-secondary">
                     Invoice <span className="font-mono">{run.invoiceNumber}</span>
                     {(run.invoices ?? 1) > 1 ? ` · ${run.invoices} cycles caught up` : ""}
+                  </p>
+                ) : run.ok && run.skipped ? (
+                  <p className="mt-1 pl-6 text-[11.5px] text-dmk-text-secondary">
+                    {run.skippedCycles ?? 1} cycle{(run.skippedCycles ?? 1) === 1 ? "" : "s"} inside the hold window skipped —
+                    next run {run.holdUntil ? `after ${formatDate(run.holdUntil)}` : "advanced"} without billing.
                   </p>
                 ) : (
                   <p className="mt-1 pl-6 text-[11.5px] text-dmk-danger">{run.error}</p>
@@ -903,6 +1017,117 @@ export default function RecurringView() {
           <DialogFooter>
             <Button className="h-9 bg-dmk-blue text-white hover:bg-dmk-blue/90" onClick={() => setGenResult(null)}>
               Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* run history (subscription ledger) dialog */}
+      <Dialog open={!!runsOf} onOpenChange={(o) => !o && setRunsOf(null)}>
+        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[760px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[16px] text-dmk-text-primary">
+              <History className="h-4 w-4 text-dmk-info" />
+              Run History — {runsOf?.name}
+            </DialogTitle>
+            <DialogDescription className="text-[12px] text-dmk-text-muted">
+              Subscription ledger — every tax invoice auto-posted by this template, newest first.
+            </DialogDescription>
+          </DialogHeader>
+
+          {runsLoading ? (
+            <LoadingRows rows={4} />
+          ) : runsError ? (
+            <p className="rounded-md border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-[12px] text-dmk-danger">
+              {runsError}
+            </p>
+          ) : runsData ? (
+            <div className="space-y-3">
+              {/* KPI wells */}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">Total runs</p>
+                  <p className="mt-0.5 font-money text-[15px] font-semibold text-dmk-text-primary">{runsData.totals.runs}</p>
+                </div>
+                <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">Total billed</p>
+                  <p className="mt-0.5 font-money text-[15px] font-semibold text-dmk-gold">{formatINR(runsData.totals.billed)}</p>
+                </div>
+                <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">Avg invoice</p>
+                  <p className="mt-0.5 font-money text-[15px] font-semibold text-dmk-text-primary">{formatINR(runsData.totals.avgInvoice)}</p>
+                </div>
+                <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">Last run</p>
+                  <p className="mt-0.5 truncate text-[12.5px] font-semibold text-dmk-text-secondary">
+                    {runsData.totals.lastRunDate ? formatDate(runsData.totals.lastRunDate) : "—"}
+                    {runsData.totals.lastInvoiceNo && (
+                      <span className="block font-mono text-[10px] font-normal text-dmk-text-muted">{runsData.totals.lastInvoiceNo}</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {runsData.rows.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-dmk-border-medium px-4 py-8 text-center">
+                  <History className="mx-auto h-6 w-6 text-dmk-text-muted" />
+                  <p className="mt-2 text-[13px] font-semibold text-dmk-text-primary">No runs yet</p>
+                  <p className="mt-0.5 text-[11.5px] text-dmk-text-muted">
+                    Invoices appear here the first time the template bills — run it now or wait for the schedule.
+                  </p>
+                </div>
+              ) : (
+                <div className="max-h-[300px] overflow-y-auto rounded-lg border border-dmk-border-subtle [&>*]:min-w-0">
+                  <table className="dmk-table min-w-[560px]">
+                    <thead>
+                      <tr>
+                        <th>Invoice #</th>
+                        <th>Date</th>
+                        <th>Mode</th>
+                        <th className="text-right">GST (₹)</th>
+                        <th className="text-right">Total (₹)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {runsData.rows.map((r) => (
+                        <tr key={r.id} className="group/row">
+                          <td className="whitespace-nowrap font-mono text-[11.5px] font-semibold text-dmk-gold">{r.invoiceNumber}</td>
+                          <td className="whitespace-nowrap text-[12px] text-dmk-text-secondary">{formatDate(r.invoiceDate)}</td>
+                          <td>{paymentBadge(r.paymentMode)}</td>
+                          <td className="text-right font-money text-[12px] text-dmk-info">{r.tax.toFixed(2)}</td>
+                          <td className="text-right font-money text-[12.5px] font-semibold text-dmk-text-primary">
+                            {r.grandTotal.toFixed(2)}
+                            {r.status !== "POSTED" && <Badge tone="warning">{r.status}</Badge>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <p className="border-t border-dmk-border-subtle pt-2 text-[10.5px] text-dmk-text-muted">
+                Totals reconcile with the invoice register — every run is a real A4 tax invoice with its own journal and stock draw.
+              </p>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="h-9 border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
+              onClick={() => setRunsOf(null)}
+            >
+              Close
+            </Button>
+            <Button
+              className="h-9 bg-dmk-blue text-white hover:bg-dmk-blue/90"
+              onClick={() => {
+                setRunsOf(null);
+                setView("sales/invoices");
+              }}
+            >
+              Open Invoice Register
             </Button>
           </DialogFooter>
         </DialogContent>

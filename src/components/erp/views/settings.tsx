@@ -597,6 +597,7 @@ const BACKUP_COUNT_KEYS: Array<[string, string]> = [
   ["stockAdjustments", "Adjusts"],
   ["ledgerEntries", "Ledger Rows"],
   ["gstr2bRecords", "GSTR-2B"],
+  ["recurringTemplates", "Recur Templates"],
 ];
 
 const BACKUP_NESTED_KEYS: Record<string, string[]> = {
@@ -607,6 +608,7 @@ const BACKUP_NESTED_KEYS: Record<string, string[]> = {
   vendorPayments: ["allocations"],
   customerReceipts: ["allocations"],
   journalEntries: ["lines"],
+  recurringTemplates: ["items"],
 };
 
 const REQUIRED_ENV_KEYS = ["products", "customers", "chartOfAccounts", "journalEntries"];
@@ -635,8 +637,8 @@ function buildRestorePreview(fileName: string, raw: unknown): BackupPreview {
   if (format !== "dmk-mart-erp-backup") {
     issues.push(`Not a DMK backup envelope — format is ${format ? `"${format}"` : "missing"}`);
   }
-  if (version !== 1 || !Number.isFinite(version)) {
-    issues.push(`Unsupported backup version — expected 1, got ${Number.isFinite(version) ? version : "unknown"}`);
+  if (version !== 1 && version !== 2) {
+    issues.push(`Unsupported backup version — expected 1 or 2, got ${Number.isFinite(version) ? version : "unknown"}`);
   }
   if (typeof firm.firmName !== "string" || firm.firmName === "") {
     issues.push("Envelope is missing the firm profile (firm.firmName)");
@@ -835,7 +837,7 @@ function RestoreCard() {
           <div className="flex flex-wrap items-center gap-2">
             <FileJson2 className="h-4 w-4 text-dmk-gold shrink-0" />
             <span className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Preflight preview</span>
-            <Badge tone={preview.version === 1 ? "info" : "danger"}>v{preview.version}</Badge>
+            <Badge tone={preview.version === 1 || preview.version === 2 ? "info" : "danger"}>v{preview.version}</Badge>
             {preview.issues.length === 0 ? (
               <Badge tone="success">SHAPE OK</Badge>
             ) : (

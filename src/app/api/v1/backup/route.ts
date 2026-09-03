@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
       stockAdjustments,
       ledgerEntries,
       gstr2bRecords,
+      recurringTemplates,
     ] = await Promise.all([
       db.product.findMany({ where: { firmId }, orderBy: { sku: "asc" } }),
       db.customer.findMany({ where: { firmId }, orderBy: { partyName: "asc" } }),
@@ -81,6 +82,12 @@ export async function GET(request: NextRequest) {
       db.stockAdjustment.findMany({ where: { firmId }, orderBy: { adjustDate: "asc" } }),
       db.ledgerEntry.findMany({ where: { firmId }, orderBy: { entryDate: "asc" } }),
       db.gstr2bRecord.findMany({ where: { firmId }, orderBy: [{ period: "asc" }, { invoiceNo: "asc" }] }),
+      // v2: standing-order templates travel with their items (subscription configs)
+      db.recurringTemplate.findMany({
+        where: { firmId },
+        orderBy: { startDate: "asc" },
+        include: { items: true },
+      }),
     ]);
 
     const counts = {
@@ -99,11 +106,12 @@ export async function GET(request: NextRequest) {
       stockAdjustments: stockAdjustments.length,
       ledgerEntries: ledgerEntries.length,
       gstr2bRecords: gstr2bRecords.length,
+      recurringTemplates: recurringTemplates.length,
     };
 
     return ok({
       format: "dmk-mart-erp-backup",
-      version: 1,
+      version: 2,
       generatedAt: new Date().toISOString(),
       firm,
       counts,
@@ -123,6 +131,7 @@ export async function GET(request: NextRequest) {
         stockAdjustments,
         ledgerEntries,
         gstr2bRecords,
+        recurringTemplates,
       },
     });
   } catch (e) {

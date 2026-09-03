@@ -70,6 +70,7 @@ const ALL_COLLECTIONS = [
   "products", "customers", "vendors", "purchaseOrders", "invoices", "salesReturns",
   "purchaseReturns", "vendorPayments", "customerReceipts", "chartOfAccounts",
   "journalEntries", "inventoryMovements", "stockAdjustments", "ledgerEntries", "gstr2bRecords",
+  "recurringTemplates",
 ];
 
 function firstDupe(
@@ -108,10 +109,10 @@ export async function POST(request: NextRequest) {
       );
     }
     const version = typeof env.version === "number" ? env.version : Number(env.version);
-    if (!Number.isFinite(version) || version !== 1) {
+    if (!Number.isFinite(version) || (version !== 1 && version !== 2)) {
       throw new BusinessError(
         "ERR_VALIDATION",
-        `Unsupported backup version — expected 1, got ${Number.isFinite(version) ? version : "unknown"}`,
+        `Unsupported backup version — expected 1 or 2, got ${Number.isFinite(version) ? version : "unknown"}`,
         400
       );
     }
@@ -375,6 +376,60 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ── 2.5 RECURRING TEMPLATES (v2 — subscription configs) ────
+    // Templates reference customers + products; invoices reference
+    // templates (templateId stamp), so build the map here.
+    const recurringTemplateRows: Prisma.RecurringTemplateUncheckedCreateInput[] = [];
+    const templateMap = new Map<string, string>();
+    const recurringTemplateItemRows: Prisma.RecurringTemplateItemUncheckedCreateInput[] = [];
+    for (const t of asRecordArray(data.recurringTemplates)) {
+      const oldId = getStr(t.id);
+      const nid = newId();
+      if (oldId) templateMap.set(oldId, nid);
+      const oldTCustomerId = getStr(t.customerId);
+      const newTCustomer = customerMap.get(oldTCustomerId);
+      if (!newTCustomer) {
+        // Template without its customer is meaningless — skip entirely
+        tallySkip("recurringTemplates (customer missing from backup)");
+        continue;
+      }
+      recurringTemplateRows.push({
+        id: nid,
+        firmId: newFirmId,
+        name: getStr(t.name) || `Template ${nid.slice(-6)}`,
+        customerId: newTCustomer,
+        frequency: getStr(t.frequency) || "MONTHLY",
+        paymentMode: getStr(t.paymentMode) || "CREDIT",
+        startDate: getDate(t.startDate),
+        endDate: getDateOrNull(t.endDate),
+        nextRunDate: getDate(t.nextRunDate),
+        lastRunDate: getDateOrNull(t.lastRunDate),
+        // lastInvoiceId pointed at a pre-restore invoice id — cleared
+        lastInvoiceId: "",
+        skipUntil: getDateOrNull(t.skipUntil),
+        autoPost: getBool(t.autoPost, true),
+        isActive: getBool(t.isActive, true),
+        notes: getStr(t.notes),
+        createdAt: getDate(t.createdAt),
+      });
+      for (const it of asRecordArray(t.items)) {
+        const newTProduct = productMap.get(getStr(it.productId));
+        if (!newTProduct) {
+          tallySkip("recurringTemplateItems (product missing from backup)");
+          continue;
+        }
+        recurringTemplateItemRows.push({
+          id: newId(),
+          templateId: nid,
+          productId: newTProduct,
+          sku: getStr(it.sku),
+          productName: getStr(it.productName),
+          quantity: getNum(it.quantity),
+          manualDiscountPct: getNumOrNull(it.manualDiscountPct),
+        });
+      }
+    }
+
     // ── 4. INVOICES + LINE ITEMS ─────────────────────────────────
     const invoiceRows: Prisma.InvoiceUncheckedCreateInput[] = [];
     const invoiceMap = new Map<string, string>();
@@ -388,6 +443,13 @@ export async function POST(request: NextRequest) {
       if (oldCustomerId) {
         invCustomerId = customerMap.get(oldCustomerId) ?? null;
         if (!invCustomerId) tallySkip("invoice customer links (customer missing → set null)");
+      }
+      // Subscription stamp — remap to the restored template, else drop
+      const oldTemplateId = getStr(inv.templateId);
+      let invTemplateId: string | null = null;
+      if (oldTemplateId) {
+        invTemplateId = templateMap.get(oldTemplateId) ?? null;
+        if (!invTemplateId) tallySkip("invoice template stamps (template missing → set null)");
       }
       invoiceRows.push({
         id: nid,
@@ -408,6 +470,7 @@ export async function POST(request: NextRequest) {
         amountInWords: getStr(inv.amountInWords),
         paymentMode: getStr(inv.paymentMode) || "CREDIT",
         status: getStr(inv.status) || "POSTED",
+        templateId: invTemplateId,
         createdAt: getDate(inv.createdAt),
       });
       for (const li of asRecordArray(inv.lineItems)) {
@@ -774,6 +837,9 @@ export async function POST(request: NextRequest) {
     for (const c of chunkByParams(productRows)) ops.push(db.product.createMany({ data: c }));
     for (const c of chunkByParams(customerRows)) ops.push(db.customer.createMany({ data: c }));
     for (const c of chunkByParams(vendorRows)) ops.push(db.vendor.createMany({ data: c }));
+    // Templates before invoices — invoices carry a templateId FK stamp
+    for (const c of chunkByParams(recurringTemplateRows)) ops.push(db.recurringTemplate.createMany({ data: c }));
+    for (const c of chunkByParams(recurringTemplateItemRows)) ops.push(db.recurringTemplateItem.createMany({ data: c }));
     for (const c of chunkByParams(poRows)) ops.push(db.purchaseOrder.createMany({ data: c }));
     for (const c of chunkByParams(poItemRows)) ops.push(db.purchaseOrderItem.createMany({ data: c }));
     for (const c of chunkByParams(invoiceRows)) ops.push(db.invoice.createMany({ data: c }));
@@ -801,6 +867,7 @@ export async function POST(request: NextRequest) {
       nPurchaseReturnItems, nVendorPayments, nPaymentAllocations, nReceipts,
       nReceiptAllocations, nAccounts, nJournals, nJournalLines,
       nMovements, nAdjustments, nLedgerEntries, nGstr2b,
+      nTemplates, nTemplateItems,
     ] = await Promise.all([
       db.product.count({ where: { firmId: newFirmId } }),
       db.customer.count({ where: { firmId: newFirmId } }),
@@ -824,6 +891,8 @@ export async function POST(request: NextRequest) {
       db.stockAdjustment.count({ where: { firmId: newFirmId } }),
       db.ledgerEntry.count({ where: { firmId: newFirmId } }),
       db.gstr2bRecord.count({ where: { firmId: newFirmId } }),
+      db.recurringTemplate.count({ where: { firmId: newFirmId } }),
+      db.recurringTemplateItem.count({ where: { template: { firmId: newFirmId } } }),
     ]);
 
     return ok({
@@ -853,6 +922,8 @@ export async function POST(request: NextRequest) {
         stockAdjustments: nAdjustments,
         ledgerEntries: nLedgerEntries,
         gstr2bRecords: nGstr2b,
+        recurringTemplates: nTemplates,
+        recurringTemplateItems: nTemplateItems,
       },
       warnings,
       restoredAt: new Date().toISOString(),

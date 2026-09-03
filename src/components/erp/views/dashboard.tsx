@@ -33,6 +33,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   TrendingUp,
+  Truck,
   Wallet,
 } from "lucide-react";
 
@@ -86,6 +87,17 @@ interface OverduePulse {
   topOverdueParty: string | null;
   nextDueDate: string | null;
   unappliedReceipts: number;
+}
+
+/** Slice of GET /ledger/aging-pos used by the overdue-payables pulse. */
+interface ApOverduePulse {
+  openPOs: number;
+  outstanding: number;
+  overduePOs: number;
+  overdue: number;
+  worstOverdueDays: number;
+  topOverdueVendor: string | null;
+  nextDueDate: string | null;
 }
 
 interface LowStockMini {
@@ -169,6 +181,7 @@ export default function DashboardView() {
   const [lowStock, setLowStock] = React.useState<LowStockMini[]>([]);
   const [gstPulse, setGstPulse] = React.useState<Gstr2bPulse | null>(null);
   const [overduePulse, setOverduePulse] = React.useState<OverduePulse | null>(null);
+  const [apPulse, setApPulse] = React.useState<ApOverduePulse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [refreshKey, setRefreshKey] = React.useState(0);
@@ -178,7 +191,7 @@ export default function DashboardView() {
     setLoading(true);
     setError(null);
     try {
-      const [dash, low, gst, aging] = await Promise.all([
+      const [dash, low, gst, aging, ap] = await Promise.all([
         apiGet<DashboardResponse>("/api/v1/dashboard", { firmId: activeFirmId }),
         apiGet<LowStockMini[]>("/api/v1/inventory/low-stock", { firmId: activeFirmId }).catch(
           () => [] as LowStockMini[]
@@ -194,6 +207,10 @@ export default function DashboardView() {
           rows: Array<{ isOverdue: boolean; overdueDays: number; partyName: string; dueDate: string }>;
           reconciliation?: { unappliedReceipts: number };
         }>("/api/v1/ledger/aging-invoices", { firmId: activeFirmId }).catch(() => null),
+        apiGet<{
+          totals: { openPOs: number; outstanding: number; overduePOs: number; overdue: number };
+          rows: Array<{ isOverdue: boolean; overdueDays: number; vendorName: string; dueDate: string }>;
+        }>("/api/v1/ledger/aging-pos", { firmId: activeFirmId }).catch(() => null),
       ]);
       setData(dash);
       setLowStock(Array.isArray(low) ? low : []);
@@ -217,6 +234,29 @@ export default function DashboardView() {
         });
       } else {
         setOverduePulse(null);
+      }
+
+      // AP pulse — mirror of the AR pulse from the PO-wise aging
+      if (ap) {
+        const apOverdueRows = ap.rows.filter((r) => r.isOverdue);
+        const upcoming = ap.rows
+          .map((r) => r.dueDate)
+          .filter(Boolean)
+          .sort();
+        setApPulse({
+          openPOs: ap.totals.openPOs,
+          outstanding: ap.totals.outstanding,
+          overduePOs: ap.totals.overduePOs,
+          overdue: ap.totals.overdue,
+          worstOverdueDays: apOverdueRows.reduce((m, r) => Math.max(m, r.overdueDays), 0),
+          topOverdueVendor:
+            apOverdueRows.length > 0
+              ? [...apOverdueRows].sort((a, b) => b.overdueDays - a.overdueDays)[0]?.vendorName ?? null
+              : null,
+          nextDueDate: upcoming[0] ?? null,
+        });
+      } else {
+        setApPulse(null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load dashboard");
@@ -349,6 +389,15 @@ export default function DashboardView() {
               pulse={overduePulse}
               onDrill={() => {
                 requestAgingTab("inv");
+                setView("finance/aging");
+              }}
+            />
+          )}
+          {apPulse && (
+            <ApOverduePulseCard
+              pulse={apPulse}
+              onDrill={() => {
+                requestAgingTab("po");
                 setView("finance/aging");
               }}
             />
@@ -853,6 +902,149 @@ function OverduePulseCard({ pulse, onDrill }: { pulse: OverduePulse; onDrill: ()
         <p className="mt-3 text-[11.5px] text-dmk-warning border-t border-dmk-border-subtle pt-2.5">
           {Math.round(overdueShare * 100)}% of the open receivables book is past credit terms — chase{" "}
           {pulse.topOverdueParty ?? "the oldest invoices"} first.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Overdue payables pulse — mirror of the receivables pulse.
+// Answers "who do I owe past vendor terms, how much, how late?"
+// from the precise PO-wise AP aging. Drills into the PO aging tab.
+// ═══════════════════════════════════════════════════════════════
+
+function ApOverduePulseCard({ pulse, onDrill }: { pulse: ApOverduePulse; onDrill: () => void }) {
+  const noOpen = pulse.openPOs === 0;
+  const allClean = !noOpen && pulse.overduePOs === 0;
+  const overdueShare = pulse.outstanding > 0 ? pulse.overdue / pulse.outstanding : 0;
+  const severe = overdueShare >= 0.4;
+
+  const status = noOpen
+    ? { label: "NO OPEN BILLS", dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
+    : allClean
+      ? { label: "ALL WITHIN TERMS", dot: "bg-dmk-success", ring: "border-dmk-success/30" }
+      : severe
+        ? { label: `${pulse.overduePOs} OVERDUE`, dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
+        : { label: `${pulse.overduePOs} OVERDUE`, dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
+
+  const stats = [
+    { label: "Open payables", value: formatINR(pulse.outstanding), cls: "text-dmk-text-primary" },
+    {
+      label: "Past terms",
+      value: formatINR(pulse.overdue),
+      cls: pulse.overduePOs > 0 ? "text-dmk-danger" : "text-dmk-success",
+    },
+    { label: "Open POs", value: String(pulse.openPOs), cls: "text-dmk-text-primary" },
+    {
+      label: pulse.overduePOs > 0 ? "Worst past due" : "Next payment due",
+      value:
+        pulse.overduePOs > 0
+          ? `${pulse.worstOverdueDays}d${pulse.topOverdueVendor ? ` · ${pulse.topOverdueVendor.split(" ")[0]}` : ""}`
+          : pulse.nextDueDate
+            ? formatDate(pulse.nextDueDate)
+            : "—",
+      cls: pulse.overduePOs > 0 ? "text-dmk-warning" : "text-dmk-text-secondary",
+    },
+  ];
+
+  const meterPct = Math.min(100, Math.round(overdueShare * 100));
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Payables ${status.label} — open PO-wise payables aging`}
+      onClick={onDrill}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onDrill();
+        }
+      }}
+      className={cn(
+        "dmk-card p-4 dmk-kpi-clickable relative overflow-hidden border",
+        status.ring,
+        "dmk-enter"
+      )}
+    >
+      <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+        {/* Status block */}
+        <div className="flex items-center gap-3 min-w-0 lg:w-[280px] shrink-0">
+          <div className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border",
+            noOpen
+              ? "bg-dmk-input-well border-dmk-border-subtle"
+              : allClean
+                ? "bg-[rgba(34,197,94,0.1)] border-dmk-success/30"
+                : severe
+                  ? "bg-[rgba(239,68,68,0.1)] border-dmk-danger/30"
+                  : "bg-[rgba(245,158,11,0.1)] border-dmk-warning/30"
+          )}>
+            <Truck
+              className={cn(
+                "h-5 w-5",
+                noOpen ? "text-dmk-text-muted" : allClean ? "text-dmk-success" : severe ? "text-dmk-danger" : "text-dmk-warning"
+              )}
+              strokeWidth={1.75}
+            />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+              Payments · Payables
+            </p>
+            <p className="text-[14.5px] font-bold text-dmk-text-primary flex items-center gap-2">
+              <span className={cn("h-1.5 w-1.5 rounded-full animate-pulse", status.dot)} />
+              {status.label}
+            </p>
+            <p className="text-[10.5px] text-dmk-text-muted truncate">
+              {allClean && pulse.nextDueDate
+                ? `Next vendor payment due ${formatDate(pulse.nextDueDate)}`
+                : "Aged against confirmed POs & vendor payment terms"}
+            </p>
+          </div>
+        </div>
+
+        {/* Mini stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 min-w-0">
+          {stats.map((s) => (
+            <div key={s.label} className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/50 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">{s.label}</p>
+              <p className={cn("font-money text-[14px] font-semibold mt-0.5 truncate", s.cls)}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Overdue-share meter + drill */}
+        <div className="lg:w-[190px] shrink-0 flex flex-col gap-1.5">
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+            <span>Past-terms share</span>
+            <span className="font-money text-dmk-text-secondary">{meterPct}%</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-dmk-input-well overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500",
+                meterPct === 0 ? "bg-dmk-success" : meterPct < 40 ? "bg-dmk-warning" : "bg-dmk-danger"
+              )}
+              style={{ width: `${Math.max(meterPct, meterPct === 0 ? 0 : 4)}%` }}
+            />
+          </div>
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-dmk-blue/80 mt-0.5">
+            PO-wise Aging <ArrowRight className="h-3 w-3" />
+          </span>
+        </div>
+      </div>
+
+      {allClean && (
+        <p className="mt-3 text-[11.5px] text-dmk-text-muted border-t border-dmk-border-subtle pt-2.5">
+          Every confirmed PO is inside its vendor's payment terms — payables healthy.
+        </p>
+      )}
+      {severe && (
+        <p className="mt-3 text-[11.5px] text-dmk-warning border-t border-dmk-border-subtle pt-2.5">
+          {Math.round(overdueShare * 100)}% of the open payables book is past vendor terms — settle{" "}
+          {pulse.topOverdueVendor ?? "the oldest bills"} first to protect credit supply.
         </p>
       )}
     </div>

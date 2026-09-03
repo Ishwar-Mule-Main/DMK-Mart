@@ -24,4 +24,5 @@
 | 21 | Cycle 16: vendor bill capture on POs + bill-first GSTR-2B matching + overdue-AR dashboard pulse + aging→ledger drill-throughs + net KPI fix | ✅ |
 | 22 | Cycle 17: settle/pay deep links from registers + GSTR-1 sales report + Action Center bell + print pipeline | ✅ |
 | 23 | Cycle 18: product profitability report (margin vs WAC) + day-book cash-flow trend chart + batch statement print + firm JSON backup/export | ✅ |
+| 24 | Cycle 20: subscription ledger (invoice templateId stamps + run history) + hold/skip window on templates + backup v2 (templates in envelope) + AP overdue pulse card | ✅ |
 | 17 | Worklog + cron webDevReview every 15 min | ✅ |

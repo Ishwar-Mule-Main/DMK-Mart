@@ -579,6 +579,7 @@ export interface RecurringTemplate {
   nextRunDate: string;
   lastRunDate: string | null;
   lastInvoiceId: string;
+  skipUntil?: string | null;
   autoPost: boolean;
   isActive: boolean;
   notes: string;
@@ -590,6 +591,14 @@ export interface RecurringTemplate {
   dueToday?: boolean;
   overdueBy?: number;
   nextRunLabel?: string;
+  /** Hold window active (skipUntil >= today) — generation skips due cycles. */
+  onHold?: boolean;
+  holdUntilLabel?: string | null;
+  /** Subscription ledger aggregates (GET augmentations). */
+  runsCount?: number;
+  runsBilled?: number;
+  runsThisMonth?: number;
+  lastRunInvoiceNo?: string;
 }
 
 export interface RecurringGenerateRun {
@@ -599,6 +608,10 @@ export interface RecurringGenerateRun {
   invoiceNumber?: string;
   grandTotal?: number;
   invoices?: number;
+  /** true = the template was on a hold window; due cycles were skipped */
+  skipped?: boolean;
+  skippedCycles?: number;
+  holdUntil?: string;
   error?: string;
 }
 
@@ -606,4 +619,37 @@ export interface RecurringGenerateResponse {
   runs: RecurringGenerateRun[];
   generated: number;
   failed: number;
+  skipped?: number;
+}
+
+// ─── SUBSCRIPTION LEDGER (template run history) ──────────────────
+
+export interface RecurringRunRow {
+  id: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  grandTotal: number;
+  tax: number;
+  paymentMode: string;
+  status: string;
+  customerName: string;
+}
+
+export interface RecurringRunsResponse {
+  template: {
+    id: string;
+    name: string;
+    frequency: string;
+    paymentMode: string;
+    isActive: boolean;
+    nextRunDate: string;
+  };
+  totals: {
+    runs: number;
+    billed: number;
+    avgInvoice: number;
+    lastRunDate: string | null;
+    lastInvoiceNo: string | null;
+  };
+  rows: RecurringRunRow[];
 }
