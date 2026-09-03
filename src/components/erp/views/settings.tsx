@@ -53,6 +53,7 @@ import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import type { Firm } from "@/types/erp";
 import { cn } from "@/lib/utils";
+import { AutomationCard } from "./settings-automation";
 
 const STATES: Array<{ code: string; name: string }> = [
   { code: "27", name: "Maharashtra (27)" },
@@ -382,7 +383,10 @@ export default function SettingsView() {
         </p>
       </div>
 
-            {/* ── Data & backup ───────────────────────────────────────── */}
+      {/* ── Automation — recurring auto-post scheduler heartbeat ──── */}
+      <AutomationCard />
+
+      {/* ── Data & backup ───────────────────────────────────── */}
       <BackupCard firm={activeFirm} counts={activeFirmId ? counts[activeFirmId] : undefined} />
 
       {/* ── Restore from backup (envelope → brand-new firm, R1-safe) ── */}

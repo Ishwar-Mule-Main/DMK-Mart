@@ -268,7 +268,7 @@ export async function POST(request: NextRequest) {
         nextRunDate: startDate,
         skipUntil,
         notes: getStr(body.notes),
-        autoPost: true,
+        autoPost: body.autoPost === undefined ? true : !!body.autoPost,
         isActive: true,
         items: {
           create: lines.map((l) => ({
@@ -313,6 +313,7 @@ export async function PATCH(request: NextRequest) {
       skipUntil?: Date | null;
       notes?: string;
       isActive?: boolean;
+      autoPost?: boolean;
       nextRunDate?: Date;
     } = {};
 
@@ -362,6 +363,7 @@ export async function PATCH(request: NextRequest) {
     }
     if (body.notes !== undefined) data.notes = getStr(body.notes);
     if (body.isActive !== undefined) data.isActive = !!body.isActive;
+    if (body.autoPost !== undefined) data.autoPost = !!body.autoPost;
 
     // Hold window — a date pushes generation past it (cycles inside are
     // skipped); null clears the hold.

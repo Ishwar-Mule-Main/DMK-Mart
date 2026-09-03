@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { Download, Eye, FileText, HandCoins, ReceiptText, Search } from "lucide-react";
+import { Download, Eye, FileText, HandCoins, ReceiptText, Search, Zap } from "lucide-react";
 import { useErpStore } from "@/store/erp-store";
 import { apiGet, ApiError } from "@/lib/api-client";
 import { formatINR, formatDate, downloadCSV, amountInWords } from "@/lib/format";
@@ -192,6 +192,14 @@ export default function InvoiceRegisterView() {
                       <td className="max-w-[240px] truncate text-[13px]" title={i.customer?.partyName || i.walkInName || "Walk-in"}>{i.customer?.partyName || i.walkInName || "Walk-in"}</td>
                       <td>
                         {i.isCounterSale ? <Badge tone="dr">COUNTER</Badge> : <Badge tone="info">B2B</Badge>}
+                        {i.templateId && (
+                          <span
+                            title="Auto-posted from a recurring billing template — see Recurring Billing → run history"
+                            className="ml-1 inline-flex items-center gap-0.5 rounded-md bg-dmk-success/10 px-1.5 py-0.5 text-[9.5px] font-bold tracking-wide text-dmk-success align-middle"
+                          >
+                            <Zap className="h-2.5 w-2.5" /> AUTO
+                          </span>
+                        )}
                       </td>
                       <td><Badge tone={paymentBadge(i.paymentMode)}>{i.paymentMode}</Badge></td>
                       <td className="num text-[12.5px] text-dmk-text-secondary">{formatINR(Number(i.subtotal))}</td>
@@ -246,6 +254,14 @@ export default function InvoiceRegisterView() {
               <span className="font-money">{detail?.invoiceNumber ?? "…"}</span>
               {detail && (detail.isCounterSale ? <Badge tone="dr">COUNTER</Badge> : <Badge tone="info">B2B</Badge>)}
               {detail && <Badge tone={paymentBadge(detail.paymentMode)}>{detail.paymentMode}</Badge>}
+              {detail?.templateId && (
+                <span
+                  title="Auto-posted from a recurring billing template"
+                  className="inline-flex items-center gap-0.5 rounded-md bg-dmk-success/10 px-1.5 py-0.5 text-[9.5px] font-bold tracking-wide text-dmk-success"
+                >
+                  <Zap className="h-2.5 w-2.5" /> AUTO
+                </span>
+              )}
             </DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
               {detail ? `${formatDate(detail.invoiceDate)} · ${detail.customer?.partyName || detail.walkInName || "Walk-in"}` : "Loading…"}

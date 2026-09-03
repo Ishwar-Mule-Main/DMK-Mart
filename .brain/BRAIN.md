@@ -183,3 +183,10 @@ Blockers: none.
 - Decisions: invoice stamps use FK SetNull (history survives template deletion); hold = forgive (not back-bill) with 60-step cap; explicit run-now on held template never bills (tooltip-honest); v1 backups still restore (no templates, by design)
 - Verification: TB ₹10,73,350.05 Δ=0.00 · AR/AP recon Δ=0 · backup round-trip TB identical · guards 422/400 verified · tsc+lint 0/0 · desktop+mobile browser-verified
 - NEXT ACTION: next cycle — autoPost scheduler OR party-ledger allocation context OR pulse sparklines OR GSTR-2B period quick-nav
+
+### Session: 2026-09-03 09:20 (cron cycle 21)
+- Phase: Enhancement cycles (post-MVP)
+- Completed: Recurring auto-post scheduler (src/instrumentation.ts boots src/lib/scheduler.ts — every 5 min + boot catch-up, engine extracted to _lib/recurring-engine.ts shared with the manual route, autoPostOnly filter, ring-buffer heartbeat, DMK_SCHEDULER=off kill switch, GET/POST /recurring/scheduler) · Settings Automation card (heartbeat/cadence/census/last-pass wells + run-a-pass-now + recent auto-posted list) · per-template autoPost toggle in editor + AUTO chips/filter in recurring view + AUTO badge on stamped invoices in register · party-ledger settlement drill (/ledger/party returns voucherNo→settlements map; Link2 chips → allocation dialog w/ doc-wise applied amounts, unapplied, on-account state) · GSTR-2B period stepper (‹ Sep 2026 › + Current chip)
+- Decisions: scheduler calls the engine directly (no HTTP self-call); ledger voucherNo mapping reuses the writer formula (utrRef || RCPT-/PAY- + id suffix) for deterministic settlement joins; in-memory heartbeat OK — durable audit is the templateId-stamped invoices
+- Verification: scheduler boot pass auto-posted INV/0015 ₹1,433 (stamped, schedule advanced, TB +1,433 both sides) · TB ₹10,74,783.05 Δ=0.00 · AR/AP recon Δ=0 · guards 400 verified · lint 0/0 · tsc src 0 · zero console errors 12-view walk + mobile 390px · dev server restarted once to load instrumentation
+- NEXT ACTION: next cycle — dashboard automation pulse OR invoice email/PDF pipeline OR valuation variance alert OR recurring pause-from-runs-dialog

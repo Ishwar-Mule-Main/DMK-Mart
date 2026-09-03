@@ -171,6 +171,8 @@ export interface Invoice {
   status: string;
   lineItems: InvoiceLineItem[];
   createdAt: string;
+  /** Subscription stamp — set when the invoice was posted from a recurring template. */
+  templateId?: string | null;
   /** Settlement tracking (credit invoices only — from invoices GET). */
   settled?: number;
   credited?: number;

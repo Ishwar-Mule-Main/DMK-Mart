@@ -10,7 +10,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { ArrowRight, BookOpenText, Building2, Download, HandCoins, Layers, Loader2, Printer, Truck, User, X } from "lucide-react";
+import { ArrowRight, BookOpenText, Building2, Download, HandCoins, Layers, Link2, Loader2, Printer, Truck, User, X } from "lucide-react";
 
 import {
   Badge,
@@ -62,6 +62,27 @@ interface LedgerEntryRow {
   balanceAfter: number;
 }
 
+/** One settled document inside a receipt/payment (cycle 21 drill-down). */
+interface SettlementLine {
+  docNumber: string;
+  docDate: string;
+  docTotal: number;
+  allocated: number;
+}
+
+/** Full allocation context behind a RECEIPT / PAYMENT ledger row. */
+interface SettlementDetail {
+  id: string;
+  date: string;
+  amount: number;
+  mode: string;
+  ref: string;
+  notes: string;
+  lines: SettlementLine[];
+  allocatedTotal: number;
+  unapplied: number;
+}
+
 interface PartyLedgerResponse {
   partyType: "CUSTOMER" | "VENDOR";
   party: {
@@ -80,6 +101,8 @@ interface PartyLedgerResponse {
   opening: number;
   entries: LedgerEntryRow[];
   closing: number;
+  /** voucherNo → settlement detail (RECEIPT/PAYMENT rows only). */
+  settlements?: Record<string, SettlementDetail>;
 }
 
 const VOUCHER_TONE: Record<string, BadgeTone> = {
@@ -182,6 +205,7 @@ function PartyTab({
   const [batchLoading, setBatchLoading] = React.useState(false);
   const [batchProgress, setBatchProgress] = React.useState(0);
   const [batchSheets, setBatchSheets] = React.useState<Array<{ ledger: PartyLedgerResponse; closingWords: string | null }>>([]);
+  const [settlementOf, setSettlementOf] = React.useState<SettlementDetail | null>(null);
 
   // Party directory (debounced server search)
   React.useEffect(() => {
@@ -628,28 +652,53 @@ function PartyTab({
                             {bal.suffix ? `${formatINR(bal.amount)} ${bal.suffix}` : formatINR(0)}
                           </td>
                           <td className="text-right pr-3">
-                            {settleable ? (
-                              <button
-                                type="button"
-                                onClick={() => settleFromRow(r)}
-                                title={
-                                  r.voucherType === "SALES"
-                                    ? `Record a receipt against ${r.voucherNo || "this invoice"}`
-                                    : `Record a payment against ${r.voucherNo || "this bill"}`
-                                }
-                                className={cn(
-                                  "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide",
-                                  "opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all",
-                                  "border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover",
-                                  r.voucherType === "SALES"
-                                    ? "text-dmk-success hover:border-dmk-success/40"
-                                    : "text-dmk-info hover:border-dmk-info/40"
-                                )}
-                              >
-                                <HandCoins className="h-3 w-3" />
-                                {r.voucherType === "SALES" ? "Settle" : "Pay"}
-                              </button>
-                            ) : null}
+                            {(() => {
+                              const st = (r.voucherType === "RECEIPT" || r.voucherType === "PAYMENT") && r.voucherNo
+                                ? ledger?.settlements?.[r.voucherNo]
+                                : undefined;
+                              if (st && st.lines.length > 0) {
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSettlementOf(st)}
+                                    title={
+                                      r.voucherType === "RECEIPT"
+                                        ? `Settles ${st.lines.length} invoice${st.lines.length !== 1 ? "s" : ""} — open allocation breakdown`
+                                        : `Settles ${st.lines.length} bill${st.lines.length !== 1 ? "s" : ""} — open allocation breakdown`
+                                    }
+                                    className="inline-flex items-center gap-1 rounded-md border border-dmk-border-medium bg-dmk-input-well px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-dmk-text-secondary transition-all hover:bg-dmk-hover hover:text-dmk-text-primary focus:text-dmk-text-primary"
+                                  >
+                                    <Link2 className="h-3 w-3" />
+                                    {st.lines.length}
+                                  </button>
+                                );
+                              }
+                              if (settleable) {
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => settleFromRow(r)}
+                                    title={
+                                      r.voucherType === "SALES"
+                                        ? `Record a receipt against ${r.voucherNo || "this invoice"}`
+                                        : `Record a payment against ${r.voucherNo || "this bill"}`
+                                    }
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide",
+                                      "opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all",
+                                      "border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover",
+                                      r.voucherType === "SALES"
+                                        ? "text-dmk-success hover:border-dmk-success/40"
+                                        : "text-dmk-info hover:border-dmk-info/40"
+                                    )}
+                                  >
+                                    <HandCoins className="h-3 w-3" />
+                                    {r.voucherType === "SALES" ? "Settle" : "Pay"}
+                                  </button>
+                                );
+                              }
+                              return null;
+                            })()}
                           </td>
                         </tr>
                       );
@@ -705,6 +754,14 @@ function PartyTab({
               }
               closingWords={closingWords}
             />
+
+            {/* Receipt / payment allocation drill-down (cycle 21) */}
+            <SettlementDialog
+              settlement={settlementOf}
+              onClose={() => setSettlementOf(null)}
+              partyType={partyType}
+              partyName={ledger?.party.name ?? ""}
+            />
           </>
         ) : null}
       </div>
@@ -718,6 +775,122 @@ function PartyTab({
         firm={activeFirm}
       />
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SETTLEMENT DRILL-DOWN — what did this receipt / payment close?
+// RECEIPT rows → per-invoice allocations (ReceiptAllocation)
+// PAYMENT rows → per-PO allocations (PaymentAllocation)
+// ═══════════════════════════════════════════════════════════════
+
+function SettlementDialog({
+  settlement,
+  onClose,
+  partyType,
+  partyName,
+}: {
+  settlement: SettlementDetail | null;
+  onClose: () => void;
+  partyType: "CUSTOMER" | "VENDOR";
+  partyName: string;
+}) {
+  const isReceipt = partyType === "CUSTOMER";
+  const open = !!settlement;
+  const docLabel = isReceipt ? "Invoice" : "PO";
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="dmk-card max-h-[85vh] overflow-y-auto sm:max-w-[560px] [&>*]:min-w-0">
+        {settlement && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-[16px] text-dmk-text-primary">
+                <Link2 className={cn("h-4 w-4", isReceipt ? "text-dmk-orange" : "text-dmk-info")} />
+                {isReceipt ? "Receipt" : "Payment"} allocation
+              </DialogTitle>
+              <DialogDescription className="text-[12px] text-dmk-text-muted">
+                {isReceipt ? "Receipt from" : "Payment to"} <span className="font-medium text-dmk-text-secondary">{partyName}</span> · {formatDate(settlement.date)}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {/* header wells */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="dmk-well px-3 py-2">
+                  <p className="text-[9.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">Total</p>
+                  <p className="mt-0.5 font-money text-[13px] font-semibold text-dmk-text-primary">{formatINR(settlement.amount)}</p>
+                </div>
+                <div className="dmk-well px-3 py-2">
+                  <p className="text-[9.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">Allocated</p>
+                  <p className="mt-0.5 font-money text-[13px] font-semibold text-dmk-gold">{formatINR(settlement.allocatedTotal)}</p>
+                </div>
+                <div className="dmk-well px-3 py-2">
+                  <p className="text-[9.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">Unapplied</p>
+                  <p className={cn("mt-0.5 font-money text-[13px] font-semibold", settlement.unapplied > 0 ? "text-dmk-info" : "text-dmk-text-muted")}>
+                    {formatINR(settlement.unapplied)}
+                  </p>
+                </div>
+              </div>
+
+              {/* meta chips */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge tone={isReceipt ? "dr" : "cr"}>{settlement.mode}</Badge>
+                {settlement.ref && (
+                  <span className="rounded-md bg-dmk-input-well px-2 py-1 font-mono text-[10.5px] text-dmk-text-secondary">
+                    ref {settlement.ref}
+                  </span>
+                )}
+                {settlement.unapplied > 0 && (
+                  <span className="rounded-md bg-dmk-info/10 px-2 py-1 text-[10.5px] font-semibold text-dmk-info">
+                    on-account — awaiting allocation
+                  </span>
+                )}
+              </div>
+
+              {/* allocation table */}
+              <div className="min-w-0 overflow-x-auto rounded-lg border border-dmk-border-subtle">
+                <table className="dmk-table w-full min-w-[430px]">
+                  <thead>
+                    <tr>
+                      <th>{docLabel}</th>
+                      <th>Date</th>
+                      <th className="text-right">Doc total</th>
+                      <th className="text-right">Applied</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {settlement.lines.map((l, i) => (
+                      <tr key={`${l.docNumber}-${i}`}>
+                        <td className="font-money text-[12px] font-semibold text-dmk-gold">{l.docNumber}</td>
+                        <td><DateText d={l.docDate} /></td>
+                        <td className="num text-right font-money text-dmk-text-secondary">{formatINR(l.docTotal)}</td>
+                        <td className="num text-right font-money font-semibold text-dmk-text-primary">{formatINR(l.allocated)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-dmk-border-medium bg-dmk-hover/40">
+                      <td colSpan={3} className="text-right text-[11px] font-semibold uppercase tracking-wide text-dmk-text-muted">
+                        Settled
+                      </td>
+                      <td className="num text-right font-money font-semibold text-dmk-gold">
+                        {formatINR(settlement.allocatedTotal)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {settlement.notes && (
+                <p className="rounded-md border border-dmk-border-subtle bg-dmk-input-well/50 px-3 py-2 text-[11.5px] text-dmk-text-secondary">
+                  {settlement.notes}
+                </p>
+              )}
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

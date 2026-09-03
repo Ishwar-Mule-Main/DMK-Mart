@@ -12,7 +12,10 @@
 import * as React from "react";
 import {
   AlertTriangle,
+  CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
   FileWarning,
   GitCompareArrows,
@@ -43,6 +46,20 @@ import { cn } from "@/lib/utils";
 function currentPeriod(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Shift a YYYY-MM period by ±months (clamped day never needed). */
+function shiftPeriod(period: string, months: number): string {
+  const [y, m] = period.split("-").map(Number);
+  const d = new Date(Date.UTC(y, (m || 1) - 1 + months, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** "Sep 2026" style label for a YYYY-MM period. */
+function periodLabel(period: string): string {
+  const [y, m] = period.split("-").map(Number);
+  if (!y || !m) return period;
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 function statusBadge(s: Gstr2bRecordRow["status"]) {
@@ -166,7 +183,34 @@ export default function Gstr2bView() {
         subtitle="Import supplier-reported ITC and match it against confirmed purchases — catch missing bills before filing"
         icon={GitCompareArrows}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center overflow-hidden rounded-lg border border-dmk-border-subtle bg-dmk-input-well">
+              <button
+                type="button"
+                onClick={() => setPeriod((p) => shiftPeriod(p, -1))}
+                title="Previous return period"
+                aria-label="Previous return period"
+                className="flex h-9 w-8 items-center justify-center text-dmk-text-secondary transition-colors hover:bg-dmk-hover hover:text-dmk-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-dmk-blue/60"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span
+                className="flex h-9 min-w-[96px] items-center justify-center gap-1.5 border-x border-dmk-border-subtle px-2 font-money text-[12.5px] font-semibold text-dmk-text-primary"
+                title={`Return period ${period}`}
+              >
+                <CalendarDays className="h-3.5 w-3.5 text-dmk-blue" />
+                {periodLabel(period)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPeriod((p) => shiftPeriod(p, 1))}
+                title="Next return period"
+                aria-label="Next return period"
+                className="flex h-9 w-8 items-center justify-center text-dmk-text-secondary transition-colors hover:bg-dmk-hover hover:text-dmk-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-dmk-blue/60"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
             <Input
               type="month"
               value={period}
@@ -174,6 +218,17 @@ export default function Gstr2bView() {
               className={cn(inputCls, "w-[150px] font-money")}
               aria-label="Return period"
             />
+            {period !== currentPeriod() && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[12px] hover:bg-dmk-hover"
+                onClick={() => setPeriod(currentPeriod())}
+                title="Jump back to the current return period"
+              >
+                Current
+              </Button>
+            )}
             <Button
               size="sm"
               className="h-9 bg-dmk-gold text-[#0A0F1D] hover:bg-dmk-gold/90 font-semibold"

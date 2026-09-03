@@ -51,6 +51,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -66,6 +67,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -180,6 +182,7 @@ export default function RecurringView() {
   const [endDate, setEndDate] = React.useState("");
   const [skipUntil, setSkipUntil] = React.useState("");
   const [notes, setNotes] = React.useState("");
+  const [autoPost, setAutoPost] = React.useState(true);
   const [lines, setLines] = React.useState<Line[]>([{ ...emptyLine }]);
 
   // row actions
@@ -194,6 +197,7 @@ export default function RecurringView() {
   const [runsData, setRunsData] = React.useState<RecurringRunsResponse | null>(null);
   const [runsLoading, setRunsLoading] = React.useState(false);
   const [runsError, setRunsError] = React.useState<string | null>(null);
+  const [autoAlive, setAutoAlive] = React.useState<boolean | null>(null);
 
   // ── load templates ────────────────────────────────────────────
   React.useEffect(() => {
@@ -235,6 +239,22 @@ export default function RecurringView() {
   }, [activeFirmId]);
 
   // ── dialog helpers ────────────────────────────────────────────
+  // Scheduler liveness — one light probe so the header can show the
+  // "auto-poster live" pill (Settings holds the full heartbeat card).
+  React.useEffect(() => {
+    let alive = true;
+    apiGet<{ status: { alive: boolean } }>("/api/v1/recurring/scheduler")
+      .then((r) => {
+        if (alive) setAutoAlive(!!r.status?.alive);
+      })
+      .catch(() => {
+        if (alive) setAutoAlive(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   function openNew() {
     setEditOf(null);
     setName("");
@@ -245,6 +265,7 @@ export default function RecurringView() {
     setEndDate("");
     setSkipUntil("");
     setNotes("");
+    setAutoPost(true);
     setLines([{ ...emptyLine }]);
     setFormError(null);
     setFormOpen(true);
@@ -260,6 +281,7 @@ export default function RecurringView() {
     setEndDate(t.endDate ? toISODate(new Date(t.endDate)) : "");
     setSkipUntil(t.skipUntil ? toISODate(new Date(t.skipUntil)) : "");
     setNotes(t.notes);
+    setAutoPost(t.autoPost !== false);
     setLines(
       t.items.map((i) => ({
         productId: i.productId,
@@ -337,6 +359,7 @@ export default function RecurringView() {
       endDate: endDate || null,
       skipUntil: skipUntil || null,
       notes: notes.trim(),
+      autoPost,
       lines: lines
         .filter((l) => l.productId)
         .map((l) => ({
@@ -478,7 +501,9 @@ export default function RecurringView() {
           ? !!t.dueToday && t.isActive
           : statusFilter === "HOLD"
             ? !!t.onHold
-            : statusFilter === "ACTIVE"
+            : statusFilter === "AUTO"
+              ? t.autoPost !== false && t.isActive
+              : statusFilter === "ACTIVE"
               ? t.isActive
               : !t.isActive;
     return matchQ && matchS;
@@ -488,6 +513,7 @@ export default function RecurringView() {
   const dueValue = dueRows.reduce((s, t) => s + (t.estValue?.estTotal ?? 0), 0);
   const overdueCount = dueRows.filter((t) => (t.overdueBy ?? 0) > 0).length;
   const holdCount = list.filter((t) => t.onHold).length;
+  const autoCount = list.filter((t) => t.autoPost !== false && t.isActive).length;
   // Subscription invoices posted this month (from templateId-stamped rows)
   const monthRuns = list.reduce((s, t) => s + (t.runsThisMonth ?? 0), 0);
   const monthRunsValue = list.reduce(
@@ -503,6 +529,15 @@ export default function RecurringView() {
         icon={CalendarClock}
         actions={
           <>
+            {autoAlive && (
+              <span
+                title="The platform scheduler is live — due AUTO templates post themselves every 5 min. Full heartbeat in Settings."
+                className="hidden sm:inline-flex h-9 items-center gap-1.5 rounded-lg border border-dmk-success/30 bg-[rgba(34,197,94,0.07)] px-3 text-[11px] font-semibold text-dmk-success"
+              >
+                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-dmk-success" />
+                AUTO-POSTER LIVE
+              </span>
+            )}
             <Button
               size="sm"
               className="h-9 bg-dmk-gold text-[#0A0F1D] hover:bg-dmk-gold/90 disabled:opacity-40"
@@ -573,6 +608,9 @@ export default function RecurringView() {
             <SelectItem value="DUE">Due today</SelectItem>
             <SelectItem value="HOLD" disabled={holdCount === 0}>
               On hold{holdCount > 0 ? ` (${holdCount})` : ""}
+            </SelectItem>
+            <SelectItem value="AUTO" disabled={autoCount === 0}>
+              Auto-posting{autoCount > 0 ? ` (${autoCount})` : ""}
             </SelectItem>
             <SelectItem value="ACTIVE">Active only</SelectItem>
             <SelectItem value="PAUSED">Paused only</SelectItem>
@@ -676,6 +714,14 @@ export default function RecurringView() {
                       <td>
                         <div className="flex flex-col items-start gap-1">
                           {t.isActive ? <Badge tone="success">ACTIVE</Badge> : <Badge tone="neutral">PAUSED</Badge>}
+                          {t.autoPost !== false && t.isActive && (
+                            <span
+                              title="Auto-posted by the platform scheduler when due — no manual run needed"
+                              className="inline-flex items-center gap-1 rounded-md bg-dmk-success/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-dmk-success"
+                            >
+                              <Zap className="h-2.5 w-2.5" /> AUTO
+                            </span>
+                          )}
                           {(t.runsCount ?? 0) > 0 && (
                             <button
                               onClick={() => openRuns(t)}
@@ -933,6 +979,27 @@ export default function RecurringView() {
                 placeholder="e.g. Deliver via transporter, bill on 1st of every month"
               />
             </Field>
+
+            {/* auto-post toggle — scheduler picks due cycles up every 5 min */}
+            <Label
+              htmlFor="tpl-autopost"
+              className={cn(
+                "flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3.5 py-3 transition-colors",
+                autoPost ? "border-dmk-success/40 bg-[rgba(34,197,94,0.06)]" : "border-dmk-border-subtle bg-dmk-input-well/60"
+              )}
+            >
+              <span className="flex flex-col gap-0.5">
+                <span className="flex items-center gap-2 text-[12.5px] font-semibold text-dmk-text-primary">
+                  <Zap className={cn("h-3.5 w-3.5", autoPost ? "text-dmk-success" : "text-dmk-text-muted")} />
+                  Auto-post on schedule
+                </span>
+                <span className="text-[11px] leading-snug text-dmk-text-muted">
+                  When due, the platform scheduler bills this template automatically every {""}
+                  {autoPost ? "cycle" : "manual pass only"} — same engine, same credit &amp; stock guards.
+                </span>
+              </span>
+              <Switch id="tpl-autopost" checked={autoPost} onCheckedChange={setAutoPost} />
+            </Label>
 
             {formError && (
               <p className="rounded-md border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-[12px] text-dmk-danger">
