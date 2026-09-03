@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Zap, ScanBarcode, FileStack, Undo2, Users, Receipt,
   ClipboardList, UndoIcon, Banknote, Truck, Package, Boxes, ArrowLeftRight,
   FileText, AlertTriangle, BookOpen, ListTree, Landmark, PieChart,
-  CalendarDays, Timer, FileCheck2, FileWarning, BarChart3, Bot, Settings,
+  CalendarDays, CalendarClock, Timer, FileCheck2, FileWarning, BarChart3, Bot, Settings,
   Plus, Building2, Search, CornerDownLeft, RefreshCw, GitCompareArrows,
 } from "lucide-react";
 import {
@@ -36,6 +36,7 @@ const NAV_GROUPS: Array<{ heading: string; items: NavItem[] }> = [
       { id: "sales/returns", label: "Sales Returns", icon: Undo2 },
       { id: "sales/customers", label: "Customers & Buyers", icon: Users },
       { id: "sales/receipts", label: "Receipts", icon: Receipt },
+      { id: "sales/recurring", label: "Recurring Billing", icon: CalendarClock },
       { id: "purchase/orders", label: "Purchase Orders", icon: ClipboardList, shortcut: "G P" },
       { id: "purchase/returns", label: "Purchase Returns", icon: UndoIcon },
       { id: "purchase/payments", label: "Vendor Payments", icon: Banknote },
@@ -66,6 +67,7 @@ const ACTIONS: Array<{ id: string; label: string; icon: React.ElementType; view:
   { id: "act-counter", label: "New Counter Sale", icon: ScanBarcode, view: "sales/b2c", hint: "B2C walk-in POS" },
   { id: "act-po", label: "New Purchase Order", icon: ClipboardList, view: "purchase/orders", hint: "Draft a PENDING PO" },
   { id: "act-receipt", label: "Record Customer Receipt", icon: Receipt, view: "sales/receipts", hint: "Collect receivable" },
+  { id: "act-recurring", label: "New Recurring Template", icon: Plus, view: "sales/recurring", hint: "Standing-order auto billing" },
   { id: "act-payment", label: "Record Vendor Payment", icon: Banknote, view: "purchase/payments", hint: "Pay payable" },
   { id: "act-product", label: "Add Product", icon: Package, view: "inventory/products", hint: "5-tier pricing master" },
   { id: "act-firm", label: "Create / Switch Firm", icon: Building2, view: "settings", hint: "Owner workspace" },

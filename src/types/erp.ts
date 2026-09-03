@@ -534,3 +534,76 @@ export interface Gstr2bResponse {
     netItcRisk: number;
   };
 }
+
+// ─── RECURRING BILLING (standing-order templates) ────────────────
+
+export interface RecurringTemplateItem {
+  id: string;
+  templateId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  quantity: number;
+  manualDiscountPct: number | null;
+  /** GET enriches items with tier fields for client-side estimates. */
+  product?: {
+    id: string;
+    sku: string;
+    name: string;
+    gstRate: number;
+    tier1Distributor: number;
+    tier2Wholesale: number;
+    tier3SemiWholesale: number;
+    tier4Retailer: number;
+    tier5Mrp: number;
+  };
+}
+
+export interface RecurringTemplate {
+  id: string;
+  firmId: string;
+  name: string;
+  customerId: string;
+  customer: {
+    id: string;
+    partyName: string;
+    city: string;
+    stateCode: string;
+    assignedTier: string;
+    customerType: string;
+  };
+  frequency: "WEEKLY" | "MONTHLY" | "BIMONTHLY" | "QUARTERLY" | string;
+  paymentMode: string;
+  startDate: string;
+  endDate: string | null;
+  nextRunDate: string;
+  lastRunDate: string | null;
+  lastInvoiceId: string;
+  autoPost: boolean;
+  isActive: boolean;
+  notes: string;
+  createdAt: string;
+  items: RecurringTemplateItem[];
+  /** GET augmentations. */
+  itemSummary?: string;
+  estValue?: { estTaxable: number; estTax: number; estTotal: number };
+  dueToday?: boolean;
+  overdueBy?: number;
+  nextRunLabel?: string;
+}
+
+export interface RecurringGenerateRun {
+  templateId: string;
+  templateName: string;
+  ok: boolean;
+  invoiceNumber?: string;
+  grandTotal?: number;
+  invoices?: number;
+  error?: string;
+}
+
+export interface RecurringGenerateResponse {
+  runs: RecurringGenerateRun[];
+  generated: number;
+  failed: number;
+}

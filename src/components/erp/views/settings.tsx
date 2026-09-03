@@ -11,7 +11,10 @@ import {
   Building2,
   CalendarRange,
   Check,
+  CheckCircle2,
   DatabaseBackup,
+  ArchiveRestore,
+  FileJson2,
   Loader2,
   Pencil,
   Plus,
@@ -20,6 +23,7 @@ import {
   ShieldCheck,
   ArrowLeftRight,
   TriangleAlert,
+  Upload,
 } from "lucide-react";
 
 import { Badge, ErrorText, Field, PageHeader, inputCls } from "../shared";
@@ -381,6 +385,9 @@ export default function SettingsView() {
             {/* ── Data & backup ───────────────────────────────────────── */}
       <BackupCard firm={activeFirm} counts={activeFirmId ? counts[activeFirmId] : undefined} />
 
+      {/* ── Restore from backup (envelope → brand-new firm, R1-safe) ── */}
+      <RestoreCard />
+
       {/* ── Platform info ───────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="dmk-card p-5">
@@ -540,6 +547,372 @@ function BackupCard({
           <span className="dmk-badge bg-dmk-success/10 text-dmk-success">Last export {lastExport}</span>
         )}
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RESTORE FROM BACKUP — envelope → brand-new firm (R1-safe)
+// Client reads the file with FileReader, shows a preflight preview,
+// requires typing RESTORE, then posts { envelope } to the API which
+// creates a fresh firm with re-keyed ids. Existing firms are never
+// touched. (View-local types — src/types/erp.ts is out of scope.)
+// ═══════════════════════════════════════════════════════════════
+
+interface BackupPreview {
+  fileName: string;
+  format: string;
+  version: number;
+  generatedAt: string;
+  firmName: string;
+  firmCode: string;
+  counts: Record<string, number>;
+  totalRecords: number;
+  issues: string[]; // hard blocks (format/version/firm) — restore disabled
+  warnings: string[]; // soft — shown, restore still allowed
+}
+
+interface RestoreResult {
+  firmId: string;
+  firmName: string;
+  firmCode: string;
+  counts: Record<string, number>;
+  warnings: string[];
+  restoredAt: string;
+}
+
+const BACKUP_COUNT_KEYS: Array<[string, string]> = [
+  ["products", "Products"],
+  ["customers", "Customers"],
+  ["vendors", "Vendors"],
+  ["purchaseOrders", "POs"],
+  ["invoices", "Invoices"],
+  ["salesReturns", "Sales Rtns"],
+  ["purchaseReturns", "Purch Rtns"],
+  ["vendorPayments", "V Payments"],
+  ["customerReceipts", "Receipts"],
+  ["chartOfAccounts", "COA"],
+  ["journalEntries", "Journals"],
+  ["inventoryMovements", "Stock Moves"],
+  ["stockAdjustments", "Adjusts"],
+  ["ledgerEntries", "Ledger Rows"],
+  ["gstr2bRecords", "GSTR-2B"],
+];
+
+const BACKUP_NESTED_KEYS: Record<string, string[]> = {
+  purchaseOrders: ["items"],
+  invoices: ["lineItems"],
+  salesReturns: ["items"],
+  purchaseReturns: ["items"],
+  vendorPayments: ["allocations"],
+  customerReceipts: ["allocations"],
+  journalEntries: ["lines"],
+};
+
+const REQUIRED_ENV_KEYS = ["products", "customers", "chartOfAccounts", "journalEntries"];
+const RESTORE_WORD = "RESTORE";
+
+/** Accept both the pure envelope and the { ok, data } fetch wrapper our export UI writes to disk. */
+function unwrapEnvelopeFile(raw: unknown): Record<string, unknown> {
+  const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  if (typeof obj.format === "string" && obj.format !== "") return obj;
+  const inner = obj.data;
+  if (inner && typeof inner === "object" && !Array.isArray(inner) && typeof (inner as Record<string, unknown>).format === "string") {
+    return inner as Record<string, unknown>;
+  }
+  return obj;
+}
+
+function buildRestorePreview(fileName: string, raw: unknown): BackupPreview {
+  const env = unwrapEnvelopeFile(raw);
+  const data = env.data && typeof env.data === "object" && !Array.isArray(env.data) ? (env.data as Record<string, unknown>) : {};
+  const firm = env.firm && typeof env.firm === "object" && !Array.isArray(env.firm) ? (env.firm as Record<string, unknown>) : {};
+
+  const issues: string[] = [];
+  const warnings: string[] = [];
+  const format = typeof env.format === "string" ? env.format : "";
+  const version = typeof env.version === "number" ? env.version : Number(env.version);
+  if (format !== "dmk-mart-erp-backup") {
+    issues.push(`Not a DMK backup envelope — format is ${format ? `"${format}"` : "missing"}`);
+  }
+  if (version !== 1 || !Number.isFinite(version)) {
+    issues.push(`Unsupported backup version — expected 1, got ${Number.isFinite(version) ? version : "unknown"}`);
+  }
+  if (typeof firm.firmName !== "string" || firm.firmName === "") {
+    issues.push("Envelope is missing the firm profile (firm.firmName)");
+  }
+  for (const key of REQUIRED_ENV_KEYS) {
+    if (!Array.isArray(data[key])) {
+      warnings.push(`data.${key} is missing or not an array — the API will reject this envelope`);
+    }
+  }
+
+  const counts: Record<string, number> = {};
+  let totalRecords = 0;
+  for (const [key] of BACKUP_COUNT_KEYS) {
+    const arr = data[key];
+    const n = Array.isArray(arr) ? arr.length : 0;
+    totalRecords += n;
+    if (Array.isArray(arr)) {
+      const nested = BACKUP_NESTED_KEYS[key] ?? [];
+      for (const row of arr) {
+        if (!row || typeof row !== "object") continue;
+        for (const nk of nested) {
+          const sub = (row as Record<string, unknown>)[nk];
+          if (Array.isArray(sub)) {
+            // child rows count toward the "rows will be created" total,
+            // but stay OUT of the parent tile so labels stay truthful
+            totalRecords += sub.length;
+          }
+        }
+      }
+    }
+    counts[key] = n;
+  }
+
+  return {
+    fileName,
+    format,
+    version: Number.isFinite(version) ? version : 0,
+    generatedAt: typeof env.generatedAt === "string" ? env.generatedAt : "",
+    firmName: typeof firm.firmName === "string" ? firm.firmName : "",
+    firmCode: typeof firm.firmCode === "string" ? firm.firmCode : "",
+    counts,
+    totalRecords,
+    issues,
+    warnings,
+  };
+}
+
+function RestoreCard() {
+  const { toast } = useToast();
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const envRef = React.useRef<unknown>(null);
+  const [preview, setPreview] = React.useState<BackupPreview | null>(null);
+  const [confirmText, setConfirmText] = React.useState("");
+  const [restoring, setRestoring] = React.useState(false);
+  const [apiError, setApiError] = React.useState<string | null>(null);
+  const [result, setResult] = React.useState<RestoreResult | null>(null);
+
+  const confirmed = confirmText.trim().toUpperCase() === RESTORE_WORD;
+  const blocked = (preview?.issues.length ?? 0) > 0;
+  const resultTotal = result
+    ? Object.values(result.counts as Record<string, number>).reduce((a, b) => a + b, 0)
+    : 0;
+
+  function resetFile() {
+    setPreview(null);
+    setConfirmText("");
+    envRef.current = null;
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function handleFile(file: File | undefined) {
+    setApiError(null);
+    setResult(null);
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const raw: unknown = JSON.parse(String(reader.result ?? "{}"));
+        envRef.current = raw;
+        setPreview(buildRestorePreview(file.name, raw));
+      } catch {
+        envRef.current = null;
+        setPreview(null);
+        setApiError("Not valid JSON — this file is not a DMK backup envelope.");
+      }
+    };
+    reader.onerror = () => {
+      setApiError("Could not read the file — try re-selecting it.");
+    };
+    reader.readAsText(file);
+  }
+
+  async function runRestore() {
+    if (!preview || !confirmed || restoring || blocked) return;
+    setRestoring(true);
+    setApiError(null);
+    try {
+      const res = await apiPost<RestoreResult>("/api/v1/backup/restore", { envelope: envRef.current });
+      setResult(res);
+      setConfirmText("");
+      resetFile();
+      // Land the owner in the restored firm: refresh the firms list and activate it.
+      const list = await apiGet<Firm[]>("/api/v1/firms");
+      useErpStore.getState().setFirms(list ?? []);
+      useErpStore.getState().setActiveFirm(res.firmId);
+      toast({
+        title: "Backup restored into a new firm",
+        description: `${res.firmName} (${res.firmCode}) is now the active firm — existing firms were never touched.`,
+      });
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Restore failed";
+      setApiError(msg);
+      toast({ variant: "destructive", title: "Restore failed", description: msg });
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  return (
+    <div className="dmk-card p-5 dmk-enter">
+      <div className="flex items-center gap-2.5 mb-3">
+        <ArchiveRestore className="h-4 w-4 text-dmk-gold" />
+        <h2 className="text-[15px] font-semibold text-dmk-text-primary">Restore from Backup</h2>
+        <Badge tone="gold">R1 · NEW FIRM ONLY</Badge>
+      </div>
+      <p className="text-[12.5px] text-dmk-text-secondary mb-4">
+        Restores a backup envelope into a <span className="text-dmk-text-primary font-medium">brand-new firm</span> — existing
+        firms are never touched. Every record is re-keyed with fresh IDs inside a single transaction; rows that cannot be
+        mapped are skipped and reported as warnings. Nothing is written until you type RESTORE.
+      </p>
+
+      {/* Success panel */}
+      {result && (
+        <div className="mb-4 rounded-lg border border-dmk-success/40 bg-dmk-success/10 p-4 space-y-2.5">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-dmk-success shrink-0" />
+            <span className="text-[13px] font-semibold text-dmk-success">Restored into new firm — now active</span>
+          </div>
+          <p className="font-money text-[12.5px] text-dmk-text-secondary">
+            {result.firmName} · <span className="text-dmk-gold">{result.firmCode}</span> · restored{" "}
+            {new Date(result.restoredAt).toLocaleString("en-IN")} · {resultTotal} rows written
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {BACKUP_COUNT_KEYS.filter(([key]) => (result.counts[key] ?? 0) > 0).map(([key, label]) => (
+              <span key={key} className="dmk-badge dmk-badge-neutral font-money">
+                {label} {result.counts[key]}
+              </span>
+            ))}
+          </div>
+          {result.warnings.length > 0 && (
+            <ul className="space-y-1 text-[11.5px] text-dmk-warning list-disc pl-5">
+              {result.warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* File picker — dashed drop-zone-style button */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".json,application/json"
+        className="sr-only"
+        aria-label="Backup envelope JSON file"
+        onChange={(e) => handleFile(e.target.files?.[0])}
+      />
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        disabled={restoring}
+        className="w-full rounded-lg border border-dashed border-dmk-border-medium bg-dmk-input-well/40 hover:bg-dmk-hover/60 disabled:opacity-50 px-4 py-5 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dmk-gold/60"
+      >
+        <span className="flex flex-col items-center gap-1.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-dmk-input-well border border-dmk-border-subtle">
+            {preview ? <FileJson2 className="h-4.5 w-4.5 text-dmk-gold" /> : <Upload className="h-4.5 w-4.5 text-dmk-text-muted" />}
+          </span>
+          <span className="text-[13px] font-semibold text-dmk-text-primary">
+            {preview ? "Choose a different file…" : "Choose a backup file (.json)…"}
+          </span>
+          <span className="text-[11px] text-dmk-text-muted font-money">dmk-backup-&lt;firmCode&gt;-&lt;date&gt;.json · exported from Settings</span>
+        </span>
+      </button>
+
+      {/* Verbatim API / parse error strip */}
+      {apiError && (
+        <div role="alert" className="mt-3 rounded-md border border-dmk-danger/40 bg-dmk-danger/10 px-3 py-2 text-[12.5px] text-dmk-danger">
+          {apiError}
+        </div>
+      )}
+
+      {/* Preflight preview */}
+      {preview && (
+        <div className="mt-4 rounded-lg border border-dmk-border-subtle bg-dmk-input-well/40 p-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <FileJson2 className="h-4 w-4 text-dmk-gold shrink-0" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Preflight preview</span>
+            <Badge tone={preview.version === 1 ? "info" : "danger"}>v{preview.version}</Badge>
+            {preview.issues.length === 0 ? (
+              <Badge tone="success">SHAPE OK</Badge>
+            ) : (
+              <Badge tone="danger">INVALID</Badge>
+            )}
+            <span className="ml-auto text-[11px] text-dmk-text-muted font-money truncate max-w-full">{preview.fileName}</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1.5 text-[11.5px] font-money">
+            <span className="text-dmk-text-muted">
+              Firm <span className="text-dmk-text-primary block truncate">{preview.firmName || "—"}</span>
+            </span>
+            <span className="text-dmk-text-muted">
+              Code <span className="text-dmk-text-primary block font-money">{preview.firmCode || "—"}</span>
+            </span>
+            <span className="text-dmk-text-muted">
+              Generated{" "}
+              <span className="text-dmk-text-secondary block font-money">
+                {preview.generatedAt ? new Date(preview.generatedAt).toLocaleString("en-IN") : "—"}
+              </span>
+            </span>
+          </div>
+
+          <div className="dmk-enter-stagger grid grid-cols-3 sm:grid-cols-5 gap-2">
+            {BACKUP_COUNT_KEYS.map(([key, label]) => (
+              <div key={key} className="rounded-md border border-dmk-border-subtle bg-dmk-bg-tertiary/60 px-2 py-1.5 text-center">
+                <div className="font-money text-[13px] font-semibold text-dmk-text-primary tabular-nums">{preview.counts[key] ?? 0}</div>
+                <div className="text-[9.5px] uppercase tracking-wide text-dmk-text-muted truncate">{label}</div>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-[11.5px] text-dmk-text-muted font-money">
+            ≈ {preview.totalRecords} rows will be created (incl. line items, allocations &amp; journal lines) into firm
+            code <span className="text-dmk-gold">{preview.firmCode ? `${preview.firmCode}-R1+` : "—"}</span> (suffixed if it exists)
+          </p>
+
+          {preview.issues.length > 0 && (
+            <ul role="alert" className="space-y-1 rounded-md border border-dmk-danger/40 bg-dmk-danger/10 px-3 py-2 text-[12px] text-dmk-danger list-disc pl-6">
+              {preview.issues.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          )}
+          {preview.warnings.length > 0 && (
+            <ul className="space-y-1 text-[11.5px] text-dmk-warning list-disc pl-5">
+              {preview.warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          )}
+
+          {/* Destructive confirmation: type RESTORE */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
+            <Input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={`Type ${RESTORE_WORD} to enable`}
+              aria-label={`Type ${RESTORE_WORD} to confirm restore`}
+              disabled={restoring || blocked}
+              className={cn(inputCls, "sm:max-w-56 font-money tracking-widest uppercase placeholder:normal-case placeholder:tracking-normal")}
+            />
+            <Button
+              onClick={() => void runRestore()}
+              disabled={restoring || blocked || !confirmed}
+              className="h-9 gap-2 bg-dmk-gold text-[12.5px] font-bold text-[#1a1d29] hover:bg-dmk-gold/85 disabled:opacity-40 sm:ml-auto"
+            >
+              {restoring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArchiveRestore className="h-3.5 w-3.5" />}
+              {restoring ? "Restoring…" : `Restore ${preview.totalRecords} records`}
+            </Button>
+          </div>
+          <p className="text-[10.5px] text-dmk-text-muted">
+            The restore creates a new firm with suffix <span className="font-money">-R1, -R2…</span> when the code already
+            exists, then switches you into it. Original firm profile is preserved unmodified (name gains “ (Restored)”).
+          </p>
+        </div>
+      )}
     </div>
   );
 }

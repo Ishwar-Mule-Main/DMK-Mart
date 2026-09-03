@@ -52,6 +52,7 @@ model Firm {
   journalEntries    JournalEntry[]
   inventoryMovements InventoryMovement[]
   stockAdjustments  StockAdjustment[]
+  recurringTemplates RecurringTemplate[]
 }
 
 // ─── PRODUCT (5-tier pricing + dual stock) ───────────────────────
@@ -87,6 +88,7 @@ model Product {
   salesReturnItems    SalesReturnItem[]
   purchaseReturnItems PurchaseReturnItem[]
   movements           InventoryMovement[]
+  recurringTemplateItems RecurringTemplateItem[]
 
   @@unique([firmId, sku])
   @@index([firmId, name])
@@ -123,6 +125,7 @@ model Customer {
   salesReturns     SalesReturn[]
   receipts         CustomerReceipt[]
   ledgerEntries    LedgerEntry[]
+  recurringTemplates RecurringTemplate[]
 
   @@index([firmId, partyName])
   @@index([firmId, phone])
@@ -550,4 +553,46 @@ model LedgerEntry {
   @@index([firmId, customerId])
   @@index([firmId, vendorId])
   @@index([firmId, entryDate])
+}
+
+// ─── RECURRING BILLING (standing-order templates → auto invoices) ─
+
+model RecurringTemplate {
+  id            String   @id @default(cuid())
+  firmId        String
+  firm          Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  name          String
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  frequency     String   @default("MONTHLY") // WEEKLY | MONTHLY | BIMONTHLY | QUARTERLY
+  paymentMode   String   @default("CREDIT")  // CREDIT | CASH | UPI | CARD | NEFT
+  startDate     DateTime
+  endDate       DateTime? // null = no end
+  nextRunDate   DateTime
+  lastRunDate   DateTime?
+  lastInvoiceId String   @default("")
+  autoPost      Boolean  @default(true) // reserved: always true in this build
+  isActive      Boolean  @default(true)
+  notes         String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  items RecurringTemplateItem[]
+
+  @@index([firmId, nextRunDate])
+  @@index([firmId, isActive])
+}
+
+model RecurringTemplateItem {
+  id                String  @id @default(cuid())
+  templateId        String
+  template          RecurringTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product @relation(fields: [productId], references: [id])
+  sku               String  @default("")
+  productName       String  @default("")
+  quantity          Float
+  manualDiscountPct Float? // null = auto (bulk tiers decide)
+
+  @@index([templateId])
 }

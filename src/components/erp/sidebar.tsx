@@ -31,6 +31,7 @@ import {
   ListTree,
   PieChart,
   CalendarDays,
+  CalendarClock,
   Timer,
   FileCheck2,
   FileWarning,
@@ -63,6 +64,7 @@ const SECTIONS: NavSection[] = [
       { id: "sales/returns", label: "Sales Returns", icon: Undo2 },
       { id: "sales/customers", label: "Customers & Buyers", icon: Users },
       { id: "sales/receipts", label: "Receipts", icon: Receipt },
+      { id: "sales/recurring", label: "Recurring Billing", icon: CalendarClock },
     ],
   },
   {

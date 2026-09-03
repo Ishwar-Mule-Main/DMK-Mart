@@ -17,6 +17,7 @@ export type ViewId =
   | "sales/returns"
   | "sales/customers"
   | "sales/receipts"
+  | "sales/recurring"
   | "purchase/orders"
   | "purchase/returns"
   | "purchase/vendors"

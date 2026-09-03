@@ -1,0 +1,863 @@
+     1→// ═══════════════════════════════════════════════════════════════
+     2→// /api/v1/backup/restore — restore a backup envelope into a NEW firm
+     3→// R1 isolation: restores NEVER write to existing firms. A fresh firm
+     4→// is always created and every record is re-keyed with brand-new ids
+     5→// (oldId → newId maps), so id collisions across firms are impossible.
+     6→// Preflight validates the envelope (ERR_VALIDATION 400 on failure);
+     7→// child rows whose parents cannot be mapped are skipped with warnings.
+     8→// ═══════════════════════════════════════════════════════════════
+     9→
+    10→import { NextRequest } from "next/server";
+    11→import { randomBytes } from "crypto";
+    12→import { Prisma } from "@prisma/client";
+    13→import { db } from "@/lib/db";
+    14→import {
+    15→  BusinessError,
+    16→  asRecord,
+    17→  asRecordArray,
+    18→  getBool,
+    19→  getDate,
+    20→  getDateOrNull,
+    21→  getNum,
+    22→  getStr,
+    23→  handleApiError,
+    24→  ok,
+    25→} from "@/app/api/v1/_lib/api";
+    26→
+    27→// ─── Fresh id generator (cuid-like, collision-safe in-process) ───
+    28→let idSeq = 0;
+    29→function newId(): string {
+    30→  idSeq = (idSeq + 1) % 0xffffff;
+    31→  return `c${Date.now().toString(36)}${idSeq.toString(36).padStart(4, "0")}${randomBytes(9).toString("hex")}`;
+    32→}
+    33→
+    34→// ─── Chunking (SQLite variable limits: keep params per insert low) ──
+    35→function chunkByParams<T>(rows: T[], maxParams = 480): T[][] {
+    36→  if (rows.length === 0) return [];
+    37→  const fields = Math.max(1, Object.keys(rows[0] as Record<string, unknown>).length);
+    38→  const size = Math.max(1, Math.floor(maxParams / fields));
+    39→  const chunks: T[][] = [];
+    40→  for (let i = 0; i < rows.length; i += size) chunks.push(rows.slice(i, i + size));
+    41→  return chunks;
+    42→}
+    43→
+    44→function getStrOrNull(v: unknown): string | null {
+    45→  const s = getStr(v);
+    46→  return s === "" ? null : s;
+    47→}
+    48→
+    49→function getNumOrNull(v: unknown): number | null {
+    50→  if (v === null || v === undefined || v === "") return null;
+    51→  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    52→  const n = Number(v);
+    53→  return Number.isFinite(n) ? n : null;
+    54→}
+    55→
+    56→// ─── Envelope normalization ──────────────────────────────────────
+    57→// The Settings export UI writes the raw fetch response to disk, so a
+    58→// downloaded file may be wrapped in { ok, data }. Accept both shapes.
+    59→function unwrapEnvelope(raw: unknown): Record<string, unknown> {
+    60→  const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+    61→  if (typeof obj.format === "string" && obj.format !== "") return obj;
+    62→  const inner = asRecord(obj.data);
+    63→  if (typeof inner.format === "string" && inner.format !== "") return inner;
+    64→  return obj;
+    65→}
+    66→
+    67→const REQUIRED_COLLECTIONS = ["products", "customers", "chartOfAccounts", "journalEntries"] as const;
+    68→
+    69→const ALL_COLLECTIONS = [
+    70→  "products", "customers", "vendors", "purchaseOrders", "invoices", "salesReturns",
+    71→  "purchaseReturns", "vendorPayments", "customerReceipts", "chartOfAccounts",
+    72→  "journalEntries", "inventoryMovements", "stockAdjustments", "ledgerEntries", "gstr2bRecords",
+    73→];
+    74→
+    75→function firstDupe(
+    76→  rows: Record<string, unknown>[],
+    77→  keyOf: (r: Record<string, unknown>) => string
+    78→): string | null {
+    79→  const seen = new Set<string>();
+    80→  for (const r of rows) {
+    81→    const k = keyOf(r);
+    82→    if (k === "") continue;
+    83→    if (seen.has(k)) return k;
+    84→    seen.add(k);
+    85→  }
+    86→  return null;
+    87→}
+    88→
+    89→export async function POST(request: NextRequest) {
+    90→  try {
+    91→    const body = asRecord(await request.json().catch(() => null));
+    92→    if (body.envelope === undefined) {
+    93→      throw new BusinessError(
+    94→        "ERR_VALIDATION",
+    95→        "Request body must include an `envelope` object — post the parsed backup file JSON as { envelope: {...} }",
+    96→        400
+    97→      );
+    98→    }
+    99→    const env = unwrapEnvelope(body.envelope);
+   100→
+   101→    // ── PREFLIGHT ────────────────────────────────────────────────
+   102→    const format = typeof env.format === "string" ? env.format : "";
+   103→    if (format !== "dmk-mart-erp-backup") {
+   104→      throw new BusinessError(
+   105→        "ERR_VALIDATION",
+   106→        `Not a DMK backup envelope — expected format "dmk-mart-erp-backup", got ${format === "" ? "none" : `"${format}"`}`,
+   107→        400
+   108→      );
+   109→    }
+   110→    const version = typeof env.version === "number" ? env.version : Number(env.version);
+   111→    if (!Number.isFinite(version) || version !== 1) {
+   112→      throw new BusinessError(
+   113→        "ERR_VALIDATION",
+   114→        `Unsupported backup version — expected 1, got ${Number.isFinite(version) ? version : "unknown"}`,
+   115→        400
+   116→      );
+   117→    }
+   118→    const srcFirm = asRecord(env.firm);
+   119→    const origFirmName = getStr(srcFirm.firmName);
+   120→    if (origFirmName === "") {
+   121→      throw new BusinessError("ERR_VALIDATION", "Envelope is missing the firm profile — firm.firmName is required", 400);
+   122→    }
+   123→    const data = asRecord(env.data);
+   124→    if (Object.keys(data).length === 0) {
+   125→      throw new BusinessError("ERR_VALIDATION", "Envelope is missing the data payload — data.{collections} is required", 400);
+   126→    }
+   127→    for (const key of REQUIRED_COLLECTIONS) {
+   128→      if (!Array.isArray(data[key])) {
+   129→        throw new BusinessError("ERR_VALIDATION", `data.${key} is required in the backup envelope (must be an array)`, 400);
+   130→      }
+   131→    }
+   132→    for (const key of ALL_COLLECTIONS) {
+   133→      if (data[key] !== undefined && !Array.isArray(data[key])) {
+   134→        throw new BusinessError("ERR_VALIDATION", `data.${key} must be an array`, 400);
+   135→      }
+   136→    }
+   137→    // Unique-constraint guards within the envelope itself (our own
+   138→    // exports can't contain dupes, but hand-made envelopes could —
+   139→    // fail with a clear 400 instead of a broken transaction).
+   140→    const dupeChecks: Array<[string, (r: Record<string, unknown>) => string]> = [
+   141→      ["products", (r) => getStr(r.sku)],
+   142→      ["purchaseOrders", (r) => getStr(r.poNumber)],
+   143→      ["invoices", (r) => getStr(r.invoiceNumber)],
+   144→      ["salesReturns", (r) => getStr(r.creditNoteNo)],
+   145→      ["purchaseReturns", (r) => getStr(r.debitNoteNo)],
+   146→      ["chartOfAccounts", (r) => getStr(r.accountCode)],
+   147→      ["journalEntries", (r) => getStr(r.voucherNumber)],
+   148→      ["gstr2bRecords", (r) => `${getStr(r.period)}|${getStr(r.gstin)}|${getStr(r.invoiceNo)}`],
+   149→    ];
+   150→    for (const [key, keyOf] of dupeChecks) {
+   151→      const d = firstDupe(asRecordArray(data[key]), keyOf);
+   152→      if (d) {
+   153→        throw new BusinessError("ERR_VALIDATION", `data.${key} contains duplicate key "${d}" — cannot satisfy the firm's unique constraints`, 400);
+   154→      }
+   155→    }
+   156→
+   157→    // Derived counts vs envelope.counts → warnings, not rejections.
+   158→    const warnings: string[] = [];
+   159→    const declaredCounts = asRecord(env.counts);
+   160→    if (Object.keys(declaredCounts).length > 0) {
+   161→      for (const key of ALL_COLLECTIONS) {
+   162→        const derived = Array.isArray(data[key]) ? (data[key] as unknown[]).length : 0;
+   163→        const declared = typeof declaredCounts[key] === "number" ? (declaredCounts[key] as number) : undefined;
+   164→        if (declared !== undefined && declared !== derived) {
+   165→          warnings.push(`counts.${key} says ${declared} but the envelope data contains ${derived} — data payload wins`);
+   166→        }
+   167→      }
+   168→    } else {
+   169→      warnings.push("Envelope carries no counts block — skipped the count cross-check");
+   170→    }
+   171→    if (Array.isArray(data.chartOfAccounts) && (data.chartOfAccounts as unknown[]).length === 0 && (data.journalEntries as unknown[]).length > 0) {
+   172→      warnings.push("Chart of accounts is empty but journal entries exist — every journal line will be skipped");
+   173→    }
+   174→
+   175→    // ── FIRM CREATION (never touches existing firms) ─────────────
+   176→    let preferredCode = getStr(srcFirm.firmCode);
+   177→    if (!preferredCode) {
+   178→      preferredCode = origFirmName.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) || "RESTORED";
+   179→    }
+   180→    let firmCode = preferredCode;
+   181→    for (let n = 1; await db.firm.findUnique({ where: { firmCode }, select: { id: true } }); n++) {
+   182→      firmCode = `${preferredCode}-R${n}`;
+   183→    }
+   184→    const firmName = `${origFirmName} (Restored)`;
+   185→    const firmData: Prisma.FirmUncheckedCreateInput = {
+   186→      id: newId(),
+   187→      firmName,
+   188→      firmCode,
+   189→      gstin: getStr(srcFirm.gstin),
+   190→      state: getStr(srcFirm.state) || "Maharashtra",
+   191→      stateCode: getStr(srcFirm.stateCode) || "27",
+   192→      address: getStr(srcFirm.address),
+   193→      phone: getStr(srcFirm.phone),
+   194→      email: getStr(srcFirm.email),
+   195→      bankName: getStr(srcFirm.bankName),
+   196→      bankAccount: getStr(srcFirm.bankAccount),
+   197→      ifsc: getStr(srcFirm.ifsc),
+   198→      financialYear: getStr(srcFirm.financialYear) || "2025-26",
+   199→      invoicePrefix: getStr(srcFirm.invoicePrefix) || firmCode,
+   200→      logoUrl: getStrOrNull(srcFirm.logoUrl),
+   201→      openingCash: getNum(srcFirm.openingCash),
+   202→      openingBank: getNum(srcFirm.openingBank),
+   203→      isActive: true, // force — a restored firm must be usable
+   204→    };
+   205→    const newFirmId = firmData.id;
+   206→
+   207→    // Skipped-row tally → concise warnings at the end.
+   208→    const skipTally = new Map<string, number>();
+   209→    const tallySkip = (reason: string, n = 1) => skipTally.set(reason, (skipTally.get(reason) ?? 0) + n);
+   210→
+   211→    // ── 1. CHART OF ACCOUNTS ─────────────────────────────────────
+   212→    const accountRows: Prisma.ChartOfAccountUncheckedCreateInput[] = [];
+   213→    const accountMap = new Map<string, string>();
+   214→    for (const a of asRecordArray(data.chartOfAccounts)) {
+   215→      const oldId = getStr(a.id);
+   216→      const nid = newId();
+   217→      if (oldId) accountMap.set(oldId, nid);
+   218→      accountRows.push({
+   219→        id: nid,
+   220→        firmId: newFirmId,
+   221→        accountCode: getStr(a.accountCode) || `IMP-${nid.slice(-6)}`,
+   222→        accountName: getStr(a.accountName) || "Imported account",
+   223→        accountGroup: getStr(a.accountGroup),
+   224→        accountClass: getStr(a.accountClass) || "ASSET",
+   225→        openingBalance: getNum(a.openingBalance),
+   226→        isActive: getBool(a.isActive, true),
+   227→      });
+   228→    }
+   229→
+   230→    // ── 2. PRODUCTS / CUSTOMERS / VENDORS ────────────────────────
+   231→    const productRows: Prisma.ProductUncheckedCreateInput[] = [];
+   232→    const productMap = new Map<string, string>();
+   233→    for (const p of asRecordArray(data.products)) {
+   234→      const oldId = getStr(p.id);
+   235→      const nid = newId();
+   236→      if (oldId) productMap.set(oldId, nid);
+   237→      productRows.push({
+   238→        id: nid,
+   239→        firmId: newFirmId,
+   240→        sku: getStr(p.sku) || `SKU-${nid.slice(-8)}`,
+   241→        name: getStr(p.name) || "Imported product",
+   242→        category: getStr(p.category) || "General",
+   243→        brand: getStr(p.brand),
+   244→        unit: getStr(p.unit) || "Pcs",
+   245→        hsnCode: getStr(p.hsnCode) || "3924",
+   246→        gstRate: getNum(p.gstRate, 18),
+   247→        purchaseCost: getNum(p.purchaseCost),
+   248→        tier1Distributor: getNum(p.tier1Distributor),
+   249→        tier2Wholesale: getNum(p.tier2Wholesale),
+   250→        tier3SemiWholesale: getNum(p.tier3SemiWholesale),
+   251→        tier4Retailer: getNum(p.tier4Retailer),
+   252→        tier5Mrp: getNum(p.tier5Mrp),
+   253→        stockQuantity: getNum(p.stockQuantity),
+   254→        damagedStock: getNum(p.damagedStock),
+   255→        lowStockThreshold: getNum(p.lowStockThreshold),
+   256→        weightGrams: getNumOrNull(p.weightGrams),
+   257→        barcode: getStrOrNull(p.barcode),
+   258→        isActive: getBool(p.isActive, true),
+   259→        createdAt: getDate(p.createdAt),
+   260→      });
+   261→    }
+   262→
+   263→    const customerRows: Prisma.CustomerUncheckedCreateInput[] = [];
+   264→    const customerMap = new Map<string, string>();
+   265→    for (const c of asRecordArray(data.customers)) {
+   266→      const oldId = getStr(c.id);
+   267→      const nid = newId();
+   268→      if (oldId) customerMap.set(oldId, nid);
+   269→      customerRows.push({
+   270→        id: nid,
+   271→        firmId: newFirmId,
+   272→        partyName: getStr(c.partyName) || `Customer ${nid.slice(-6)}`,
+   273→        firmName: getStr(c.firmName),
+   274→        city: getStr(c.city),
+   275→        stateCode: getStr(c.stateCode) || "27",
+   276→        gstin: getStr(c.gstin),
+   277→        phone: getStr(c.phone),
+   278→        email: getStr(c.email),
+   279→        address: getStr(c.address),
+   280→        customerType: getStr(c.customerType) || "B2B",
+   281→        assignedTier: getStr(c.assignedTier) || "tier4Retailer",
+   282→        creditLimit: getNum(c.creditLimit),
+   283→        creditDays: Math.round(getNum(c.creditDays, 30)),
+   284→        openingBalance: getNum(c.openingBalance),
+   285→        closingBalance: getNum(c.closingBalance),
+   286→        visitCount: Math.round(getNum(c.visitCount)),
+   287→        lifetimeSpend: getNum(c.lifetimeSpend),
+   288→        isActive: getBool(c.isActive, true),
+   289→        createdAt: getDate(c.createdAt),
+   290→      });
+   291→    }
+   292→
+   293→    const vendorRows: Prisma.VendorUncheckedCreateInput[] = [];
+   294→    const vendorMap = new Map<string, string>();
+   295→    for (const v of asRecordArray(data.vendors)) {
+   296→      const oldId = getStr(v.id);
+   297→      const nid = newId();
+   298→      if (oldId) vendorMap.set(oldId, nid);
+   299→      vendorRows.push({
+   300→        id: nid,
+   301→        firmId: newFirmId,
+   302→        vendorName: getStr(v.vendorName) || `Vendor ${nid.slice(-6)}`,
+   303→        vendorType: getStr(v.vendorType) || "DISTRIBUTOR",
+   304→        brand: getStr(v.brand),
+   305→        gstin: getStr(v.gstin),
+   306→        stateCode: getStr(v.stateCode) || "27",
+   307→        phone: getStr(v.phone),
+   308→        email: getStr(v.email),
+   309→        address: getStr(v.address),
+   310→        paymentTerms: getStr(v.paymentTerms) || "NET_30",
+   311→        openingBalance: getNum(v.openingBalance),
+   312→        closingBalance: getNum(v.closingBalance),
+   313→        isActive: getBool(v.isActive, true),
+   314→        createdAt: getDate(v.createdAt),
+   315→      });
+   316→    }
+   317→
+   318→    // ── 3. PURCHASE ORDERS + ITEMS ───────────────────────────────
+   319→    const poRows: Prisma.PurchaseOrderUncheckedCreateInput[] = [];
+   320→    const poMap = new Map<string, string>();
+   321→    const poItemRows: Prisma.PurchaseOrderItemUncheckedCreateInput[] = [];
+   322→    for (const po of asRecordArray(data.purchaseOrders)) {
+   323→      const newVendor = vendorMap.get(getStr(po.vendorId));
+   324→      if (!newVendor) {
+   325→        tallySkip("purchaseOrders (vendor missing from backup)");
+   326→        const orphanItems = asRecordArray(po.items).length;
+   327→        if (orphanItems > 0) tallySkip("purchaseOrderItems (parent PO skipped)", orphanItems);
+   328→        continue;
+   329→      }
+   330→      const oldId = getStr(po.id);
+   331→      const nid = newId();
+   332→      if (oldId) poMap.set(oldId, nid);
+   333→      poRows.push({
+   334→        id: nid,
+   335→        firmId: newFirmId,
+   336→        vendorId: newVendor,
+   337→        poNumber: getStr(po.poNumber) || `PO-RESTORED-${nid.slice(-6)}`,
+   338→        poDate: getDate(po.poDate),
+   339→        status: getStr(po.status) || "PENDING",
+   340→        subtotal: getNum(po.subtotal),
+   341→        totalCgst: getNum(po.totalCgst),
+   342→        totalSgst: getNum(po.totalSgst),
+   343→        totalIgst: getNum(po.totalIgst),
+   344→        grandTotal: getNum(po.grandTotal),
+   345→        receivedNote: getStr(po.receivedNote),
+   346→        vendorBillNo: getStr(po.vendorBillNo),
+   347→        vendorBillDate: getDateOrNull(po.vendorBillDate),
+   348→        notes: getStr(po.notes),
+   349→        createdAt: getDate(po.createdAt),
+   350→      });
+   351→      for (const it of asRecordArray(po.items)) {
+   352→        const newProduct = productMap.get(getStr(it.productId));
+   353→        if (!newProduct) {
+   354→          tallySkip("purchaseOrderItems (product missing from backup)");
+   355→          continue;
+   356→        }
+   357→        poItemRows.push({
+   358→          id: newId(),
+   359→          poId: nid,
+   360→          productId: newProduct,
+   361→          sku: getStr(it.sku),
+   362→          productName: getStr(it.productName),
+   363→          hsnCode: getStr(it.hsnCode),
+   364→          quantity: getNum(it.quantity),
+   365→          receivedQty: getNum(it.receivedQty),
+   366→          unitCost: getNum(it.unitCost),
+   367→          taxableAmount: getNum(it.taxableAmount),
+   368→          gstRate: getNum(it.gstRate, 18),
+   369→          cgstAmount: getNum(it.cgstAmount),
+   370→          sgstAmount: getNum(it.sgstAmount),
+   371→          igstAmount: getNum(it.igstAmount),
+   372→          totalAmount: getNum(it.totalAmount),
+   373→        });
+   374→      }
+   375→    }
+   376→
+   377→    // ── 4. INVOICES + LINE ITEMS ─────────────────────────────────
+   378→    const invoiceRows: Prisma.InvoiceUncheckedCreateInput[] = [];
+   379→    const invoiceMap = new Map<string, string>();
+   380→    const lineItemRows: Prisma.InvoiceLineItemUncheckedCreateInput[] = [];
+   381→    for (const inv of asRecordArray(data.invoices)) {
+   382→      const oldId = getStr(inv.id);
+   383→      const nid = newId();
+   384→      if (oldId) invoiceMap.set(oldId, nid);
+   385→      const oldCustomerId = getStr(inv.customerId);
+   386→      let invCustomerId: string | null = null;
+   387→      if (oldCustomerId) {
+   388→        invCustomerId = customerMap.get(oldCustomerId) ?? null;
+   389→        if (!invCustomerId) tallySkip("invoice customer links (customer missing → set null)");
+   390→      }
+   391→      invoiceRows.push({
+   392→        id: nid,
+   393→        firmId: newFirmId,
+   394→        invoiceNumber: getStr(inv.invoiceNumber) || `INV-RESTORED-${nid.slice(-6)}`,
+   395→        invoiceDate: getDate(inv.invoiceDate),
+   396→        customerId: invCustomerId,
+   397→        isCounterSale: getBool(inv.isCounterSale),
+   398→        walkInName: getStr(inv.walkInName),
+   399→        walkInPhone: getStr(inv.walkInPhone),
+   400→        subtotal: getNum(inv.subtotal),
+   401→        discountTotal: getNum(inv.discountTotal),
+   402→        totalCgst: getNum(inv.totalCgst),
+   403→        totalSgst: getNum(inv.totalSgst),
+   404→        totalIgst: getNum(inv.totalIgst),
+   405→        roundOff: getNum(inv.roundOff),
+   406→        grandTotal: getNum(inv.grandTotal),
+   407→        amountInWords: getStr(inv.amountInWords),
+   408→        paymentMode: getStr(inv.paymentMode) || "CREDIT",
+   409→        status: getStr(inv.status) || "POSTED",
+   410→        createdAt: getDate(inv.createdAt),
+   411→      });
+   412→      for (const li of asRecordArray(inv.lineItems)) {
+   413→        const newProduct = productMap.get(getStr(li.productId));
+   414→        if (!newProduct) {
+   415→          tallySkip("invoiceLineItems (product missing from backup)");
+   416→          continue;
+   417→        }
+   418→        lineItemRows.push({
+   419→          id: newId(),
+   420→          invoiceId: nid,
+   421→          productId: newProduct,
+   422→          sku: getStr(li.sku),
+   423→          productName: getStr(li.productName),
+   424→          hsnCode: getStr(li.hsnCode),
+   425→          selectedTier: getStr(li.selectedTier) || "tier4Retailer",
+   426→          packagingFormat: getStr(li.packagingFormat) || "PIECE",
+   427→          baseTierPrice: getNum(li.baseTierPrice),
+   428→          bulkDiscountPct: getNum(li.bulkDiscountPct),
+   429→          unitPrice: getNum(li.unitPrice),
+   430→          quantity: getNum(li.quantity),
+   431→          taxableAmount: getNum(li.taxableAmount),
+   432→          gstRate: getNum(li.gstRate, 18),
+   433→          cgstAmount: getNum(li.cgstAmount),
+   434→          sgstAmount: getNum(li.sgstAmount),
+   435→          igstAmount: getNum(li.igstAmount),
+   436→          totalAmount: getNum(li.totalAmount),
+   437→        });
+   438→      }
+   439→    }
+   440→
+   441→    // ── 5. SALES RETURNS + ITEMS ─────────────────────────────────
+   442→    const salesReturnRows: Prisma.SalesReturnUncheckedCreateInput[] = [];
+   443→    const salesReturnMap = new Map<string, string>();
+   444→    const salesReturnItemRows: Prisma.SalesReturnItemUncheckedCreateInput[] = [];
+   445→    for (const sr of asRecordArray(data.salesReturns)) {
+   446→      const oldId = getStr(sr.id);
+   447→      const nid = newId();
+   448→      if (oldId) salesReturnMap.set(oldId, nid);
+   449→      const oldInvId = getStr(sr.invoiceId);
+   450→      let srInvoiceId: string | null = null;
+   451→      if (oldInvId) {
+   452→        srInvoiceId = invoiceMap.get(oldInvId) ?? null;
+   453→        if (!srInvoiceId) tallySkip("sales return invoice links (invoice missing → set null)");
+   454→      }
+   455→      const oldCustId = getStr(sr.customerId);
+   456→      let srCustomerId: string | null = null;
+   457→      if (oldCustId) {
+   458→        srCustomerId = customerMap.get(oldCustId) ?? null;
+   459→        if (!srCustomerId) tallySkip("sales return customer links (customer missing → set null)");
+   460→      }
+   461→      salesReturnRows.push({
+   462→        id: nid,
+   463→        firmId: newFirmId,
+   464→        creditNoteNo: getStr(sr.creditNoteNo) || `CN-RESTORED-${nid.slice(-6)}`,
+   465→        invoiceRef: getStr(sr.invoiceRef),
+   466→        invoiceId: srInvoiceId,
+   467→        customerId: srCustomerId,
+   468→        returnDate: getDate(sr.returnDate),
+   469→        subtotal: getNum(sr.subtotal),
+   470→        totalTax: getNum(sr.totalTax),
+   471→        grandTotal: getNum(sr.grandTotal),
+   472→        notes: getStr(sr.notes),
+   473→        createdAt: getDate(sr.createdAt),
+   474→      });
+   475→      for (const it of asRecordArray(sr.items)) {
+   476→        const newProduct = productMap.get(getStr(it.productId));
+   477→        if (!newProduct) {
+   478→          tallySkip("salesReturnItems (product missing from backup)");
+   479→          continue;
+   480→        }
+   481→        salesReturnItemRows.push({
+   482→          id: newId(),
+   483→          returnId: nid,
+   484→          productId: newProduct,
+   485→          damagedQty: getNum(it.damagedQty),
+   486→          unitPrice: getNum(it.unitPrice),
+   487→          gstRate: getNum(it.gstRate, 18),
+   488→          totalAmount: getNum(it.totalAmount),
+   489→          defectType: getStr(it.defectType) || "Damaged",
+   490→        });
+   491→      }
+   492→    }
+   493→
+   494→    // ── 6. PURCHASE RETURNS + ITEMS ──────────────────────────────
+   495→    const purchaseReturnRows: Prisma.PurchaseReturnUncheckedCreateInput[] = [];
+   496→    const purchaseReturnMap = new Map<string, string>();
+   497→    const purchaseReturnItemRows: Prisma.PurchaseReturnItemUncheckedCreateInput[] = [];
+   498→    for (const pr of asRecordArray(data.purchaseReturns)) {
+   499→      const oldId = getStr(pr.id);
+   500→      const nid = newId();
+   501→      if (oldId) purchaseReturnMap.set(oldId, nid);
+   502→      const oldPoId = getStr(pr.poId);
+   503→      let prPoId: string | null = null;
+   504→      if (oldPoId) {
+   505→        prPoId = poMap.get(oldPoId) ?? null;
+   506→        if (!prPoId) tallySkip("purchase return PO links (PO missing → set null)");
+   507→      }
+   508→      const oldVendorId = getStr(pr.vendorId);
+   509→      let prVendorId: string | null = null;
+   510→      if (oldVendorId) {
+   511→        prVendorId = vendorMap.get(oldVendorId) ?? null;
+   512→        if (!prVendorId) tallySkip("purchase return vendor links (vendor missing → set null)");
+   513→      }
+   514→      purchaseReturnRows.push({
+   515→        id: nid,
+   516→        firmId: newFirmId,
+   517→        debitNoteNo: getStr(pr.debitNoteNo) || `DN-RESTORED-${nid.slice(-6)}`,
+   518→        poRef: getStr(pr.poRef),
+   519→        poId: prPoId,
+   520→        vendorId: prVendorId,
+   521→        returnDate: getDate(pr.returnDate),
+   522→        subtotal: getNum(pr.subtotal),
+   523→        totalTax: getNum(pr.totalTax),
+   524→        grandTotal: getNum(pr.grandTotal),
+   525→        notes: getStr(pr.notes),
+   526→        createdAt: getDate(pr.createdAt),
+   527→      });
+   528→      for (const it of asRecordArray(pr.items)) {
+   529→        const newProduct = productMap.get(getStr(it.productId));
+   530→        if (!newProduct) {
+   531→          tallySkip("purchaseReturnItems (product missing from backup)");
+   532→          continue;
+   533→        }
+   534→        purchaseReturnItemRows.push({
+   535→          id: newId(),
+   536→          returnId: nid,
+   537→          productId: newProduct,
+   538→          damagedQty: getNum(it.damagedQty),
+   539→          unitCost: getNum(it.unitCost),
+   540→          gstRate: getNum(it.gstRate, 18),
+   541→          totalAmount: getNum(it.totalAmount),
+   542→          reason: getStr(it.reason) || "Transit Damage",
+   543→        });
+   544→      }
+   545→    }
+   546→
+   547→    // ── 7. VENDOR PAYMENTS + ALLOCATIONS ─────────────────────────
+   548→    const vendorPaymentRows: Prisma.VendorPaymentUncheckedCreateInput[] = [];
+   549→    const paymentMap = new Map<string, string>();
+   550→    const paymentAllocationRows: Prisma.PaymentAllocationUncheckedCreateInput[] = [];
+   551→    for (const vp of asRecordArray(data.vendorPayments)) {
+   552→      const newVendor = vendorMap.get(getStr(vp.vendorId));
+   553→      if (!newVendor) {
+   554→        tallySkip("vendorPayments (vendor missing from backup)");
+   555→        const orphanAllocs = asRecordArray(vp.allocations).length;
+   556→        if (orphanAllocs > 0) tallySkip("paymentAllocations (parent payment skipped)", orphanAllocs);
+   557→        continue;
+   558→      }
+   559→      const oldId = getStr(vp.id);
+   560→      const nid = newId();
+   561→      if (oldId) paymentMap.set(oldId, nid);
+   562→      vendorPaymentRows.push({
+   563→        id: nid,
+   564→        firmId: newFirmId,
+   565→        vendorId: newVendor,
+   566→        paymentDate: getDate(vp.paymentDate),
+   567→        amount: getNum(vp.amount),
+   568→        mode: getStr(vp.mode) || "NEFT",
+   569→        utrRef: getStr(vp.utrRef),
+   570→        notes: getStr(vp.notes),
+   571→        createdAt: getDate(vp.createdAt),
+   572→      });
+   573→      for (const al of asRecordArray(vp.allocations)) {
+   574→        const newPo = poMap.get(getStr(al.purchaseOrderId));
+   575→        if (!newPo) {
+   576→          tallySkip("paymentAllocations (PO missing from backup)");
+   577→          continue;
+   578→        }
+   579→        paymentAllocationRows.push({
+   580→          id: newId(),
+   581→          firmId: newFirmId,
+   582→          paymentId: nid,
+   583→          purchaseOrderId: newPo,
+   584→          amount: getNum(al.amount),
+   585→          createdAt: getDate(al.createdAt),
+   586→        });
+   587→      }
+   588→    }
+   589→
+   590→    // ── 8. CUSTOMER RECEIPTS + ALLOCATIONS ───────────────────────
+   591→    const receiptRows: Prisma.CustomerReceiptUncheckedCreateInput[] = [];
+   592→    const receiptMap = new Map<string, string>();
+   593→    const receiptAllocationRows: Prisma.ReceiptAllocationUncheckedCreateInput[] = [];
+   594→    for (const cr of asRecordArray(data.customerReceipts)) {
+   595→      const newCustomer = customerMap.get(getStr(cr.customerId));
+   596→      if (!newCustomer) {
+   597→        tallySkip("customerReceipts (customer missing from backup)");
+   598→        const orphanAllocs = asRecordArray(cr.allocations).length;
+   599→        if (orphanAllocs > 0) tallySkip("receiptAllocations (parent receipt skipped)", orphanAllocs);
+   600→        continue;
+   601→      }
+   602→      const oldId = getStr(cr.id);
+   603→      const nid = newId();
+   604→      if (oldId) receiptMap.set(oldId, nid);
+   605→      receiptRows.push({
+   606→        id: nid,
+   607→        firmId: newFirmId,
+   608→        customerId: newCustomer,
+   609→        receiptDate: getDate(cr.receiptDate),
+   610→        amount: getNum(cr.amount),
+   611→        mode: getStr(cr.mode) || "NEFT",
+   612→        utrRef: getStr(cr.utrRef),
+   613→        notes: getStr(cr.notes),
+   614→        createdAt: getDate(cr.createdAt),
+   615→      });
+   616→      for (const al of asRecordArray(cr.allocations)) {
+   617→        const newInvoice = invoiceMap.get(getStr(al.invoiceId));
+   618→        if (!newInvoice) {
+   619→          tallySkip("receiptAllocations (invoice missing from backup)");
+   620→          continue;
+   621→        }
+   622→        receiptAllocationRows.push({
+   623→          id: newId(),
+   624→          firmId: newFirmId,
+   625→          receiptId: nid,
+   626→          invoiceId: newInvoice,
+   627→          amount: getNum(al.amount),
+   628→          createdAt: getDate(al.createdAt),
+   629→        });
+   630→      }
+   631→    }
+   632→
+   633→    // ── 9. JOURNAL ENTRIES + LINES (voucher numbers kept as-is) ──
+   634→    const journalRows: Prisma.JournalEntryUncheckedCreateInput[] = [];
+   635→    const journalMap = new Map<string, string>();
+   636→    const journalLineRows: Prisma.JournalLineUncheckedCreateInput[] = [];
+   637→    for (const je of asRecordArray(data.journalEntries)) {
+   638→      const oldId = getStr(je.id);
+   639→      const nid = newId();
+   640→      if (oldId) journalMap.set(oldId, nid);
+   641→      journalRows.push({
+   642→        id: nid,
+   643→        firmId: newFirmId,
+   644→        voucherNumber: getStr(je.voucherNumber) || `JV-RESTORED-${nid.slice(-6)}`,
+   645→        voucherType: getStr(je.voucherType) || "JOURNAL",
+   646→        postingDate: getDate(je.postingDate),
+   647→        referenceDocId: getStr(je.referenceDocId),
+   648→        narration: getStr(je.narration),
+   649→        totalDebit: getNum(je.totalDebit),
+   650→        totalCredit: getNum(je.totalCredit),
+   651→        createdAt: getDate(je.createdAt),
+   652→      });
+   653→      for (const ln of asRecordArray(je.lines)) {
+   654→        const newAccount = accountMap.get(getStr(ln.accountId));
+   655→        if (!newAccount) {
+   656→          tallySkip("journalLines (account missing from backup COA)");
+   657→          continue;
+   658→        }
+   659→        journalLineRows.push({
+   660→          id: newId(),
+   661→          journalId: nid,
+   662→          accountId: newAccount,
+   663→          accountName: getStr(ln.accountName),
+   664→          entrySide: getStr(ln.entrySide) || "DEBIT",
+   665→          debitAmount: getNum(ln.debitAmount),
+   666→          creditAmount: getNum(ln.creditAmount),
+   667→          narration: getStr(ln.narration),
+   668→        });
+   669→      }
+   670→    }
+   671→
+   672→    // ── 10. MOVEMENTS / ADJUSTMENTS / LEDGER / GSTR-2B ───────────
+   673→    const movementRows: Prisma.InventoryMovementUncheckedCreateInput[] = [];
+   674→    for (const mv of asRecordArray(data.inventoryMovements)) {
+   675→      const newProduct = productMap.get(getStr(mv.productId));
+   676→      if (!newProduct) {
+   677→        tallySkip("inventoryMovements (product missing from backup)");
+   678→        continue;
+   679→      }
+   680→      movementRows.push({
+   681→        id: newId(),
+   682→        firmId: newFirmId,
+   683→        productId: newProduct,
+   684→        movementType: getStr(mv.movementType) || "OPENING",
+   685→        quantity: getNum(mv.quantity),
+   686→        targetPool: getStr(mv.targetPool) || "SELLABLE",
+   687→        direction: getStr(mv.direction) || "IN",
+   688→        referenceDocId: getStr(mv.referenceDocId),
+   689→        referenceNo: getStr(mv.referenceNo),
+   690→        notes: getStr(mv.notes),
+   691→        createdAt: getDate(mv.createdAt),
+   692→      });
+   693→    }
+   694→
+   695→    const adjustmentRows: Prisma.StockAdjustmentUncheckedCreateInput[] = [];
+   696→    for (const sa of asRecordArray(data.stockAdjustments)) {
+   697→      // StockAdjustment.productId is a plain string (no FK relation) —
+   698→      // remap when possible so it points into the new firm's products.
+   699→      const remappedProduct = productMap.get(getStr(sa.productId));
+   700→      adjustmentRows.push({
+   701→        id: newId(),
+   702→        firmId: newFirmId,
+   703→        adjustDate: getDate(sa.adjustDate),
+   704→        productId: remappedProduct ?? getStr(sa.productId),
+   705→        productName: getStr(sa.productName),
+   706→        adjustType: getStr(sa.adjustType) || "OPENING",
+   707→        quantity: getNum(sa.quantity),
+   708→        reason: getStr(sa.reason),
+   709→        createdAt: getDate(sa.createdAt),
+   710→      });
+   711→    }
+   712→
+   713→    const ledgerRows: Prisma.LedgerEntryUncheckedCreateInput[] = [];
+   714→    for (const le of asRecordArray(data.ledgerEntries)) {
+   715→      const oldLeCustomerId = getStr(le.customerId);
+   716→      let leCustomerId: string | null = null;
+   717→      if (oldLeCustomerId) {
+   718→        leCustomerId = customerMap.get(oldLeCustomerId) ?? null;
+   719→        if (!leCustomerId) tallySkip("ledgerEntries customer links (customer missing → set null)");
+   720→      }
+   721→      const oldLeVendorId = getStr(le.vendorId);
+   722→      let leVendorId: string | null = null;
+   723→      if (oldLeVendorId) {
+   724→        leVendorId = vendorMap.get(oldLeVendorId) ?? null;
+   725→        if (!leVendorId) tallySkip("ledgerEntries vendor links (vendor missing → set null)");
+   726→      }
+   727→      ledgerRows.push({
+   728→        id: newId(),
+   729→        firmId: newFirmId,
+   730→        partyType: getStr(le.partyType) || "CUSTOMER",
+   731→        customerId: leCustomerId,
+   732→        vendorId: leVendorId,
+   733→        entryDate: getDate(le.entryDate),
+   734→        voucherType: getStr(le.voucherType) || "JOURNAL",
+   735→        voucherNo: getStr(le.voucherNo),
+   736→        particulars: getStr(le.particulars),
+   737→        debitAmount: getNum(le.debitAmount),
+   738→        creditAmount: getNum(le.creditAmount),
+   739→        balanceAfter: getNum(le.balanceAfter),
+   740→        createdAt: getDate(le.createdAt),
+   741→      });
+   742→    }
+   743→
+   744→    const gstr2bRows: Prisma.Gstr2bRecordUncheckedCreateInput[] = [];
+   745→    for (const g of asRecordArray(data.gstr2bRecords)) {
+   746→      gstr2bRows.push({
+   747→        id: newId(),
+   748→        firmId: newFirmId,
+   749→        period: getStr(g.period) || "1970-01",
+   750→        gstin: getStr(g.gstin),
+   751→        tradeName: getStr(g.tradeName),
+   752→        invoiceNo: getStr(g.invoiceNo) || `2B-${newId().slice(-6)}`,
+   753→        invoiceDate: getDate(g.invoiceDate),
+   754→        taxableValue: getNum(g.taxableValue),
+   755→        igst: getNum(g.igst),
+   756→        cgst: getNum(g.cgst),
+   757→        sgst: getNum(g.sgst),
+   758→        itcAvailable: getBool(g.itcAvailable, true),
+   759→        placeOfSupply: getStr(g.placeOfSupply),
+   760→        createdAt: getDate(g.createdAt),
+   761→      });
+   762→    }
+   763→
+   764→    // Flush skip tally into warnings.
+   765→    for (const [reason, n] of skipTally) {
+   766→      warnings.push(`Skipped ${n} ${reason}`);
+   767→    }
+   768→
+   769→    // ── TRANSACTION (chunked createMany; insertion order matters) ─
+   770→    const ops: Prisma.PrismaPromise<unknown>[] = [];
+   771→    ops.push(db.firm.create({ data: firmData }));
+   772→    for (const c of chunkByParams(accountRows)) ops.push(db.chartOfAccount.createMany({ data: c }));
+   773→    for (const c of chunkByParams(productRows)) ops.push(db.product.createMany({ data: c }));
+   774→    for (const c of chunkByParams(customerRows)) ops.push(db.customer.createMany({ data: c }));
+   775→    for (const c of chunkByParams(vendorRows)) ops.push(db.vendor.createMany({ data: c }));
+   776→    for (const c of chunkByParams(poRows)) ops.push(db.purchaseOrder.createMany({ data: c }));
+   777→    for (const c of chunkByParams(poItemRows)) ops.push(db.purchaseOrderItem.createMany({ data: c }));
+   778→    for (const c of chunkByParams(invoiceRows)) ops.push(db.invoice.createMany({ data: c }));
+   779→    for (const c of chunkByParams(lineItemRows)) ops.push(db.invoiceLineItem.createMany({ data: c }));
+   780→    for (const c of chunkByParams(salesReturnRows)) ops.push(db.salesReturn.createMany({ data: c }));
+   781→    for (const c of chunkByParams(salesReturnItemRows)) ops.push(db.salesReturnItem.createMany({ data: c }));
+   782→    for (const c of chunkByParams(purchaseReturnRows)) ops.push(db.purchaseReturn.createMany({ data: c }));
+   783→    for (const c of chunkByParams(purchaseReturnItemRows)) ops.push(db.purchaseReturnItem.createMany({ data: c }));
+   784→    for (const c of chunkByParams(vendorPaymentRows)) ops.push(db.vendorPayment.createMany({ data: c }));
+   785→    for (const c of chunkByParams(paymentAllocationRows)) ops.push(db.paymentAllocation.createMany({ data: c }));
+   786→    for (const c of chunkByParams(receiptRows)) ops.push(db.customerReceipt.createMany({ data: c }));
+   787→    for (const c of chunkByParams(receiptAllocationRows)) ops.push(db.receiptAllocation.createMany({ data: c }));
+   788→    for (const c of chunkByParams(journalRows)) ops.push(db.journalEntry.createMany({ data: c }));
+   789→    for (const c of chunkByParams(journalLineRows)) ops.push(db.journalLine.createMany({ data: c }));
+   790→    for (const c of chunkByParams(movementRows)) ops.push(db.inventoryMovement.createMany({ data: c }));
+   791→    for (const c of chunkByParams(adjustmentRows)) ops.push(db.stockAdjustment.createMany({ data: c }));
+   792→    for (const c of chunkByParams(ledgerRows)) ops.push(db.ledgerEntry.createMany({ data: c }));
+   793→    for (const c of chunkByParams(gstr2bRows)) ops.push(db.gstr2bRecord.createMany({ data: c }));
+   794→    await db.$transaction(ops, { timeout: 30_000, maxWait: 10_000 });
+   795→
+   796→    // ── SANITY: re-count what actually landed in the new firm ────
+   797→    const [
+   798→      nProducts, nCustomers, nVendors, nPurchaseOrders, nPoItems, nInvoices,
+   799→      nLineItems, nSalesReturns, nSalesReturnItems, nPurchaseReturns,
+   800→      nPurchaseReturnItems, nVendorPayments, nPaymentAllocations, nReceipts,
+   801→      nReceiptAllocations, nAccounts, nJournals, nJournalLines,
+   802→      nMovements, nAdjustments, nLedgerEntries, nGstr2b,
+   803→    ] = await Promise.all([
+   804→      db.product.count({ where: { firmId: newFirmId } }),
+   805→      db.customer.count({ where: { firmId: newFirmId } }),
+   806→      db.vendor.count({ where: { firmId: newFirmId } }),
+   807→      db.purchaseOrder.count({ where: { firmId: newFirmId } }),
+   808→      db.purchaseOrderItem.count({ where: { po: { firmId: newFirmId } } }),
+   809→      db.invoice.count({ where: { firmId: newFirmId } }),
+   810→      db.invoiceLineItem.count({ where: { invoice: { firmId: newFirmId } } }),
+   811→      db.salesReturn.count({ where: { firmId: newFirmId } }),
+   812→      db.salesReturnItem.count({ where: { return: { firmId: newFirmId } } }),
+   813→      db.purchaseReturn.count({ where: { firmId: newFirmId } }),
+   814→      db.purchaseReturnItem.count({ where: { return: { firmId: newFirmId } } }),
+   815→      db.vendorPayment.count({ where: { firmId: newFirmId } }),
+   816→      db.paymentAllocation.count({ where: { firmId: newFirmId } }),
+   817→      db.customerReceipt.count({ where: { firmId: newFirmId } }),
+   818→      db.receiptAllocation.count({ where: { firmId: newFirmId } }),
+   819→      db.chartOfAccount.count({ where: { firmId: newFirmId } }),
+   820→      db.journalEntry.count({ where: { firmId: newFirmId } }),
+   821→      db.journalLine.count({ where: { journal: { firmId: newFirmId } } }),
+   822→      db.inventoryMovement.count({ where: { firmId: newFirmId } }),
+   823→      db.stockAdjustment.count({ where: { firmId: newFirmId } }),
+   824→      db.ledgerEntry.count({ where: { firmId: newFirmId } }),
+   825→      db.gstr2bRecord.count({ where: { firmId: newFirmId } }),
+   826→    ]);
+   827→
+   828→    return ok({
+   829→      firmId: newFirmId,
+   830→      firmName,
+   831→      firmCode,
+   832→      counts: {
+   833→        products: nProducts,
+   834→        customers: nCustomers,
+   835→        vendors: nVendors,
+   836→        purchaseOrders: nPurchaseOrders,
+   837→        purchaseOrderItems: nPoItems,
+   838→        invoices: nInvoices,
+   839→        invoiceLineItems: nLineItems,
+   840→        salesReturns: nSalesReturns,
+   841→        salesReturnItems: nSalesReturnItems,
+   842→        purchaseReturns: nPurchaseReturns,
+   843→        purchaseReturnItems: nPurchaseReturnItems,
+   844→        vendorPayments: nVendorPayments,
+   845→        paymentAllocations: nPaymentAllocations,
+   846→        customerReceipts: nReceipts,
+   847→        receiptAllocations: nReceiptAllocations,
+   848→        chartOfAccounts: nAccounts,
+   849→        journalEntries: nJournals,
+   850→        journalLines: nJournalLines,
+   851→        inventoryMovements: nMovements,
+   852→        stockAdjustments: nAdjustments,
+   853→        ledgerEntries: nLedgerEntries,
+   854→        gstr2bRecords: nGstr2b,
+   855→      },
+   856→      warnings,
+   857→      restoredAt: new Date().toISOString(),
+   858→    });
+   859→  } catch (e) {
+   860→    return handleApiError(e);
+   861→  }
+   862→}
+   863→

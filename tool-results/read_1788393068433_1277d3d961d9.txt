@@ -1,0 +1,1553 @@
+     1→"use client";
+     2→
+     3→// ═══════════════════════════════════════════════════════════════
+     4→// REPORTS — Sales · Purchases · Stock · GST Summary
+     5→// Coded against GET /api/v1/reports?firmId=&type=&dateFrom=&dateTo=
+     6→// GST view: Output (CGST/SGST/IGST) vs Input ITC vs Net Payable.
+     7→// ═══════════════════════════════════════════════════════════════
+     8→
+     9→import * as React from "react";
+    10→import {
+    11→  Bar,
+    12→  BarChart,
+    13→  CartesianGrid,
+    14→  Cell,
+    15→  ResponsiveContainer,
+    16→  Tooltip,
+    17→  XAxis,
+    18→  YAxis,
+    19→} from "recharts";
+    20→import {
+    21→  ArrowDownRight,
+    22→  ArrowUpRight,
+    23→  Boxes,
+    24→  Download,
+    25→  FileText,
+    26→  Landmark,
+    27→  Percent,
+    28→  RefreshCw,
+    29→  Scale,
+    30→  ScrollText,
+    31→  ShoppingCart,
+    32→  TrendingUp,
+    33→} from "lucide-react";
+    34→import type { LucideIcon } from "lucide-react";
+    35→
+    36→import { Badge, EmptyState, ErrorText, LoadingRows, PageHeader, inputCls } from "../shared";
+    37→import { Button } from "@/components/ui/button";
+    38→import { Input } from "@/components/ui/input";
+    39→import { apiGet } from "@/lib/api-client";
+    40→import { downloadCSV, formatINR, formatDate, toISODate } from "@/lib/format";
+    41→import { useErpStore, useActiveFirm } from "@/store/erp-store";
+    42→import { useToast } from "@/hooks/use-toast";
+    43→import { cn } from "@/lib/utils";
+    44→
+    45→type ReportType = "sales" | "purchases" | "stock" | "gst" | "valuation" | "gstr1" | "profitability";
+    46→
+    47→// ─── Row shapes (verified against route source) ─────────────────
+    48→
+    49→interface SalesRow {
+    50→  invoiceNumber: string;
+    51→  invoiceDate: string;
+    52→  customer: string;
+    53→  paymentMode: string;
+    54→  sku: string;
+    55→  productName: string;
+    56→  hsnCode: string;
+    57→  quantity: number;
+    58→  unitPrice: number;
+    59→  bulkDiscountPct: number;
+    60→  taxableAmount: number;
+    61→  gstRate: number;
+    62→  cgstAmount: number;
+    63→  sgstAmount: number;
+    64→  igstAmount: number;
+    65→  totalAmount: number;
+    66→}
+    67→
+    68→interface PurchaseRow {
+    69→  poNumber: string;
+    70→  poDate: string;
+    71→  vendor: string;
+    72→  sku: string;
+    73→  productName: string;
+    74→  hsnCode: string;
+    75→  quantity: number;
+    76→  receivedQty: number;
+    77→  unitCost: number;
+    78→  taxableAmount: number;
+    79→  gstRate: number;
+    80→  cgstAmount: number;
+    81→  sgstAmount: number;
+    82→  igstAmount: number;
+    83→  totalAmount: number;
+    84→}
+    85→
+    86→interface StockRow {
+    87→  sku: string;
+    88→  name: string;
+    89→  category: string;
+    90→  brand: string;
+    91→  unit: string;
+    92→  isActive: boolean;
+    93→  stockQuantity: number;
+    94→  damagedStock: number;
+    95→  lowStockThreshold: number;
+    96→  purchaseCost: number;
+    97→  stockValue: number;
+    98→  damagedValue: number;
+    99→}
+   100→
+   101→interface ValuationRow {
+   102→  sku: string;
+   103→  name: string;
+   104→  category: string;
+   105→  unit: string;
+   106→  wac: number;
+   107→  purchaseCost: number;
+   108→  stockQuantity: number;
+   109→  damagedStock: number;
+   110→  stockValue: number;
+   111→  damagedValue: number;
+   112→  totalValue: number;
+   113→  receiptsQty: number;
+   114→  method: string;
+   115→}
+   116→
+   117→interface GstDocRow {
+   118→  docNo: string;
+   119→  date: string;
+   120→  party: string;
+   121→  partyStateCode: string;
+   122→  taxable: number;
+   123→  cgst: number;
+   124→  sgst: number;
+   125→  igst: number;
+   126→  total: number;
+   127→}
+   128→
+   129→interface GstSide {
+   130→  cgst: number;
+   131→  sgst: number;
+   132→  igst: number;
+   133→  taxable: number;
+   134→  total: number;
+   135→  rows: GstDocRow[];
+   136→}
+   137→
+   138→interface GstResponse {
+   139→  type: "gst";
+   140→  output: GstSide;
+   141→  input: GstSide;
+   142→  net: { cgst: number; sgst: number; igst: number };
+   143→}
+   144→
+   145→// ── GSTR-1 (sales-side outward supplies) ────────────────────────
+   146→interface Gstr1DocRow {
+   147→  docNo: string;
+   148→  date: string;
+   149→  party: string;
+   150→  gstin: string | null;
+   151→  supplyType: "B2B" | "B2C";
+   152→  placeOfSupply: string;
+   153→  taxable: number;
+   154→  cgst: number;
+   155→  sgst: number;
+   156→  igst: number;
+   157→  total: number;
+   158→}
+   159→
+   160→interface Gstr1RateRow {
+   161→  rate: number;
+   162→  taxable: number;
+   163→  cgst: number;
+   164→  sgst: number;
+   165→  igst: number;
+   166→  qty: number;
+   167→}
+   168→
+   169→interface Gstr1HsnRow {
+   170→  hsn: string;
+   171→  description: string;
+   172→  uqc: string;
+   173→  qty: number;
+   174→  taxable: number;
+   175→  cgst: number;
+   176→  sgst: number;
+   177→  igst: number;
+   178→}
+   179→
+   180→interface Gstr1Side {
+   181→  count: number;
+   182→  taxable: number;
+   183→  cgst: number;
+   184→  sgst: number;
+   185→  igst: number;
+   186→}
+   187→
+   188→interface Gstr1Totals {
+   189→  totalTaxable: number;
+   190→  totalCgst: number;
+   191→  totalSgst: number;
+   192→  totalIgst: number;
+   193→  totalTax: number;
+   194→  invoiceCount: number;
+   195→  b2bCount: number;
+   196→  b2cCount: number;
+   197→}
+   198→
+   199→interface ReportResponse {
+   200→  type: ReportType;
+   201→  rows?: SalesRow[] | PurchaseRow[] | StockRow[] | ValuationRow[] | ProfitRow[];
+   202→  totals?: { stockValue: number; damagedValue: number; totalValue?: number } | Gstr1Totals | ProfitTotals;
+   203→  count?: number;
+   204→  method?: string;
+   205→  output?: GstSide;
+   206→  input?: GstSide;
+   207→  net?: { cgst: number; sgst: number; igst: number };
+   208→  // gstr1
+   209→  b2b?: Gstr1Side;
+   210→  b2c?: Gstr1Side;
+   211→  rateWise?: Gstr1RateRow[];
+   212→  hsnWise?: Gstr1HsnRow[];
+   213→}
+   214→
+   215→// ── Product profitability (margin vs WAC) ──────────────────────
+   216→interface ProfitRow {
+   217→  sku: string;
+   218→  name: string;
+   219→  qtySold: number;
+   220→  qtyReturned: number;
+   221→  netQty: number;
+   222→  grossRevenue: number;
+   223→  returnedValue: number;
+   224→  netRevenue: number;
+   225→  wac: number;
+   226→  cogs: number;
+   227→  grossProfit: number;
+   228→  marginPct: number;
+   229→  invoiceCount: number;
+   230→  avgLineValue: number;
+   231→}
+   232→
+   233→interface ProfitTotals {
+   234→  revenue: number;
+   235→  cogs: number;
+   236→  grossProfit: number;
+   237→  marginPct: number;
+   238→  products: number;
+   239→  lossMakers: number;
+   240→  bestSku: string | null;
+   241→}
+   242→
+   243→const REPORTS: Array<{ type: ReportType; label: string; icon: LucideIcon; desc: string }> = [
+   244→  { type: "sales", label: "Sales Report", icon: FileText, desc: "Posted invoice line items" },
+   245→  { type: "purchases", label: "Purchase Report", icon: ShoppingCart, desc: "Confirmed PO line items" },
+   246→  { type: "profitability", label: "Profitability", icon: TrendingUp, desc: "Margin vs WAC per product" },
+   247→  { type: "stock", label: "Stock Report", icon: Boxes, desc: "Dual-stock position & valuation" },
+   248→  { type: "valuation", label: "Valuation (WAC)", icon: Scale, desc: "Weighted average cost valuation" },
+   249→  { type: "gst", label: "GST Summary", icon: Percent, desc: "Output tax vs ITC vs net payable" },
+   250→  { type: "gstr1", label: "GSTR-1 (Sales)", icon: ScrollText, desc: "Outward supplies — B2B/B2C · rate · HSN" },
+   251→];
+   252→
+   253→const CHART_BLUE = "#2563EB";
+   254→const TOOLTIP_STYLE: React.CSSProperties = {
+   255→  background: "var(--bg-tertiary)",
+   256→  border: "1px solid var(--border-medium)",
+   257→  borderRadius: 8,
+   258→  fontSize: 12,
+   259→  padding: "8px 10px",
+   260→  boxShadow: "0 8px 24px rgba(2,6,17,0.6)",
+   261→};
+   262→
+   263→function compactINR(v: number): string {
+   264→  const abs = Math.abs(v);
+   265→  if (abs >= 10000000) return `₹${(v / 10000000).toFixed(1)}Cr`;
+   266→  if (abs >= 100000) return `₹${(v / 100000).toFixed(1)}L`;
+   267→  if (abs >= 1000) return `₹${(v / 1000).toFixed(0)}K`;
+   268→  return `₹${v.toFixed(0)}`;
+   269→}
+   270→
+   271→export default function ReportsView() {
+   272→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   273→  const activeFirm = useActiveFirm();
+   274→  const { toast } = useToast();
+   275→
+   276→  const [type, setType] = React.useState<ReportType>("sales");
+   277→  const [dateFrom, setDateFrom] = React.useState(() => {
+   278→    const fy = activeFirm?.financialYear ?? "2025-26";
+   279→    const y = parseInt(fy.slice(0, 4), 10);
+   280→    return `${Number.isFinite(y) ? y : new Date().getFullYear()}-04-01`;
+   281→  });
+   282→  const [dateTo, setDateTo] = React.useState(() => toISODate(new Date()));
+   283→  const [data, setData] = React.useState<ReportResponse | null>(null);
+   284→  const [loading, setLoading] = React.useState(true);
+   285→  const [error, setError] = React.useState<string | null>(null);
+   286→  const [refreshKey, setRefreshKey] = React.useState(0);
+   287→
+   288→  React.useEffect(() => {
+   289→    if (!activeFirmId) return;
+   290→    let alive = true;
+   291→    const t = setTimeout(async () => {
+   292→      setLoading(true);
+   293→      setError(null);
+   294→      try {
+   295→        const res = await apiGet<ReportResponse>("/api/v1/reports", {
+   296→          firmId: activeFirmId,
+   297→          type,
+   298→          dateFrom: type === "stock" || type === "valuation" ? undefined : dateFrom || undefined,
+   299→          dateTo: type === "stock" || type === "valuation" ? undefined : dateTo || undefined,
+   300→        });
+   301→        if (alive) setData(res);
+   302→      } catch (e) {
+   303→        if (alive) {
+   304→          setError(e instanceof Error ? e.message : "Failed to load report");
+   305→          setData(null);
+   306→        }
+   307→      } finally {
+   308→        if (alive) setLoading(false);
+   309→      }
+   310→    }, 200);
+   311→    return () => {
+   312→      alive = false;
+   313→      clearTimeout(t);
+   314→    };
+   315→  }, [activeFirmId, type, dateFrom, dateTo, refreshKey]);
+   316→
+   317→  function exportCsv() {
+   318→    if (!data) return;
+   319→    if (data.type === "sales" && data.rows) {
+   320→      const rows = data.rows as SalesRow[];
+   321→      const out: (string | number)[][] = [
+   322→        ["Invoice #", "Date", "Customer", "Mode", "SKU", "Product", "HSN", "Qty", "Unit Price", "Disc %", "Taxable", "GST %", "CGST", "SGST", "IGST", "Total"],
+   323→      ];
+   324→      rows.forEach((r) =>
+   325→        out.push([r.invoiceNumber, r.invoiceDate, r.customer, r.paymentMode, r.sku, r.productName, r.hsnCode, r.quantity, r.unitPrice, r.bulkDiscountPct, r.taxableAmount, r.gstRate, r.cgstAmount, r.sgstAmount, r.igstAmount, r.totalAmount])
+   326→      );
+   327→      downloadCSV(`sales-report-${dateFrom}-to-${dateTo}.csv`, out);
+   328→    } else if (data.type === "purchases" && data.rows) {
+   329→      const rows = data.rows as PurchaseRow[];
+   330→      const out: (string | number)[][] = [
+   331→        ["PO #", "Date", "Vendor", "SKU", "Product", "HSN", "Qty", "Received", "Unit Cost", "Taxable", "GST %", "CGST", "SGST", "IGST", "Total"],
+   332→      ];
+   333→      rows.forEach((r) =>
+   334→        out.push([r.poNumber, r.poDate, r.vendor, r.sku, r.productName, r.hsnCode, r.quantity, r.receivedQty, r.unitCost, r.taxableAmount, r.gstRate, r.cgstAmount, r.sgstAmount, r.igstAmount, r.totalAmount])
+   335→      );
+   336→      downloadCSV(`purchase-report-${dateFrom}-to-${dateTo}.csv`, out);
+   337→    } else if (data.type === "profitability" && data.totals) {
+   338→      const rows = (data.rows ?? []) as ProfitRow[];
+   339→      const t = data.totals as ProfitTotals;
+   340→      const out: (string | number)[][] = [
+   341→        ["Product Profitability — margin vs WAC", `${dateFrom} → ${dateTo}`],
+   342→        ["Net Revenue", "COGS", "Gross Profit", "Margin %", "Products", "Loss Makers"],
+   343→        [t.revenue, t.cogs, t.grossProfit, t.marginPct, t.products, t.lossMakers],
+   344→        [],
+   345→        ["SKU", "Product", "Qty Sold", "Qty Returned", "Net Qty", "Gross Revenue", "Returned Value", "Net Revenue", "WAC", "COGS", "Gross Profit", "Margin %", "Invoices", "Avg Line Value"],
+   346→      ];
+   347→      rows.forEach((r) =>
+   348→        out.push([r.sku, r.name, r.qtySold, r.qtyReturned, r.netQty, r.grossRevenue, r.returnedValue, r.netRevenue, r.wac, r.cogs, r.grossProfit, r.marginPct, r.invoiceCount, r.avgLineValue])
+   349→      );
+   350→      downloadCSV(`profitability-${dateFrom}-to-${dateTo}.csv`, out);
+   351→    } else if (data.type === "stock" && data.rows) {
+   352→      const rows = data.rows as StockRow[];
+   353→      const out: (string | number)[][] = [
+   354→        ["SKU", "Name", "Category", "Brand", "Unit", "Status", "Sellable", "Damaged", "Threshold", "Cost", "Stock Value", "Damaged Value"],
+   355→      ];
+   356→      rows.forEach((r) =>
+   357→        out.push([r.sku, r.name, r.category, r.brand, r.unit, r.isActive ? "ACTIVE" : "INACTIVE", r.stockQuantity, r.damagedStock, r.lowStockThreshold, r.purchaseCost, r.stockValue, r.damagedValue])
+   358→      );
+   359→      downloadCSV(`stock-report-${toISODate(new Date())}.csv`, out);
+   360→    } else if (data.type === "valuation" && data.rows) {
+   361→      const rows = data.rows as ValuationRow[];
+   362→      const out: (string | number)[][] = [
+   363→        ["Stock Valuation — Weighted Average Cost", `Generated ${toISODate(new Date())}`],
+   364→        ["SKU", "Name", "Category", "Unit", "WAC", "Purchase Cost", "Sellable Qty", "Damaged Qty", "Stock Value", "Damaged Value", "Total Value", "Receipts Qty", "Method"],
+   365→      ];
+   366→      rows.forEach((r) =>
+   367→        out.push([r.sku, r.name, r.category, r.unit, r.wac, r.purchaseCost, r.stockQuantity, r.damagedStock, r.stockValue, r.damagedValue, r.totalValue, r.receiptsQty, r.method])
+   368→      );
+   369→      if (data.totals) {
+   370→        const vt = data.totals as { stockValue: number; damagedValue: number; totalValue?: number };
+   371→        out.push([], ["TOTALS", "", "", "", "", "", "", "", vt.stockValue, vt.damagedValue, vt.totalValue ?? vt.stockValue + vt.damagedValue]);
+   372→      }
+   373→      downloadCSV(`stock-valuation-wac-${toISODate(new Date())}.csv`, out);
+   374→    } else if (data.type === "gstr1" && data.totals) {
+   375→      const t = data.totals as Gstr1Totals;
+   376→      const docs = (data.rows ?? []) as unknown as Gstr1DocRow[];
+   377→      const out: (string | number)[][] = [
+   378→        ["GSTR-1 — Outward Supplies", `${dateFrom} → ${dateTo}`],
+   379→        ["Taxable", "CGST", "SGST", "IGST", "Total Tax", "Invoices", "B2B", "B2C"],
+   380→        [t.totalTaxable, t.totalCgst, t.totalSgst, t.totalIgst, t.totalTax, t.invoiceCount, t.b2bCount, t.b2cCount],
+   381→        [],
+   382→        ["RATE-WISE"],
+   383→        ["GST %", "Qty", "Taxable", "CGST", "SGST", "IGST"],
+   384→      ];
+   385→      (data.rateWise ?? []).forEach((r) => out.push([`${r.rate}%`, r.qty, r.taxable, r.cgst, r.sgst, r.igst]));
+   386→      out.push([], ["HSN-WISE"], ["HSN", "Description", "Qty", "Taxable", "CGST", "SGST", "IGST"]);
+   387→      (data.hsnWise ?? []).forEach((r) => out.push([r.hsn, r.description, r.qty, r.taxable, r.cgst, r.sgst, r.igst]));
+   388→      out.push([], ["INVOICE DOCS"], ["Doc #", "Date", "Party", "GSTIN", "Type", "Place of Supply", "Taxable", "CGST", "SGST", "IGST", "Total"]);
+   389→      docs.forEach((r) => out.push([r.docNo, r.date, r.party, r.gstin ?? "", r.supplyType, r.placeOfSupply, r.taxable, r.cgst, r.sgst, r.igst, r.total]));
+   390→      downloadCSV(`gstr1-outward-${dateFrom}-to-${dateTo}.csv`, out);
+   391→    } else if (data.type === "gst" && data.output && data.input && data.net) {
+   392→      const out: (string | number)[][] = [
+   393→        ["GST Summary", `${dateFrom} → ${dateTo}`],
+   394→        ["Component", "Output Tax", "Input ITC", "Net Payable"],
+   395→        ["CGST", data.output.cgst, data.input.cgst, data.net.cgst],
+   396→        ["SGST", data.output.sgst, data.input.sgst, data.net.sgst],
+   397→        ["IGST", data.output.igst, data.input.igst, data.net.igst],
+   398→        [],
+   399→        ["OUTPUT DOCS (Sales)"],
+   400→        ["Doc #", "Date", "Party", "State", "Taxable", "CGST", "SGST", "IGST", "Total"],
+   401→      ];
+   402→      data.output.rows.forEach((r) => out.push([r.docNo, r.date, r.party, r.partyStateCode, r.taxable, r.cgst, r.sgst, r.igst, r.total]));
+   403→      out.push([], ["INPUT DOCS (Purchases / ITC)"], ["Doc #", "Date", "Party", "State", "Taxable", "CGST", "SGST", "IGST", "Total"]);
+   404→      data.input.rows.forEach((r) => out.push([r.docNo, r.date, r.party, r.partyStateCode, r.taxable, r.cgst, r.sgst, r.igst, r.total]));
+   405→      downloadCSV(`gst-summary-${dateFrom}-to-${dateTo}.csv`, out);
+   406→    }
+   407→    toast({ title: "Exported", description: "Report downloaded as CSV." });
+   408→  }
+   409→
+   410→  const activeReport = REPORTS.find((r) => r.type === type)!;
+   411→
+   412→  return (
+   413→    <div className="space-y-4">
+   414→      <PageHeader
+   415→        title="Reports & Exports"
+   416→        subtitle="Tabular business reports with GST component analysis — exportable to CSV"
+   417→        icon={Landmark}
+   418→        actions={
+   419→          <>
+   420→            <Button
+   421→              variant="outline"
+   422→              size="sm"
+   423→              onClick={() => setRefreshKey((k) => k + 1)}
+   424→              disabled={loading}
+   425→              className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
+   426→            >
+   427→              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
+   428→            </Button>
+   429→            <Button
+   430→              size="sm"
+   431→              onClick={exportCsv}
+   432→              disabled={!data || loading}
+   433→              className="h-9 gap-2 bg-dmk-orange text-[12.5px] font-semibold text-white hover:bg-dmk-orange/85"
+   434→            >
+   435→              <Download className="h-3.5 w-3.5" /> Export CSV
+   436→            </Button>
+   437→          </>
+   438→        }
+   439→      />
+   440→
+   441→      {/* ── Report type cards ───────────────────────────── */}
+   442→      <div className="dmk-enter-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+   443→        {REPORTS.map((r) => {
+   444→          const Icon = r.icon;
+   445→          const selected = type === r.type;
+   446→          return (
+   447→            <button
+   448→              key={r.type}
+   449→              type="button"
+   450→              onClick={() => setType(r.type)}
+   451→              className={cn(
+   452→                "text-left rounded-[10px] border px-4 py-3.5 transition-all",
+   453→                selected
+   454→                  ? "border-dmk-orange/60 bg-dmk-hover shadow-[0_0_0_1px_rgba(255,107,0,0.35)]"
+   455→                  : "border-dmk-border-subtle bg-dmk-bg-secondary hover:bg-dmk-hover/60"
+   456→              )}
+   457→            >
+   458→              <div className="flex items-center gap-2.5">
+   459→                <span
+   460→                  className={cn(
+   461→                    "flex h-8 w-8 items-center justify-center rounded-lg border",
+   462→                    selected ? "border-dmk-orange/40 bg-dmk-input-well" : "border-dmk-border-subtle bg-dmk-input-well"
+   463→                  )}
+   464→                >
+   465→                  <Icon className={cn("h-4 w-4", selected ? "text-dmk-orange" : "text-dmk-text-muted")} />
+   466→                </span>
+   467→                <div className="min-w-0">
+   468→                  <p className={cn("text-[13px] font-semibold truncate", selected ? "text-dmk-text-primary" : "text-dmk-text-secondary")}>
+   469→                    {r.label}
+   470→                  </p>
+   471→                  <p className="text-[10.5px] text-dmk-text-muted truncate">{r.desc}</p>
+   472→                </div>
+   473→              </div>
+   474→            </button>
+   475→          );
+   476→        })}
+   477→      </div>
+   478→
+   479→      {/* ── Date range ──────────────────────────────────── */}
+   480→      <div className="dmk-card p-3 flex flex-wrap items-end gap-3">
+   481→        <div className="w-40">
+   482→          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">From</label>
+   483→          <Input
+   484→            type="date"
+   485→            value={dateFrom}
+   486→            onChange={(e) => setDateFrom(e.target.value)}
+   487→            disabled={type === "stock" || type === "valuation"}
+   488→            className={cn(inputCls, "[color-scheme:dark] disabled:opacity-50")}
+   489→          />
+   490→        </div>
+   491→        <div className="w-40">
+   492→          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">To</label>
+   493→          <Input
+   494→            type="date"
+   495→            value={dateTo}
+   496→            onChange={(e) => setDateTo(e.target.value)}
+   497→            disabled={type === "stock" || type === "valuation"}
+   498→            className={cn(inputCls, "[color-scheme:dark] disabled:opacity-50")}
+   499→          />
+   500→        </div>
+   501→        {type === "stock" && (
+   502→          <p className="text-[11px] text-dmk-text-muted pb-1">Stock &amp; valuation reports are position snapshots — date filters not applicable.</p>
+   503→        )}
+   504→      </div>
+   505→
+   506→      {error && <ErrorText>{error}</ErrorText>}
+   507→
+   508→      {loading && !data ? (
+   509→        <LoadingRows rows={8} />
+   510→      ) : !data ? (
+   511→        <EmptyState icon={activeReport.icon} title="No report data" hint="Try widening the date range." />
+   512→      ) : data.type === "sales" ? (
+   513→        <SalesReport rows={(data.rows ?? []) as SalesRow[]} />
+   514→      ) : data.type === "purchases" ? (
+   515→        <PurchasesReport rows={(data.rows ?? []) as PurchaseRow[]} />
+   516→      ) : data.type === "profitability" && data.totals ? (
+   517→        <ProfitabilityReport
+   518→          rows={(data.rows ?? []) as ProfitRow[]}
+   519→          totals={data.totals as ProfitTotals}
+   520→          method={data.method}
+   521→        />
+   522→      ) : data.type === "stock" ? (
+   523→        <StockReport rows={(data.rows ?? []) as StockRow[]} totals={data.totals as { stockValue: number; damagedValue: number } | undefined} />
+   524→      ) : data.type === "valuation" ? (
+   525→        <ValuationReport
+   526→          rows={(data.rows ?? []) as ValuationRow[]}
+   527→          totals={data.totals as { stockValue: number; damagedValue: number; totalValue?: number } | undefined}
+   528→          method={data.method}
+   529→        />
+   530→      ) : data.type === "gstr1" && data.totals ? (
+   531→        <Gstr1Report
+   532→          totals={data.totals as Gstr1Totals}
+   533→          b2b={data.b2b}
+   534→          b2c={data.b2c}
+   535→          rateWise={data.rateWise ?? []}
+   536→          hsnWise={data.hsnWise ?? []}
+   537→          docs={(data.rows ?? []) as unknown as Gstr1DocRow[]}
+   538→        />
+   539→      ) : data.output && data.input && data.net ? (
+   540→        <GstReport output={data.output} input={data.input} net={data.net} />
+   541→      ) : (
+   542→        <EmptyState icon={activeReport.icon} title="No report data" hint="Try widening the date range." />
+   543→      )}
+   544→    </div>
+   545→  );
+   546→}
+   547→
+   548→// ═══════════════════════════════════════════════════════════════
+   549→// SALES REPORT — daily bar chart + line-item table
+   550→// ═══════════════════════════════════════════════════════════════
+   551→
+   552→function SalesReport({ rows }: { rows: SalesRow[] }) {
+   553→  const byDate = React.useMemo(() => {
+   554→    const map = new Map<string, number>();
+   555→    for (const r of rows) map.set(r.invoiceDate, (map.get(r.invoiceDate) ?? 0) + r.totalAmount);
+   556→    return Array.from(map.entries())
+   557→      .sort(([a], [b]) => a.localeCompare(b))
+   558→      .map(([date, total]) => ({
+   559→        label: new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
+   560→        total: Math.round(total * 100) / 100,
+   561→      }));
+   562→  }, [rows]);
+   563→
+   564→  const totalValue = rows.reduce((s, r) => s + r.totalAmount, 0);
+   565→
+   566→  return (
+   567→    <div className="space-y-4">
+   568→      <div className="dmk-card p-4">
+   569→        <div className="flex items-center justify-between mb-3">
+   570→          <div>
+   571→            <h2 className="text-[15px] font-semibold text-dmk-text-primary">Sales by Invoice Date</h2>
+   572→            <p className="text-[11px] text-dmk-text-muted">
+   573→              {rows.length} line items · total {formatINR(totalValue)}
+   574→            </p>
+   575→          </div>
+   576→          <Badge tone="success">SALES</Badge>
+   577→        </div>
+   578→        {byDate.length === 0 ? (
+   579→          <p className="text-[12px] text-dmk-text-muted py-8 text-center">No sales in this window.</p>
+   580→        ) : (
+   581→          <div className="h-[220px]">
+   582→            <ResponsiveContainer width="100%" height="100%">
+   583→              <BarChart data={byDate} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+   584→                <CartesianGrid stroke="#1E2D4A" strokeDasharray="3 3" vertical={false} />
+   585→                <XAxis
+   586→                  dataKey="label"
+   587→                  tick={{ fill: "var(--text-muted)", fontSize: 11 }}
+   588→                  axisLine={{ stroke: "#1E2D4A" }}
+   589→                  tickLine={false}
+   590→                  dy={6}
+   591→                />
+   592→                <YAxis
+   593→                  tick={{ fill: "var(--text-muted)", fontSize: 11 }}
+   594→                  axisLine={false}
+   595→                  tickLine={false}
+   596→                  width={56}
+   597→                  tickFormatter={(v) => compactINR(Number(v))}
+   598→                />
+   599→                <Tooltip
+   600→                  contentStyle={TOOLTIP_STYLE}
+   601→                  labelStyle={{ color: "var(--text-secondary)", marginBottom: 4 }}
+   602→                  itemStyle={{ color: "var(--text-primary)", fontFamily: "var(--font-jetbrains)" }}
+   603→                  formatter={(value) => formatINR(Number(value))}
+   604→                  cursor={{ fill: "rgba(37,99,235,0.08)" }}
+   605→                />
+   606→                <Bar dataKey="total" name="Sales" fill={CHART_BLUE} radius={[4, 4, 0, 0]} maxBarSize={36} />
+   607→              </BarChart>
+   608→            </ResponsiveContainer>
+   609→          </div>
+   610→        )}
+   611→      </div>
+   612→
+   613→      <div className="dmk-card overflow-hidden">
+   614→        <div className="overflow-x-auto max-h-[calc(100vh-560px)] overflow-y-auto">
+   615→          <table className="dmk-table">
+   616→            <thead>
+   617→              <tr>
+   618→                <th>Invoice #</th>
+   619→                <th>Date</th>
+   620→                <th>Customer</th>
+   621→                <th>Mode</th>
+   622→                <th>SKU</th>
+   623→                <th>Product</th>
+   624→                <th className="num text-right">Qty</th>
+   625→                <th className="num text-right">Rate (₹)</th>
+   626→                <th className="num text-right">Disc %</th>
+   627→                <th className="num text-right">Taxable (₹)</th>
+   628→                <th className="num text-right">GST %</th>
+   629→                <th className="num text-right">Total (₹)</th>
+   630→              </tr>
+   631→            </thead>
+   632→            <tbody>
+   633→              {rows.map((r, i) => (
+   634→                <tr key={`${r.invoiceNumber}-${r.sku}-${i}`}>
+   635→                  <td className="font-money text-[12px] whitespace-nowrap">{r.invoiceNumber}</td>
+   636→                  <td className="text-[12px] text-dmk-text-secondary whitespace-nowrap">{formatDate(r.invoiceDate)}</td>
+   637→                  <td className="max-w-[200px]"><span className="block truncate text-[12.5px]">{r.customer}</span></td>
+   638→                  <td><Badge tone={r.paymentMode === "CREDIT" ? "warning" : "info"}>{r.paymentMode}</Badge></td>
+   639→                  <td className="font-money text-[12px] text-dmk-text-secondary">{r.sku}</td>
+   640→                  <td className="max-w-[200px]"><span className="block truncate text-[12.5px]">{r.productName}</span></td>
+   641→                  <td className="num text-right">{r.quantity}</td>
+   642→                  <td className="num text-right text-dmk-text-secondary">{formatINR(r.unitPrice)}</td>
+   643→                  <td className="num text-right text-dmk-gold">{r.bulkDiscountPct ? `${r.bulkDiscountPct}%` : "—"}</td>
+   644→                  <td className="num text-right text-dmk-text-primary">{formatINR(r.taxableAmount)}</td>
+   645→                  <td className="num text-right text-dmk-text-muted">{r.gstRate}%</td>
+   646→                  <td className="num text-right font-money font-semibold text-dmk-text-primary">{formatINR(r.totalAmount)}</td>
+   647→                </tr>
+   648→              ))}
+   649→            </tbody>
+   650→          </table>
+   651→        </div>
+   652→      </div>
+   653→    </div>
+   654→  );
+   655→}
+   656→
+   657→// ═══════════════════════════════════════════════════════════════
+   658→// PURCHASE REPORT
+   659→// ═══════════════════════════════════════════════════════════════
+   660→
+   661→function PurchasesReport({ rows }: { rows: PurchaseRow[] }) {
+   662→  const totalValue = rows.reduce((s, r) => s + r.totalAmount, 0);
+   663→  return (
+   664→    <div className="space-y-4">
+   665→      <div className="dmk-card p-4 flex flex-wrap items-center justify-between gap-3">
+   666→        <div>
+   667→          <h2 className="text-[15px] font-semibold text-dmk-text-primary">Purchase line items</h2>
+   668→          <p className="text-[11px] text-dmk-text-muted">
+   669→            {rows.length} items · total {formatINR(totalValue)} · confirmed POs only
+   670→          </p>
+   671→        </div>
+   672→        <Badge tone="info">PURCHASES</Badge>
+   673→      </div>
+   674→      {rows.length === 0 ? (
+   675→        <EmptyState icon={ShoppingCart} title="No purchases in this window" hint="Confirmed POs will appear here." />
+   676→      ) : (
+   677→        <div className="dmk-card overflow-hidden">
+   678→          <div className="overflow-x-auto max-h-[calc(100vh-480px)] overflow-y-auto">
+   679→            <table className="dmk-table">
+   680→              <thead>
+   681→                <tr>
+   682→                  <th>PO #</th>
+   683→                  <th>Date</th>
+   684→                  <th>Vendor</th>
+   685→                  <th>SKU</th>
+   686→                  <th>Product</th>
+   687→                  <th className="num text-right">Qty</th>
+   688→                  <th className="num text-right">Recd</th>
+   689→                  <th className="num text-right">Cost (₹)</th>
+   690→                  <th className="num text-right">Taxable (₹)</th>
+   691→                  <th className="num text-right">GST %</th>
+   692→                  <th className="num text-right">Total (₹)</th>
+   693→                </tr>
+   694→              </thead>
+   695→              <tbody>
+   696→                {rows.map((r, i) => (
+   697→                  <tr key={`${r.poNumber}-${r.sku}-${i}`}>
+   698→                    <td className="font-money text-[12px] whitespace-nowrap">{r.poNumber}</td>
+   699→                    <td className="text-[12px] text-dmk-text-secondary whitespace-nowrap">{formatDate(r.poDate)}</td>
+   700→                    <td className="max-w-[200px]"><span className="block truncate text-[12.5px]">{r.vendor}</span></td>
+   701→                    <td className="font-money text-[12px] text-dmk-text-secondary">{r.sku}</td>
+   702→                    <td className="max-w-[200px]"><span className="block truncate text-[12.5px]">{r.productName}</span></td>
+   703→                    <td className="num text-right">{r.quantity}</td>
+   704→                    <td className="num text-right text-dmk-text-secondary">{r.receivedQty}</td>
+   705→                    <td className="num text-right text-dmk-text-secondary">{formatINR(r.unitCost)}</td>
+   706→                    <td className="num text-right text-dmk-text-primary">{formatINR(r.taxableAmount)}</td>
+   707→                    <td className="num text-right text-dmk-text-muted">{r.gstRate}%</td>
+   708→                    <td className="num text-right font-money font-semibold text-dmk-text-primary">{formatINR(r.totalAmount)}</td>
+   709→                  </tr>
+   710→                ))}
+   711→              </tbody>
+   712→            </table>
+   713→          </div>
+   714→        </div>
+   715→      )}
+   716→    </div>
+   717→  );
+   718→}
+   719→
+   720→// ═══════════════════════════════════════════════════════════════
+   721→// STOCK REPORT
+   722→// ═══════════════════════════════════════════════════════════════
+   723→
+   724→function StockReport({ rows, totals }: { rows: StockRow[]; totals?: { stockValue: number; damagedValue: number } }) {
+   725→  return (
+   726→    <div className="space-y-4">
+   727→      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+   728→        <div className="dmk-kpi p-4">
+   729→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Stock Value (Sellable)</span>
+   730→          <span className="font-money text-[19px] font-semibold text-dmk-success block mt-2">{formatINR(totals?.stockValue ?? 0)}</span>
+   731→        </div>
+   732→        <div className="dmk-kpi p-4">
+   733→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Damaged Value</span>
+   734→          <span className="font-money text-[19px] font-semibold text-dmk-danger block mt-2">{formatINR(totals?.damagedValue ?? 0)}</span>
+   735→        </div>
+   736→        <div className="dmk-kpi p-4">
+   737→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Products</span>
+   738→          <span className="font-money text-[19px] font-semibold text-dmk-text-primary block mt-2">{rows.length}</span>
+   739→        </div>
+   740→        <div className="dmk-kpi p-4">
+   741→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Total Units</span>
+   742→          <span className="font-money text-[19px] font-semibold text-dmk-text-primary block mt-2">
+   743→            {rows.reduce((s, r) => s + r.stockQuantity + r.damagedStock, 0).toFixed(0)}
+   744→          </span>
+   745→        </div>
+   746→      </div>
+   747→
+   748→      <div className="dmk-card overflow-hidden">
+   749→        <div className="overflow-x-auto max-h-[calc(100vh-480px)] overflow-y-auto">
+   750→          <table className="dmk-table">
+   751→            <thead>
+   752→              <tr>
+   753→                <th>SKU</th>
+   754→                <th>Product</th>
+   755→                <th className="hidden md:table-cell">Category</th>
+   756→                <th className="hidden lg:table-cell">Brand</th>
+   757→                <th className="num text-right">Sellable</th>
+   758→                <th className="num text-right">Damaged</th>
+   759→                <th className="num text-right hidden md:table-cell">Threshold</th>
+   760→                <th className="num text-right">Cost (₹)</th>
+   761→                <th className="num text-right">Stock Value (₹)</th>
+   762→                <th className="num text-right">Damaged Value (₹)</th>
+   763→              </tr>
+   764→            </thead>
+   765→            <tbody>
+   766→              {rows.map((r) => (
+   767→                <tr key={r.sku}>
+   768→                  <td className="font-money text-[12px] text-dmk-text-secondary">{r.sku}</td>
+   769→                  <td className="max-w-[220px]">
+   770→                    <span className="block truncate text-[12.5px] font-medium">{r.name}</span>
+   771→                    <span className="text-[10.5px] text-dmk-text-muted">{r.unit} · {r.isActive ? "Active" : "Inactive"}</span>
+   772→                  </td>
+   773→                  <td className="hidden md:table-cell text-[12px] text-dmk-text-secondary">{r.category}</td>
+   774→                  <td className="hidden lg:table-cell text-[12px] text-dmk-text-muted">{r.brand || "—"}</td>
+   775→                  <td className={cn("num text-right", r.stockQuantity <= r.lowStockThreshold ? "text-dmk-warning font-semibold" : "text-dmk-text-primary")}>
+   776→                    {r.stockQuantity}
+   777→                  </td>
+   778→                  <td className={cn("num text-right", r.damagedStock > 0 ? "text-dmk-danger font-semibold" : "text-dmk-text-muted")}>
+   779→                    {r.damagedStock}
+   780→                  </td>
+   781→                  <td className="num text-right hidden md:table-cell text-dmk-text-muted">{r.lowStockThreshold}</td>
+   782→                  <td className="num text-right text-dmk-text-secondary">{formatINR(r.purchaseCost)}</td>
+   783→                  <td className="num text-right font-money font-semibold text-dmk-success">{formatINR(r.stockValue)}</td>
+   784→                  <td className="num text-right font-money text-dmk-danger">{formatINR(r.damagedValue)}</td>
+   785→                </tr>
+   786→              ))}
+   787→            </tbody>
+   788→          </table>
+   789→        </div>
+   790→      </div>
+   791→    </div>
+   792→  );
+   793→}
+   794→
+   795→// ═══════════════════════════════════════════════════════════════
+   796→// STOCK VALUATION (WAC) — weighted average cost from receipts
+   797→// ═══════════════════════════════════════════════════════════════
+   798→
+   799→function ValuationReport({
+   800→  rows,
+   801→  totals,
+   802→  method,
+   803→}: {
+   804→  rows: ValuationRow[];
+   805→  totals?: { stockValue: number; damagedValue: number; totalValue?: number };
+   806→  method?: string;
+   807→}) {
+   808→  const stockValue = totals?.stockValue ?? rows.reduce((s, r) => s + r.stockValue, 0);
+   809→  const damagedValue = totals?.damagedValue ?? rows.reduce((s, r) => s + r.damagedValue, 0);
+   810→  const totalValue = totals?.totalValue ?? stockValue + damagedValue;
+   811→  const costValue = rows.reduce((s, r) => s + r.purchaseCost * r.stockQuantity, 0);
+   812→  const variance = Math.round((stockValue - costValue) * 100) / 100;
+   813→
+   814→  return (
+   815→    <div className="space-y-4">
+   816→      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+   817→        <div className="dmk-kpi p-4">
+   818→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Stock Value @ WAC</span>
+   819→          <span className="font-money text-[19px] font-semibold text-dmk-success block mt-2">{formatINR(stockValue)}</span>
+   820→        </div>
+   821→        <div className="dmk-kpi p-4">
+   822→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Quarantine @ WAC</span>
+   823→          <span className="font-money text-[19px] font-semibold text-dmk-danger block mt-2">{formatINR(damagedValue)}</span>
+   824→        </div>
+   825→        <div className="dmk-kpi p-4">
+   826→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Total Valuation</span>
+   827→          <span className="font-money text-[19px] font-semibold text-dmk-text-primary block mt-2">{formatINR(totalValue)}</span>
+   828→        </div>
+   829→        <div className="dmk-kpi p-4">
+   830→          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Variance vs Cost</span>
+   831→          <span className={cn("font-money text-[19px] font-semibold block mt-2", variance === 0 ? "text-dmk-text-primary" : variance > 0 ? "text-dmk-info" : "text-dmk-warning")}>
+   832→            {variance >= 0 ? "+" : ""}{formatINR(variance)}
+   833→          </span>
+   834→        </div>
+   835→      </div>
+   836→
+   837→      <div className="dmk-well px-3.5 py-2.5 flex items-center gap-2">
+   838→        <Scale className="h-3.5 w-3.5 text-dmk-info shrink-0" />
+   839→        <p className="text-[11.5px] text-dmk-text-secondary">
+   840→          <span className="font-semibold text-dmk-text-primary">Method:</span> {method ?? "Weighted Average Cost from confirmed goods receipts"}.
+   841→          Products never received fall back to last purchase cost.
+   842→        </p>
+   843→      </div>
+   844→
+   845→      <div className="dmk-card overflow-hidden">
+   846→        <div className="overflow-x-auto max-h-[calc(100vh-500px)] overflow-y-auto">
+   847→          <table className="dmk-table">
+   848→            <thead>
+   849→              <tr>
+   850→                <th>SKU</th>
+   851→                <th>Product</th>
+   852→                <th className="hidden md:table-cell">Category</th>
+   853→                <th className="num text-right">Sellable</th>
+   854→                <th className="num text-right">Damaged</th>
+   855→                <th className="num text-right">WAC (₹)</th>
+   856→                <th className="num text-right hidden lg:table-cell">Last Cost (₹)</th>
+   857→                <th className="num text-right">Stock Value (₹)</th>
+   858→                <th className="num text-right hidden md:table-cell">Damaged (₹)</th>
+   859→                <th className="num text-right">Basis</th>
+   860→              </tr>
+   861→            </thead>
+   862→            <tbody>
+   863→              {rows.map((r) => {
+   864→                const delta = Math.round((r.wac - r.purchaseCost) * 100) / 100;
+   865→                return (
+   866→                  <tr key={r.sku}>
+   867→                    <td className="font-money text-[12px] text-dmk-text-secondary">{r.sku}</td>
+   868→                    <td className="max-w-[220px]">
+   869→                      <span className="block truncate text-[12.5px] font-medium">{r.name}</span>
+   870→                      <span className="text-[10.5px] text-dmk-text-muted">{r.unit}</span>
+   871→                    </td>
+   872→                    <td className="hidden md:table-cell text-[12px] text-dmk-text-secondary">{r.category}</td>
+   873→                    <td className="num text-right text-dmk-text-primary">{r.stockQuantity}</td>
+   874→                    <td className={cn("num text-right", r.damagedStock > 0 ? "text-dmk-danger font-semibold" : "text-dmk-text-muted")}>
+   875→                      {r.damagedStock}
+   876→                    </td>
+   877→                    <td className="num text-right font-money font-semibold text-dmk-text-primary" title={delta !== 0 ? `Δ ${formatINR(delta)} vs last cost` : undefined}>
+   878→                      {formatINR(r.wac)}
+   879→                      {delta !== 0 && (
+   880→                        <span className={cn("ml-1 text-[9.5px] font-sans", delta > 0 ? "text-dmk-info" : "text-dmk-warning")}>
+   881→                          {delta > 0 ? "▲" : "▼"}
+   882→                        </span>
+   883→                      )}
+   884→                    </td>
+   885→                    <td className="num text-right hidden lg:table-cell text-dmk-text-muted">{formatINR(r.purchaseCost)}</td>
+   886→                    <td className="num text-right font-money font-semibold text-dmk-success">{formatINR(r.stockValue)}</td>
+   887→                    <td className="num text-right hidden md:table-cell font-money text-dmk-danger">{formatINR(r.damagedValue)}</td>
+   888→                    <td>
+   889→                      <Badge tone={r.method.startsWith("WAC") ? "info" : "neutral"}>
+   890→                        {r.method.startsWith("WAC") ? `${r.receiptsQty} recd` : "last cost"}
+   891→                      </Badge>
+   892→                    </td>
+   893→                  </tr>
+   894→                );
+   895→              })}
+   896→            </tbody>
+   897→            {rows.length > 0 && (
+   898→              <tfoot>
+   899→                <tr className="bg-dmk-input-well">
+   900→                  <td colSpan={7} className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
+   901→                    Totals — {rows.length} products valued
+   902→                  </td>
+   903→                  <td className="num text-right font-money font-bold text-dmk-success">{formatINR(stockValue)}</td>
+   904→                  <td className="num text-right hidden md:table-cell font-money font-bold text-dmk-danger">{formatINR(damagedValue)}</td>
+   905→                  <td />
+   906→                </tr>
+   907→              </tfoot>
+   908→            )}
+   909→          </table>
+   910→        </div>
+   911→      </div>
+   912→    </div>
+   913→  );
+   914→}
+   915→
+   916→// ═══════════════════════════════════════════════════════════════
+   917→// GST SUMMARY — Output vs ITC vs Net Payable
+   918→// ═══════════════════════════════════════════════════════════════
+   919→
+   920→function GstReport({ output, input, net }: { output: GstSide; input: GstSide; net: { cgst: number; sgst: number; igst: number } }) {
+   921→  const netTotal = Math.round((net.cgst + net.sgst + net.igst) * 100) / 100;
+   922→
+   923→  const componentRows = [
+   924→    { name: "CGST", out: output.cgst, in: input.cgst, net: net.cgst },
+   925→    { name: "SGST", out: output.sgst, in: input.sgst, net: net.sgst },
+   926→    { name: "IGST", out: output.igst, in: input.igst, net: net.igst },
+   927→  ];
+   928→
+   929→  return (
+   930→    <div className="space-y-4">
+   931→      {/* Summary cards */}
+   932→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+   933→        <div className="dmk-kpi p-4">
+   934→          <div className="flex items-center justify-between">
+   935→            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Output Tax (Sales)</span>
+   936→            <ArrowUpRight className="h-4 w-4 text-dmk-success" />
+   937→          </div>
+   938→          <span className="font-money text-[20px] font-semibold text-dmk-success block mt-2">
+   939→            {formatINR(output.cgst + output.sgst + output.igst)}
+   940→          </span>
+   941→          <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
+   942→            Taxable {formatINR(output.taxable)} · Docs {formatINR(output.total)}
+   943→          </span>
+   944→        </div>
+   945→        <div className="dmk-kpi p-4">
+   946→          <div className="flex items-center justify-between">
+   947→            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Input ITC (Purchases)</span>
+   948→            <ArrowDownRight className="h-4 w-4 text-dmk-info" />
+   949→          </div>
+   950→          <span className="font-money text-[20px] font-semibold text-dmk-info block mt-2">
+   951→            {formatINR(input.cgst + input.sgst + input.igst)}
+   952→          </span>
+   953→          <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
+   954→            Taxable {formatINR(input.taxable)} · Docs {formatINR(input.total)}
+   955→          </span>
+   956→        </div>
+   957→        <div className="dmk-kpi p-4">
+   958→          <div className="flex items-center justify-between">
+   959→            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net GST Payable</span>
+   960→            <Percent className="h-4 w-4 text-dmk-orange" />
+   961→          </div>
+   962→          <span className={cn("font-money text-[20px] font-semibold block mt-2", netTotal >= 0 ? "text-dmk-orange" : "text-dmk-success")}>
+   963→            {formatINR(netTotal)}
+   964→          </span>
+   965→          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
+   966→            {netTotal >= 0 ? "Payable to government" : "Credit carried forward"}
+   967→          </span>
+   968→        </div>
+   969→      </div>
+   970→
+   971→      {/* Component table */}
+   972→      <div className="dmk-card overflow-hidden">
+   973→        <div className="px-4 py-2.5 border-b border-dmk-border-subtle">
+   974→          <h2 className="text-[13px] font-semibold text-dmk-text-primary">By Component</h2>
+   975→        </div>
+   976→        <div className="overflow-x-auto">
+   977→          <table className="dmk-table">
+   978→            <thead>
+   979→              <tr>
+   980→                <th>Component</th>
+   981→                <th className="num text-right">Output Tax (₹)</th>
+   982→                <th className="num text-right">Input ITC (₹)</th>
+   983→                <th className="num text-right">Net Payable (₹)</th>
+   984→              </tr>
+   985→            </thead>
+   986→            <tbody>
+   987→              {componentRows.map((c) => (
+   988→                <tr key={c.name}>
+   989→                  <td><Badge tone="neutral">{c.name}</Badge></td>
+   990→                  <td className="num text-right text-dmk-success">{formatINR(c.out)}</td>
+   991→                  <td className="num text-right text-dmk-info">{formatINR(c.in)}</td>
+   992→                  <td className={cn("num text-right font-money font-semibold", c.net >= 0 ? "text-dmk-orange" : "text-dmk-success")}>
+   993→                    {formatINR(c.net)}
+   994→                  </td>
+   995→                </tr>
+   996→              ))}
+   997→              <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
+   998→                <td className="font-bold text-dmk-text-primary">TOTAL</td>
+   999→                <td className="num text-right font-money font-bold text-dmk-success">
+  1000→                  {formatINR(output.cgst + output.sgst + output.igst)}
+  1001→                </td>
+  1002→                <td className="num text-right font-money font-bold text-dmk-info">
+  1003→                  {formatINR(input.cgst + input.sgst + input.igst)}
+  1004→                </td>
+  1005→                <td className={cn("num text-right font-money font-bold", netTotal >= 0 ? "text-dmk-orange" : "text-dmk-success")}>
+  1006→                  {formatINR(netTotal)}
+  1007→                </td>
+  1008→              </tr>
+  1009→            </tbody>
+  1010→          </table>
+  1011→        </div>
+  1012→      </div>
+  1013→
+  1014→      {/* Output + Input doc tables */}
+  1015→      <GstSideTable title="Output Tax Documents (Sales Invoices)" tone="success" rows={output.rows} />
+  1016→      <GstSideTable title="Input Tax Credit Documents (Confirmed POs)" tone="info" rows={input.rows} />
+  1017→    </div>
+  1018→  );
+  1019→}
+  1020→
+  1021→function GstSideTable({ title, tone, rows }: { title: string; tone: "success" | "info"; rows: GstDocRow[] }) {
+  1022→  return (
+  1023→    <div className="dmk-card overflow-hidden">
+  1024→      <div className="flex items-center justify-between px-4 py-2.5 border-b border-dmk-border-subtle">
+  1025→        <h2 className="text-[13px] font-semibold text-dmk-text-primary">{title}</h2>
+  1026→        <Badge tone={tone}>{rows.length} docs</Badge>
+  1027→      </div>
+  1028→      {rows.length === 0 ? (
+  1029→        <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No documents in this window.</p>
+  1030→      ) : (
+  1031→        <div className="overflow-x-auto max-h-72 overflow-y-auto">
+  1032→          <table className="dmk-table">
+  1033→            <thead>
+  1034→              <tr>
+  1035→                <th>Doc #</th>
+  1036→                <th>Date</th>
+  1037→                <th>Party</th>
+  1038→                <th className="hidden md:table-cell">State</th>
+  1039→                <th className="num text-right">Taxable (₹)</th>
+  1040→                <th className="num text-right">CGST (₹)</th>
+  1041→                <th className="num text-right">SGST (₹)</th>
+  1042→                <th className="num text-right">IGST (₹)</th>
+  1043→                <th className="num text-right">Total (₹)</th>
+  1044→              </tr>
+  1045→            </thead>
+  1046→            <tbody>
+  1047→              {rows.map((r) => (
+  1048→                <tr key={r.docNo}>
+  1049→                  <td className="font-money text-[12px] whitespace-nowrap">{r.docNo}</td>
+  1050→                  <td className="text-[12px] text-dmk-text-secondary whitespace-nowrap">{formatDate(r.date)}</td>
+  1051→                  <td className="max-w-[200px]"><span className="block truncate text-[12.5px]">{r.party}</span></td>
+  1052→                  <td className="hidden md:table-cell text-[12px] text-dmk-text-muted">{r.partyStateCode}</td>
+  1053→                  <td className="num text-right text-dmk-text-primary">{formatINR(r.taxable)}</td>
+  1054→                  <td className="num text-right text-dmk-text-secondary">{r.cgst ? formatINR(r.cgst) : "—"}</td>
+  1055→                  <td className="num text-right text-dmk-text-secondary">{r.sgst ? formatINR(r.sgst) : "—"}</td>
+  1056→                  <td className="num text-right text-dmk-text-secondary">{r.igst ? formatINR(r.igst) : "—"}</td>
+  1057→                  <td className="num text-right font-money font-semibold text-dmk-text-primary">{formatINR(r.total)}</td>
+  1058→                </tr>
+  1059→              ))}
+  1060→            </tbody>
+  1061→          </table>
+  1062→        </div>
+  1063→      )}
+  1064→    </div>
+  1065→  );
+  1066→}
+  1067→
+  1068→// ═══════════════════════════════════════════════════════════════
+  1069→// GSTR-1 — OUTWARD SUPPLIES (sales-side filing summary, cycle 17)
+  1070→// B2B/B2C split · rate-wise buckets · HSN summary · invoice docs
+  1071→// ═══════════════════════════════════════════════════════════════
+  1072→
+  1073→function Gstr1Report({
+  1074→  totals,
+  1075→  b2b,
+  1076→  b2c,
+  1077→  rateWise,
+  1078→  hsnWise,
+  1079→  docs,
+  1080→}: {
+  1081→  totals: Gstr1Totals;
+  1082→  b2b?: Gstr1Side;
+  1083→  b2c?: Gstr1Side;
+  1084→  rateWise: Gstr1RateRow[];
+  1085→  hsnWise: Gstr1HsnRow[];
+  1086→  docs: Gstr1DocRow[];
+  1087→}) {
+  1088→  const rateTaxTotal = rateWise.reduce((s, r) => s + r.taxable, 0);
+  1089→  const hsnTaxTotal = hsnWise.reduce((s, r) => s + r.taxable, 0);
+  1090→  // Cross-foot: rate-wise + hsn-wise taxable must equal the doc totals.
+  1091→  const rateDelta = Math.round((rateTaxTotal - totals.totalTaxable) * 100) / 100;
+  1092→  const hsnDelta = Math.round((hsnTaxTotal - totals.totalTaxable) * 100) / 100;
+  1093→  const reconciled = Math.abs(rateDelta) <= 0.01 && Math.abs(hsnDelta) <= 0.01;
+  1094→
+  1095→  return (
+  1096→    <div className="space-y-4">
+  1097→      {/* KPI row */}
+  1098→      <div className="dmk-enter-stagger grid grid-cols-2 lg:grid-cols-4 gap-3">
+  1099→        <div className="dmk-kpi p-4">
+  1100→          <div className="flex items-center justify-between">
+  1101→            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Total Output Tax</span>
+  1102→            <Percent className="h-4 w-4 text-dmk-orange" />
+  1103→          </div>
+  1104→          <span className="font-money text-[20px] font-semibold text-dmk-orange block mt-2">{formatINR(totals.totalTax)}</span>
+  1105→          <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
+  1106→            CGST {formatINR(totals.totalCgst)} · SGST {formatINR(totals.totalSgst)} · IGST {formatINR(totals.totalIgst)}
+  1107→          </span>
+  1108→        </div>
+  1109→        <div className="dmk-kpi p-4">
+  1110→          <div className="flex items-center justify-between">
+  1111→            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">B2B Taxable</span>
+  1112→            <Badge tone="info">B2B</Badge>
+  1113→          </div>
+  1114→          <span className="font-money text-[20px] font-semibold text-dmk-text-primary block mt-2">{formatINR(b2b?.taxable ?? 0)}</span>
+  1115→          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
+  1116→            {b2b?.count ?? 0} doc{(b2b?.count ?? 0) === 1 ? "" : "s"} · registered buyers
+  1117→          </span>
+  1118→        </div>
+  1119→        <div className="dmk-kpi p-4">
+  1120→          <div className="flex items-center justify-between">
+  1121→            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">B2C Taxable</span>
+  1122→            <Badge tone="dr">B2C</Badge>
+  1123→          </div>
+  1124→          <span className="font-money text-[20px] font-semibold text-dmk-text-primary block mt-2">{formatINR(b2c?.taxable ?? 0)}</span>
+  1125→          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
+  1126→            {b2c?.count ?? 0} doc{(b2c?.count ?? 0) === 1 ? "" : "s"} · counter / unregistered
+  1127→          </span>
+  1128→        </div>
+  1129→        <div className="dmk-kpi p-4">
+  1130→          <div className="flex items-center justify-between">
+  1131→            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Invoices</span>
+  1132→            <ScrollText className="h-4 w-4 text-dmk-gold" />
+  1133→          </div>
+  1134→          <span className="font-money text-[20px] font-semibold text-dmk-text-primary block mt-2">{totals.invoiceCount}</span>
+  1135→          <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
+  1136→            Taxable {formatINR(totals.totalTaxable)} total
+  1137→          </span>
+  1138→        </div>
+  1139→      </div>
+  1140→
+  1141→      {/* Reconciliation strip */}
+  1142→      <div className="dmk-card px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px]">
+  1143→        <span
+  1144→          className={cn(
+  1145→            "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10.5px] font-bold uppercase tracking-wide",
+  1146→            reconciled
+  1147→              ? "border-dmk-success/40 bg-dmk-success/10 text-dmk-success"
+  1148→              : "border-dmk-warning/40 bg-dmk-warning/10 text-dmk-warning"
+  1149→          )}
+  1150→        >
+  1151→          {reconciled ? "CROSS-FOOTED ✓" : `Δ ${formatINR(Math.abs(rateDelta || hsnDelta))}`}
+  1152→        </span>
+  1153→        <span className="text-dmk-text-muted">
+  1154→          Rate-wise <span className="font-money text-dmk-text-secondary">{formatINR(rateTaxTotal)}</span>
+  1155→          {" · "}HSN-wise <span className="font-money text-dmk-text-secondary">{formatINR(hsnTaxTotal)}</span>
+  1156→          {" · "}both reconcile to invoice totals <span className="font-money text-dmk-text-secondary">{formatINR(totals.totalTaxable)}</span>
+  1157→        </span>
+  1158→      </div>
+  1159→
+  1160→      {/* Rate-wise */}
+  1161→      <div className="dmk-card overflow-hidden">
+  1162→        <div className="flex items-center justify-between px-4 py-2.5 border-b border-dmk-border-subtle">
+  1163→          <h2 className="text-[13px] font-semibold text-dmk-text-primary">Rate-wise Tax Buckets</h2>
+  1164→          <Badge tone="gold">{rateWise.length} rate{rateWise.length === 1 ? "" : "s"}</Badge>
+  1165→        </div>
+  1166→        {rateWise.length === 0 ? (
+  1167→          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No supplies in this window.</p>
+  1168→        ) : (
+  1169→          <div className="overflow-x-auto">
+  1170→            <table className="dmk-table">
+  1171→              <thead>
+  1172→                <tr>
+  1173→                  <th>GST Rate</th>
+  1174→                  <th className="num text-right">Qty</th>
+  1175→                  <th className="num text-right">Taxable (₹)</th>
+  1176→                  <th className="num text-right">CGST (₹)</th>
+  1177→                  <th className="num text-right">SGST (₹)</th>
+  1178→                  <th className="num text-right">IGST (₹)</th>
+  1179→                  <th className="num text-right">Tax (₹)</th>
+  1180→                </tr>
+  1181→              </thead>
+  1182→              <tbody>
+  1183→                {rateWise.map((r) => (
+  1184→                  <tr key={r.rate}>
+  1185→                    <td>
+  1186→                      <span className="dmk-badge bg-dmk-gold/15 text-dmk-gold font-money">{r.rate}%</span>
+  1187→                    </td>
+  1188→                    <td className="num text-right text-dmk-text-secondary">{r.qty}</td>
+  1189→                    <td className="num text-right text-dmk-text-primary">{formatINR(r.taxable)}</td>
+  1190→                    <td className="num text-right text-dmk-text-secondary">{r.cgst ? formatINR(r.cgst) : "—"}</td>
+  1191→                    <td className="num text-right text-dmk-text-secondary">{r.sgst ? formatINR(r.sgst) : "—"}</td>
+  1192→                    <td className="num text-right text-dmk-text-secondary">{r.igst ? formatINR(r.igst) : "—"}</td>
+  1193→                    <td className="num text-right font-money font-semibold text-dmk-orange">
+  1194→                      {formatINR(r.cgst + r.sgst + r.igst)}
+  1195→                    </td>
+  1196→                  </tr>
+  1197→                ))}
+  1198→              </tbody>
+  1199→              <tfoot>
+  1200→                <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
+  1201→                  <td className="font-bold text-dmk-text-primary">TOTAL</td>
+  1202→                  <td className="num text-right text-dmk-text-secondary">{rateWise.reduce((s, r) => s + r.qty, 0)}</td>
+  1203→                  <td className="num text-right font-money font-bold">{formatINR(rateTaxTotal)}</td>
+  1204→                  <td className="num text-right font-money font-bold">{formatINR(totals.totalCgst)}</td>
+  1205→                  <td className="num text-right font-money font-bold">{formatINR(totals.totalSgst)}</td>
+  1206→                  <td className="num text-right font-money font-bold">{formatINR(totals.totalIgst)}</td>
+  1207→                  <td className="num text-right font-money font-bold text-dmk-orange">{formatINR(totals.totalTax)}</td>
+  1208→                </tr>
+  1209→              </tfoot>
+  1210→            </table>
+  1211→          </div>
+  1212→        )}
+  1213→      </div>
+  1214→
+  1215→      {/* HSN-wise */}
+  1216→      <div className="dmk-card overflow-hidden">
+  1217→        <div className="flex items-center justify-between px-4 py-2.5 border-b border-dmk-border-subtle">
+  1218→          <h2 className="text-[13px] font-semibold text-dmk-text-primary">HSN-wise Summary</h2>
+  1219→          <Badge tone="neutral">{hsnWise.length} HSN{hsnWise.length === 1 ? "" : "s"}</Badge>
+  1220→        </div>
+  1221→        {hsnWise.length === 0 ? (
+  1222→          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No supplies in this window.</p>
+  1223→        ) : (
+  1224→          <div className="overflow-x-auto max-h-72 overflow-y-auto">
+  1225→            <table className="dmk-table">
+  1226→              <thead>
+  1227→                <tr>
+  1228→                  <th>HSN</th>
+  1229→                  <th>Description</th>
+  1230→                  <th className="num text-right">Qty</th>
+  1231→                  <th className="num text-right">Taxable (₹)</th>
+  1232→                  <th className="num text-right">CGST (₹)</th>
+  1233→                  <th className="num text-right">SGST (₹)</th>
+  1234→                  <th className="num text-right">IGST (₹)</th>
+  1235→                </tr>
+  1236→              </thead>
+  1237→              <tbody>
+  1238→                {hsnWise.map((r) => (
+  1239→                  <tr key={r.hsn}>
+  1240→                    <td className="font-money text-[12px] text-dmk-text-primary">{r.hsn}</td>
+  1241→                    <td className="max-w-[240px]"><span className="block truncate text-[12.5px]" title={r.description}>{r.description}</span></td>
+  1242→                    <td className="num text-right text-dmk-text-secondary">{r.qty}</td>
+  1243→                    <td className="num text-right text-dmk-text-primary">{formatINR(r.taxable)}</td>
+  1244→                    <td className="num text-right text-dmk-text-secondary">{r.cgst ? formatINR(r.cgst) : "—"}</td>
+  1245→                    <td className="num text-right text-dmk-text-secondary">{r.sgst ? formatINR(r.sgst) : "—"}</td>
+  1246→                    <td className="num text-right text-dmk-text-secondary">{r.igst ? formatINR(r.igst) : "—"}</td>
+  1247→                  </tr>
+  1248→                ))}
+  1249→              </tbody>
+  1250→            </table>
+  1251→          </div>
+  1252→        )}
+  1253→      </div>
+  1254→
+  1255→      {/* Invoice docs */}
+  1256→      <div className="dmk-card overflow-hidden">
+  1257→        <div className="flex items-center justify-between px-4 py-2.5 border-b border-dmk-border-subtle">
+  1258→          <h2 className="text-[13px] font-semibold text-dmk-text-primary">Outward Invoice Documents</h2>
+  1259→          <Badge tone="neutral">{docs.length} docs</Badge>
+  1260→        </div>
+  1261→        {docs.length === 0 ? (
+  1262→          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No invoices in this window.</p>
+  1263→        ) : (
+  1264→          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+  1265→            <table className="dmk-table min-w-[980px]">
+  1266→              <thead>
+  1267→                <tr>
+  1268→                  <th>Doc #</th>
+  1269→                  <th>Date</th>
+  1270→                  <th>Party</th>
+  1271→                  <th>GSTIN</th>
+  1272→                  <th>Type</th>
+  1273→                  <th>POS</th>
+  1274→                  <th className="num text-right">Taxable (₹)</th>
+  1275→                  <th className="num text-right">CGST (₹)</th>
+  1276→                  <th className="num text-right">SGST (₹)</th>
+  1277→                  <th className="num text-right">IGST (₹)</th>
+  1278→                  <th className="num text-right">Total (₹)</th>
+  1279→                </tr>
+  1280→              </thead>
+  1281→              <tbody>
+  1282→                {docs.map((r) => (
+  1283→                  <tr key={r.docNo}>
+  1284→                    <td className="font-money text-[12px] whitespace-nowrap text-dmk-text-primary">{r.docNo}</td>
+  1285→                    <td className="text-[12px] text-dmk-text-secondary whitespace-nowrap">{formatDate(r.date)}</td>
+  1286→                    <td className="max-w-[200px]"><span className="block truncate text-[12.5px]" title={r.party}>{r.party}</span></td>
+  1287→                    <td className="font-money text-[11px] text-dmk-text-muted whitespace-nowrap">{r.gstin ?? "—"}</td>
+  1288→                    <td>{r.supplyType === "B2B" ? <Badge tone="info">B2B</Badge> : <Badge tone="dr">B2C</Badge>}</td>
+  1289→                    <td className="text-[12px] text-dmk-text-muted">{r.placeOfSupply}</td>
+  1290→                    <td className="num text-right text-dmk-text-primary">{formatINR(r.taxable)}</td>
+  1291→                    <td className="num text-right text-dmk-text-secondary">{r.cgst ? formatINR(r.cgst) : "—"}</td>
+  1292→                    <td className="num text-right text-dmk-text-secondary">{r.sgst ? formatINR(r.sgst) : "—"}</td>
+  1293→                    <td className="num text-right text-dmk-text-secondary">{r.igst ? formatINR(r.igst) : "—"}</td>
+  1294→                    <td className="num text-right font-money font-semibold text-dmk-text-primary">{formatINR(r.total)}</td>
+  1295→                  </tr>
+  1296→                ))}
+  1297→              </tbody>
+  1298→            </table>
+  1299→          </div>
+  1300→        )}
+  1301→      </div>
+  1302→    </div>
+  1303→  );
+  1304→}
+  1305→
+  1306→// ═══════════════════════════════════════════════════════════════
+  1307→// PRODUCT PROFITABILITY — margin vs WAC (cycle 18)
+  1308→// Revenue (taxable, returns netted) − COGS (qty × WAC) per SKU.
+  1309→// ═══════════════════════════════════════════════════════════════
+  1310→
+  1311→const CHART_GOLD = "#F59E0B";
+  1312→const CHART_GREEN = "#10B981";
+  1313→const CHART_RED = "#EF4444";
+  1314→
+  1315→function ProfitabilityReport({
+  1316→  rows,
+  1317→  totals,
+  1318→  method,
+  1319→}: {
+  1320→  rows: ProfitRow[];
+  1321→  totals: ProfitTotals;
+  1322→  method?: string;
+  1323→}) {
+  1324→  const [sortBy, setSortBy] = React.useState<"profit" | "margin" | "revenue" | "qty">("profit");
+  1325→
+  1326→  const sorted = React.useMemo(() => {
+  1327→    const copy = [...rows];
+  1328→    if (sortBy === "margin") copy.sort((a, b) => b.marginPct - a.marginPct);
+  1329→    else if (sortBy === "revenue") copy.sort((a, b) => b.netRevenue - a.netRevenue);
+  1330→    else if (sortBy === "qty") copy.sort((a, b) => b.netQty - a.netQty);
+  1331→    else copy.sort((a, b) => b.grossProfit - a.grossProfit);
+  1332→    return copy;
+  1333→  }, [rows, sortBy]);
+  1334→
+  1335→  const chartData = React.useMemo(
+  1336→    () =>
+  1337→      [...rows]
+  1338→        .sort((a, b) => b.grossProfit - a.grossProfit)
+  1339→        .slice(0, 8)
+  1340→        .map((r) => ({
+  1341→          name: r.name.length > 18 ? `${r.name.slice(0, 17)}…` : r.name,
+  1342→          profit: r.grossProfit,
+  1343→          negative: r.grossProfit < 0,
+  1344→        })),
+  1345→    [rows]
+  1346→  );
+  1347→
+  1348→  const best = totals.bestSku ? rows.find((r) => r.sku === totals.bestSku) : undefined;
+  1349→
+  1350→  return (
+  1351→    <div className="space-y-4">
+  1352→      {/* KPI row */}
+  1353→      <div className="dmk-enter-stagger grid grid-cols-2 lg:grid-cols-4 gap-3">
+  1354→        <div className="dmk-kpi p-4">
+  1355→          <div className="flex items-center justify-between">
+  1356→            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net Revenue</span>
+  1357→            <ArrowUpRight className="h-4 w-4 text-dmk-success" />
+  1358→          </div>
+  1359→          <span className="font-money text-[20px] font-semibold text-dmk-success block mt-2">{formatINR(totals.revenue)}</span>
+  1360→          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">{totals.products} SKUs sold · returns netted</span>
+  1361→        </div>
+  1362→        <div className="dmk-kpi p-4">
+  1363→          <div className="flex items-center justify-between">
+  1364→            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">COGS @ WAC</span>
+  1365→            <Scale className="h-4 w-4 text-dmk-info" />
+  1366→          </div>
+  1367→          <span className="font-money text-[20px] font-semibold text-dmk-info block mt-2">{formatINR(totals.cogs)}</span>
+  1368→          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">Weighted average cost basis</span>
+  1369→        </div>
+  1370→        <div className="dmk-kpi p-4">
+  1371→          <div className="flex items-center justify-between">
+  1372→            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Gross Profit</span>
+  1373→            <TrendingUp className="h-4 w-4 text-dmk-gold" />
+  1374→          </div>
+  1375→          <span className={cn("font-money text-[20px] font-semibold block mt-2", totals.grossProfit >= 0 ? "text-dmk-gold" : "text-dmk-danger")}>
+  1376→            {formatINR(totals.grossProfit)}
+  1377→          </span>
+  1378→          <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
+  1379→            Margin {totals.marginPct.toFixed(1)}%{best ? ` · best ${best.name.split(" ").slice(0, 2).join(" ")}` : ""}
+  1380→          </span>
+  1381→        </div>
+  1382→        <div className="dmk-kpi p-4">
+  1383→          <div className="flex items-center justify-between">
+  1384→            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Loss Makers</span>
+  1385→            <ArrowDownRight className={cn("h-4 w-4", totals.lossMakers > 0 ? "text-dmk-danger" : "text-dmk-text-muted")} />
+  1386→          </div>
+  1387→          <span className={cn("font-money text-[20px] font-semibold block mt-2", totals.lossMakers > 0 ? "text-dmk-danger" : "text-dmk-success")}>
+  1388→            {totals.lossMakers}
+  1389→          </span>
+  1390→          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
+  1391→            {totals.lossMakers > 0 ? "Review pricing / cost on these" : "Every SKU is profitable"}
+  1392→          </span>
+  1393→        </div>
+  1394→      </div>
+  1395→
+  1396→      {/* Method strip */}
+  1397→      <div className="dmk-well px-3.5 py-2.5 flex items-center gap-2">
+  1398→        <TrendingUp className="h-3.5 w-3.5 text-dmk-info shrink-0" />
+  1399→        <p className="text-[11.5px] text-dmk-text-secondary">
+  1400→          <span className="font-semibold text-dmk-text-primary">Basis:</span> {method ?? "COGS at weighted average cost from confirmed receipts; sales returns netted."}
+  1401→        </p>
+  1402→      </div>
+  1403→
+  1404→      {/* Top products chart */}
+  1405→      {chartData.length > 0 && (
+  1406→        <div className="dmk-card p-4">
+  1407→          <div className="flex items-center justify-between mb-3">
+  1408→            <div>
+  1409→              <h2 className="text-[15px] font-semibold text-dmk-text-primary">Top Products by Gross Profit</h2>
+  1410→              <p className="text-[11px] text-dmk-text-muted">Top {chartData.length} SKUs · taxable revenue minus WAC cost of net quantity</p>
+  1411→            </div>
+  1412→            <Badge tone="gold">PROFIT</Badge>
+  1413→          </div>
+  1414→          <div className="h-[260px]">
+  1415→            <ResponsiveContainer width="100%" height="100%">
+  1416→              <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+  1417→                <CartesianGrid stroke="#1E2D4A" strokeDasharray="3 3" horizontal={false} />
+  1418→                <XAxis
+  1419→                  type="number"
+  1420→                  tick={{ fill: "var(--text-muted)", fontSize: 11 }}
+  1421→                  axisLine={{ stroke: "#1E2D4A" }}
+  1422→                  tickLine={false}
+  1423→                  tickFormatter={(v) => compactINR(Number(v))}
+  1424→                />
+  1425→                <YAxis
+  1426→                  type="category"
+  1427→                  dataKey="name"
+  1428→                  tick={{ fill: "var(--text-muted)", fontSize: 11 }}
+  1429→                  axisLine={false}
+  1430→                  tickLine={false}
+  1431→                  width={130}
+  1432→                />
+  1433→                <Tooltip
+  1434→                  contentStyle={TOOLTIP_STYLE}
+  1435→                  labelStyle={{ color: "var(--text-secondary)", marginBottom: 4 }}
+  1436→                  itemStyle={{ color: "var(--text-primary)", fontFamily: "var(--font-jetbrains)" }}
+  1437→                  formatter={(value) => formatINR(Number(value))}
+  1438→                  cursor={{ fill: "rgba(245,158,11,0.06)" }}
+  1439→                />
+  1440→                <Bar dataKey="profit" name="Gross profit" radius={[0, 4, 4, 0]} maxBarSize={20}>
+  1441→                  {chartData.map((d) => (
+  1442→                    <Cell key={d.name} fill={d.negative ? CHART_RED : CHART_GREEN} />
+  1443→                  ))}
+  1444→                </Bar>
+  1445→              </BarChart>
+  1446→            </ResponsiveContainer>
+  1447→          </div>
+  1448→        </div>
+  1449→      )}
+  1450→
+  1451→      {/* Per-product table */}
+  1452→      <div className="dmk-card overflow-hidden">
+  1453→        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-dmk-border-subtle">
+  1454→          <h2 className="text-[13px] font-semibold text-dmk-text-primary">Per-product profitability</h2>
+  1455→          <div className="flex items-center gap-1">
+  1456→            {(["profit", "margin", "revenue", "qty"] as const).map((k) => (
+  1457→              <button
+  1458→                key={k}
+  1459→                type="button"
+  1460→                onClick={() => setSortBy(k)}
+  1461→                className={cn(
+  1462→                  "rounded-md border px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide transition-colors",
+  1463→                  sortBy === k
+  1464→                    ? "border-dmk-gold/40 bg-dmk-gold/10 text-dmk-gold"
+  1465→                    : "border-dmk-border-subtle bg-dmk-input-well text-dmk-text-muted hover:bg-dmk-hover hover:text-dmk-text-secondary"
+  1466→                )}
+  1467→              >
+  1468→                {k === "qty" ? "Quantity" : k}
+  1469→              </button>
+  1470→            ))}
+  1471→          </div>
+  1472→        </div>
+  1473→        {rows.length === 0 ? (
+  1474→          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No sales in this window.</p>
+  1475→        ) : (
+  1476→          <div className="overflow-x-auto max-h-[calc(100vh-560px)] overflow-y-auto">
+  1477→            <table className="dmk-table">
+  1478→              <thead>
+  1479→                <tr>
+  1480→                  <th>SKU</th>
+  1481→                  <th>Product</th>
+  1482→                  <th className="num text-right">Sold</th>
+  1483→                  <th className="num text-right hidden md:table-cell">Returned</th>
+  1484→                  <th className="num text-right">Net Qty</th>
+  1485→                  <th className="num text-right">Net Revenue (₹)</th>
+  1486→                  <th className="num text-right hidden lg:table-cell">WAC (₹)</th>
+  1487→                  <th className="num text-right">COGS (₹)</th>
+  1488→                  <th className="num text-right">Profit (₹)</th>
+  1489→                  <th className="num text-right">Margin</th>
+  1490→                  <th className="num text-right hidden lg:table-cell">Invoices</th>
+  1491→                </tr>
+  1492→              </thead>
+  1493→              <tbody>
+  1494→                {sorted.map((r) => (
+  1495→                  <tr key={r.sku}>
+  1496→                    <td className="font-money text-[12px] text-dmk-text-secondary whitespace-nowrap">{r.sku}</td>
+  1497→                    <td className="max-w-[220px]">
+  1498→                      <span className="block truncate text-[12.5px] font-medium" title={r.name}>{r.name}</span>
+  1499→                    </td>
+  1500→                    <td className="num text-right text-dmk-text-primary">{r.qtySold}</td>
+  1501→                    <td className={cn("num text-right hidden md:table-cell", r.qtyReturned > 0 ? "text-dmk-warning font-semibold" : "text-dmk-text-muted")}>
+  1502→                      {r.qtyReturned || "—"}
+  1503→                    </td>
+  1504→                    <td className="num text-right text-dmk-text-secondary">{r.netQty}</td>
+  1505→                    <td className="num text-right text-dmk-text-primary">{formatINR(r.netRevenue)}</td>
+  1506→                    <td className="num text-right hidden lg:table-cell text-dmk-text-muted">{formatINR(r.wac)}</td>
+  1507→                    <td className="num text-right text-dmk-info">{formatINR(r.cogs)}</td>
+  1508→                    <td className={cn("num text-right font-money font-semibold", r.grossProfit >= 0 ? "text-dmk-success" : "text-dmk-danger")}>
+  1509→                      {r.grossProfit >= 0 ? "" : "−"}{formatINR(Math.abs(r.grossProfit))}
+  1510→                    </td>
+  1511→                    <td className="num text-right">
+  1512→                      <span
+  1513→                        className={cn(
+  1514→                          "dmk-badge font-money",
+  1515→                          r.marginPct >= 20
+  1516→                            ? "bg-dmk-success/15 text-dmk-success"
+  1517→                            : r.marginPct >= 10
+  1518→                              ? "bg-dmk-gold/15 text-dmk-gold"
+  1519→                              : r.marginPct >= 0
+  1520→                                ? "bg-dmk-warning/15 text-dmk-warning"
+  1521→                                : "bg-dmk-danger/15 text-dmk-danger"
+  1522→                        )}
+  1523→                      >
+  1524→                        {r.marginPct.toFixed(1)}%
+  1525→                      </span>
+  1526→                    </td>
+  1527→                    <td className="num text-right hidden lg:table-cell text-dmk-text-muted">{r.invoiceCount}</td>
+  1528→                  </tr>
+  1529→                ))}
+  1530→              </tbody>
+  1531→              <tfoot>
+  1532→                <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
+  1533→                  <td colSpan={5} className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
+  1534→                    Totals — {totals.products} SKUs
+  1535→                  </td>
+  1536→                  <td className="num text-right font-money font-bold text-dmk-text-primary">{formatINR(totals.revenue)}</td>
+  1537→                  <td className="hidden lg:table-cell" />
+  1538→                  <td className="num text-right font-money font-bold text-dmk-info">{formatINR(totals.cogs)}</td>
+  1539→                  <td className={cn("num text-right font-money font-bold", totals.grossProfit >= 0 ? "text-dmk-success" : "text-dmk-danger")}>
+  1540→                    {formatINR(totals.grossProfit)}
+  1541→                  </td>
+  1542→                  <td className="num text-right font-money font-bold text-dmk-gold">{totals.marginPct.toFixed(1)}%</td>
+  1543→                  <td className="hidden lg:table-cell" />
+  1544→                </tr>
+  1545→              </tfoot>
+  1546→            </table>
+  1547→          </div>
+  1548→        )}
+  1549→      </div>
+  1550→    </div>
+  1551→  );
+  1552→}
+  1553→

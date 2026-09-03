@@ -1,0 +1,221 @@
+412 /home/z/my-project/worklog.md
+Agent: ATLAS (main orchestrator)
+Task: E2E QA via agent-browser + fixes
+
+Work Log:
+- Boot test: SPA loads, seed auto-created demo firm (DMK Mart, 24 products, 12 customers, 4 vendors, sample transactions).
+- Dashboard verified live: Today ₹2,284, Receivables ₹30,897.58 Dr, Payables ₹39,664 Cr, Cash+Bank ₹9,80,655, 7-day trend + AR aging charts.
+- BUG FOUND + FIXED: 4 views consumed GET /products as array but API returns {products, categories} → billing.tsx, b2c-counter.tsx, sales-returns.tsx, credit-debit-notes.tsx normalized (Array.isArray fallback).
+- Golden path B2B sale: Latur Ishwar Mule Traders (Wholesale tier) × 24 Bucket 20L → Crate(24) −15% auto-discount, taxable ₹2,550, CGST+SGST ₹229.50 each, Grand ₹3,009, amount-in-words correct → Invoice DMK/2025-26/INV/0006 posted (journal + ledger + stock movements).
+- BUG FOUND + FIXED: invoice-docs.tsx runtime error "money is not defined" → added money() helper (formatINR no symbol).
+- A4 Rule 46 tax invoice preview verified (HSN 3924, GST split, zoom 80/100/125, print CSS).
+- Trial Balance verified after sale: ΣDr = ΣCr = ₹10,81,909.08 BALANCED.
+- Golden path Purchase: New PO for Sri Balaji (inter-state IGST 18% = ₹2,925 on ₹16,250) → PO/0004 PENDING → GRN dialog with Accepted/Damaged split (46+4, 18+2) → CONFIRMED. Movements audit: 46 IN SELLABLE + 4 IN DAMAGED (Bakery Tray), 18+2 (Bar Stool).
+- TB re-verified post-GRN: ₹11,01,084.08 balanced. P&L Net Profit ₹4,687.12. Balance Sheet balanced (assets ₹10,50,649.58 = Liab+Equity).
+- AI Copilot: "Who owes me the most?" → grounded answer (Solapur Balaji Plastics ₹13,484, limit 8L, 1.69% utilization).
+- BUG FOUND + FIXED: sidebar opened on mobile from persisted desktop state → auto-close on <1024px mount.
+- Mobile 390px verified: drawer closed by default, stacks cleanly, sticky footer present. Desktop 1440px verified.
+- Lint final: 0 errors, 0 warnings. Browser console: no page errors.
+
+Stage Summary:
+- All 10 QA checkpoints pass. Books balance to the paisa across every mutation. Dual-stock quarantine enforced and auditable.
+
+---
+Task ID: 12
+Agent: ATLAS (cron webDevReview — cycle 12)
+Task: QA assessment + feature expansion (command palette, drill-downs, WAC valuation, styling polish)
+
+Work Log:
+- QA smoke: boot 200, dashboard healthy, no console errors, TB balanced ₹11,01,084.08 → project STABLE, proceeded to features.
+- FEATURE: Global Command Palette (⌘K / Ctrl+K) at src/components/erp/command-palette.tsx (cmdk via shadcn CommandDialog):
+  · Quick Actions (New B2B Sale, New Counter Sale, New PO, Record Receipt, Record Vendor Payment, Add Product, Create/Switch Firm)
+  · Deep search (debounced 220ms): products (sku/name + live stock), parties (name/phone + Dr balance / visits), invoices (number + amount) → navigate to owning module
+  · Firm switcher with gold ACTIVE badge; nav group with G-shortcuts; footer hint row
+  · Wired via window event "dmk:open-palette"; header got "Search everything… ⌘K" trigger (desktop) + icon button (mobile).
+- FEATURE: Dashboard KPI drill-downs — KpiCard extended with optional onClick + drillHint (keyboard accessible, role=button, aria-label); cards navigate: Today→Invoice Register, Month→Reports, Receivables→AR Aging, Payables→AP Aging, Cash+Bank→Day Book, Inventory→Stock Levels. Verified click Receivables → AR Aging opens.
+- FEATURE: Stock Valuation (WAC) report — /api/v1/reports type=valuation: WAC = Σ(receipt qty × unit cost)/Σ qty from CONFIRMED PO receipts, fallback last purchase cost; totals + count + method. Reports UI: 5th card "Valuation (WAC)", KPIs (Stock @ WAC, Quarantine @ WAC, Total, Variance vs Cost), method note chip, WAC vs last-cost table with ▲▼ delta markers + basis badges, totals tfoot, CSV export. Verified: 24 rows, ₹8,97,370 total, variance +₹28,650 traced to 2 genuine receipt-cost deltas (DMK-SB-402 +₹14,400, DMK-KW-503 +₹14,250).
+- STYLING: entrance animation system (dmk-enter fade+8px rise per design tokens; dmk-enter-stagger 40ms cascades) applied to view container (key=view remount) + KPI rows + report cards; dmk-kpi-clickable with → affordance reveal on hover + focus ring; global button/menuitem focus-visible ring (accent-blue); date-filter inputs properly disabled for snapshot reports (stock + valuation).
+- Verification: valuation API 200 w/ correct math; palette open/type/select navigate verified; drill-down verified; tsc 0 errors; lint 0 errors 0 warnings; TB still balanced.
+
+Stage Summary:
+- Platform remains balanced and green. New capabilities this cycle: ⌘K command palette (power-user navigation + actions + deep search), dashboard drill-downs, WAC inventory valuation report (Phase 3 task 3.7 closed), motion polish per Midnight Ledger motion tokens.
+- Risks: none open. Suggested next cycle: per-invoice settlement tracking (precise aging), GSTR-2B reconciliation view, dashboard sparklines, firm-level onboarding checklist.
+
+---
+Task ID: 13
+Agent: ATLAS (cron webDevReview — cycle 13)
+Task: QA assessment + per-invoice settlement tracking (precise AR aging) + dashboard sparklines
+
+Work Log:
+- QA smoke: boot 200, dashboard/receipts views healthy, no console errors, lint 0/0, TB balanced ₹11,01,084.08 → project STABLE, proceeded to the top backlog feature.
+- FEATURE: Per-invoice settlement tracking (AR subledger) — end-to-end:
+  · Schema: new `ReceiptAllocation` model (firmId, receiptId, invoiceId, amount) + relations on Firm / CustomerReceipt / Invoice; `db:push` additive, no data loss.
+  · Engine: `_lib/settlement.ts` — computeOpenInvoices() computes precise outstanding per credit invoice = grandTotal − Σ allocations − Σ credit notes (sales returns with invoiceId), with ageDays/bucket/creditDays/dueDate/overdueDays; createAllocations() validates inside the receipt transaction (invoice must be firm+customer+POSTED+CREDIT; per-invoice cumulative ≤ outstanding; Σ allocations ≤ receipt amount; remainder stays on account) and returns settlement summary; settledTotalsByInvoice() for register badges.
+  · payments.ts: createCustomerReceipt accepts optional allocations → creates allocation rows in-tx → ledger particulars record "— adj INV/0006 ₹1,500.00, …" → journal narration "settled N invoices"; response adds applied + allocatedTotal.
+  · New route GET /api/v1/ledger/aging-invoices: precise invoice-wise AR rows + totals (buckets, overdue) + party rollup (with per-party unapplied) + AR subledger reconciliation (open invoices − unapplied receipts + party openings = GL receivables, difference badge).
+  · customer-receipts GET now returns allocations[] + allocatedTotal; POST parses allocations.
+  · invoices GET attaches settled/credited/outstanding for POSTED credit invoices (no rows → fully outstanding).
+- FRONTEND:
+  · receipts.tsx: table gained "Settled against" column (INV chips + amounts, "+N more", "· on acct ₹X" remainder, italic "On account" fallback); Record Receipt dialog gained a settlement panel — open-invoice table (age badge, outstanding, per-invoice allocate input), "Auto-allocate (oldest first)" button, live "Allocated ₹X · On account ₹Y" strip, Clear all, over-allocation error (client) + server 422 surfaced; submit passes allocations.
+  · aging.tsx: 3rd tab "Invoice-wise (precise)" — KPIs (Open invoices, Overdue ₹, Current 0–30, 90+), subledger reconciliation strip with RECONCILED ✓ / Δ badge, by-party chips with unapplied notes, party filter Select, invoice table (invoice # + billed, party + receipts/credit-note sub-line, age badge + days, due date + terms, outstanding, WITHIN TERMS / OVERDUE Nd badge), CSV export, recalculate; scroll container min-height guard for short viewports.
+  · invoice-register.tsx: new "Outstanding" column — orange ₹ for open credit invoices, SETTLED badge when fully paid, "—" for cash/UPI/counter rows; CSV includes Outstanding.
+  · dashboard.tsx + shared.tsx: KpiCard `spark`/`sparkColor` props + inline-SVG Sparkline (gradient area, end-dot, useId) — Today's Sales (7-day, orange) and Month Sales (month-to-date, blue) sparklines; dashboard API adds monthTrend (MTD daily totals).
+- STYLING/FIXES:
+  · FIXED pre-existing dead token: `bg-dmk-tertiary` didn't resolve (token is `--color-dmk-bg-tertiary`) → header dropdowns + my new code use `bg-dmk-bg-tertiary`.
+  · Design system: added missing `.dmk-badge-gold` CSS + "gold" BadgeTone (61–90 bucket badge now uses it).
+- Verification (live, agent-browser + curl):
+  · Aging-invoices math: 4 open invoices ₹38,906.58; INV/0001 correctly nets ₹471.42 credit note; reconciliation identity Δ = 0 exactly (38,906.58 − 5,000 + 0 = 33,906.58 GL).
+  · Settlement E2E via API: ₹2,000 receipt split 1,500→INV/0006 + 500→INV/0001 → outstandings 1,509 / 10,585.58; guards verified: ERR_ALLOCATION_EXCEEDS_RECEIPT and ERR_ALLOCATION_EXCEEDS_INVOICE ("exceeds outstanding ₹1,509.00 on INV/0006") both 422 with clear messages; no data pollution from rejected tests.
+  · Settlement E2E via UI: dialog shows open invoices w/ live outstanding; auto-allocate filled ₹3,000 oldest-first; receipt posted; toast "settled 1 invoice (₹3,000.00)"; table row shows INV chip.
+  · Register outstanding column verified (INV/0006 ₹1,509 · INV/0001 ₹7,585.58 · counter "—").
+  · Sparklines verified on dashboard; reconciliation strip RECONCILED ✓; mobile 390px dialog stacks cleanly; TB ΣDr=ΣCr=₹11,01,084.08 after all mutations; lint 0/0; tsc clean (app code); dev log clean.
+
+Stage Summary:
+- AR is now a true subledger: per-invoice outstanding (receipts + credit notes), precise invoice-wise aging with overdue-by-credit-days flags, and a self-proving reconciliation strip (open invoices − unapplied + openings = GL). Receipts can be allocated oldest-first or manually; party ledger narrations carry adjustments.
+- Fixed a real pre-existing styling bug (bg-dmk-tertiary dead class) and completed the badge system (gold).
+- Risks: none open. Dev server had to be restarted once to pick up the regenerated Prisma client (global singleton) — note for future schema changes: restart dev after `prisma generate` if a new model is queried immediately.
+- Suggested next cycle: GSTR-2B reconciliation import view · settle-by-allocation from party ledger row context · PDF/print export polish for statements · AP-side settlement tracking (vendor payments ↔ POs).
+
+---
+Task ID: 14
+Agent: ATLAS (cron webDevReview — cycle 14)
+Task: QA assessment + AP-side settlement tracking (per-PO) + GSTR-2B reconciliation view + styling polish
+
+Work Log:
+- QA smoke first: boot 200, zero console errors (after viewport fix — browser was stuck at 390px from prior cycle, sidebar clicks were no-ops until viewport reset to 1440×900), lint 0/0, TB balanced ₹11,01,084.08 → project STABLE → proceeded to the top two backlog features.
+- FEATURE A: AP-side settlement tracking (vendor payments ↔ CONFIRMED POs), full mirror of the AR subledger:
+  · Schema: `PaymentAllocation` (firmId, paymentId, purchaseOrderId, amount) + relations on Firm/VendorPayment/PurchaseOrder + @@index([firmId,gstin]) on Vendor; `db:push` additive; dev server restarted to pick up regenerated Prisma client.
+  · Engine: `_lib/settlement-ap.ts` — computeOpenPurchaseOrders() (outstanding = grandTotal − Σ payment allocations − Σ debit notes w/ poId; age buckets; due from vendor paymentTerms "NET_30" parser), createPaymentAllocations() (in-tx validation: firm+vendor+CONFIRMED, positive, cumulative ≤ outstanding, Σ ≤ payment), settledTotalsByPo().
+  · payments.ts: createVendorPayment accepts allocations → PaymentAllocation rows in-tx → vendor ledger particulars carry "— adj PO/0002 ₹x, …" → journal narration "settled N bills — on account" fallback; response adds applied + allocatedTotal.
+  · vendor-payments route: GET includes allocations w/ poNumber; POST parses allocations[] (accepts purchaseOrderId|poId|invoiceId keys).
+  · New route GET /api/v1/ledger/aging-pos: PO-wise AP rows + totals + vendor rollup (w/ unapplied + standalone debit notes) + AP subledger reconciliation — identity includes STANDALONE DEBIT NOTES (poId=null) term; fixed initial Δ −224.20 (seed's DN/0001 is a standalone note) → now self-proving Δ = 0 exactly.
+- FEATURE A UI:
+  · vendor-payments.tsx: "SETTLED AGAINST" column (PO chips + amounts, +N more, "· on acct", italic "On account"), search now covers PO #, 4th KPI "Bill-wise settled %" (allocated/total), CSV export gained Settled Against + On Account columns; Record Payment dialog gained settlement panel — open-bill table (age badge, partial-paid sub-line, per-bill allocate input), Auto-allocate (oldest first), live Allocated/On-account strip + Clear all, client over-allocation error + server 422 surfaced, submit disabled while over-allocated.
+  · aging.tsx: 4th tab "PO-wise (precise)" — KPIs (Open bills, Overdue ₹, Current 0–30, 90+), reconciliation strip (open bills − unapplied payments + openings − standalone debit notes = GL payables, RECONCILED ✓ badge), vendor filter + rollup chips, bill table (PO # + billed, vendor + payments/debit-note sub-line, age, due + Nd terms, outstanding, WITHIN TERMS / OVERDUE Nd), CSV export, recalculate; stagger animation on KPI grids (both precise tabs).
+- FEATURE B: GSTR-2B reconciliation (import + match + view):
+  · Schema: `Gstr2bRecord` (period YYYY-MM, supplier gstin/tradeName, invoiceNo/date, taxable, igst/cgst/sgst, itcAvailable, placeOfSupply; unique [firmId,period,gstin,invoiceNo]).
+  · Route /api/v1/gstr2b: POST import (csv text OR rows[]; robust CSV parser — quoted cells, header aliases, ₹/comma stripping, Indian dd/mm/yyyy dates, ITC Y/N) replaces the period in-tx; GET reconciliation — books side = CONFIRMED POs with poDate in period, two-pass matching (GSTIN + grand ±₹1/±0.5% → GSTIN + taxable), statuses MATCHED (w/ matched PO #) / AMOUNT_MISMATCH (GSTIN known, no amount fit — classic period cut) / MISSING_IN_BOOKS / MISSING_IN_2B (books-only), summary KPIs incl. itc2b, itcBooks, matchedItc, missingItc, extraTax, netItcRisk.
+  · New view gstr2b.tsx (nav Finance → "GSTR-2B Recon", palette entry, ViewId finance/gstr2b): period month-picker, gold Import CTA, 6 KPI cards, "How matching works" strip, supplier-rows table (status badge + matched PO #, GSTIN, ITC flag, red/amber row tints), "In books, missing in 2B" table with clean-period ✓ state, CSV export; Import dialog (month, file upload, paste textarea w/ preview, sample rows loader, replace-warning note).
+- STYLING: dmk-enter-stagger cascades on all new KPI rows (gstr2b, vendor payments, both aging precise tabs); gold primary CTA per design system for compliance action; status badge vocabulary (green MATCHED / amber AMOUNT MISMATCH / red MISSING IN BOOKS / info MISSING IN 2B); aging page subtitle updated to mention PO-wise; mobile 390px verified on all three surfaces (KPIs stack 2-up, dialogs scroll, tables scroll-x).
+- Verification (live API + browser):
+  · Settlement E2E API: ₹40,000 payment split 34,338→PO/0002 (fully settled) + 5,662→PO/0004 → outstandings 0 / 13,513; narration "settled 2 bills"; guards ERR_ALLOCATION_EXCEEDS_PAYMENT / ERR_ALLOCATION_EXCEEDS_PO ("exceeds outstanding ₹0.00 on …") / ERR_ALLOCATION_INVALID (cross-vendor PO) all 422 with clear messages; no data pollution.
+  · Settlement E2E UI: dialog shows open bills w/ live outstanding (partial-paid sub-line "paid ₹5,662.00"); auto-allocate filled ₹13,513; payment posted; table shows PO chip; Bill-wise settled 61%→68%; Sri Balaji payable → 0.
+  · GSTR-2B E2E: Aug import (4 rows) → 2 matched + 1 AMOUNT_MISMATCH (SB/26-27/4512: 2B dated 30/08 but PO/0004 GRN 02/09 — genuine period cut, engine correct) + 1 MISSING_IN_BOOKS (SP-77123, ITC ₹1,764 at risk); Sep import → fully matched, clean-period ✓; sample-rows import via UI dialog verified (replace-per-period works, Aug → 3 rows / 2 matched / 1 missing).
+  · Books: TB asOf Sep-3 ΣDr=ΣCr=₹10,47,571.08 (= 11,01,084.08 − 53,513 session payments — exact); AR recon Δ 0; AP recon Δ 0; BS balanced; dev.log clean; fresh console 0 errors; tsc 0; lint 0/0.
+- Notes: transient "Module not found ./views/gstr2b" console errors were stale dev.log entries from the wiring window (app-shell edited before view file saved) — resolved on next compile; do not chase if seen mid-scaffold.
+
+Stage Summary:
+- AP is now a true subledger mirroring AR: per-PO outstanding (payments + debit notes), PO-wise aging with vendor-terms overdue flags, self-proving reconciliation that also accounts for standalone debit notes, and bill-wise payment allocation (auto oldest-first or manual) with ledger narrations.
+- GSTR-2B reconciliation closes the ITC loop: portal CSV in → supplier-vs-books exceptions out (matched / mismatch / missing either side) with risk KPIs, before GST filing.
+- Platform stays paisa-balanced across every mutation; both subledgers reconcile to the GL at Δ=0.
+- Risks: none open. GSTR-2B matching is amount-based (supplier invoice # ≠ our PO #); if vendor invoice numbers are later stored on POs, matching can upgrade to bill-number-first.
+- Suggested next cycle: settle-by-allocation from party-ledger row context · invoice/PO PDF print pipeline polish · dashboard "ITC at risk" drill into GSTR-2B · customer statement PDF export.
+
+---
+Task ID: 15
+Agent: ATLAS (cron webDevReview — cycle 15)
+Task: QA assessment + statement A4 print pipeline + settle-from-ledger deep links + dashboard GST pulse
+
+Work Log:
+- QA first: worklog review, dev.log tail clean, lint 0/0, agent-browser boot → zero console errors; walked Aging (all 4 tabs, AR + PO-wise recon strips RECONCILED ✓), GSTR-2B view (Sep matched, ITC ₹2,925), Billing, Receipts (dialog opens). TB via API ΣDr=ΣCr=₹10,87,571.08 Δ=0 → project STABLE → proceeded to features.
+- FALSE-ALARM DEBUG (worth remembering): a grep/Read of receipts.tsx line 269 appeared to show `const ode, setMode]` (missing ``) — suspected corruption + stale tsbuildinfo. Hex-dump proved the file actually contains `const ode, setMode]`; terminal output layers strip `` as an ANSI-reset fragment. Deleted tsconfig.tsbuildinfo as hygiene (regenerates). LESSON: never trust terminal-rendered brackets — verify with python byte repr before "fixing".
+- FEATURE A — Chrome-free A4 print pipeline (fixes a real pre-existing bug: printed invoices would have included header/sidebar since only invoice-docs marked chrome no-print):
+  · New `src/components/erp/print-portal.tsx`: `printA4()` (adds body.printing-a4 around window.print(), removes on afterprint + 3s safety) and `A4PrintPortal` (portal to body, `.dmk-print-root`).
+  · globals.css: print rules — body.printing-a4 hides every body child except .dmk-print-root; sheet padding/margin zeroed for exact page fit; tr page-break-inside avoid; thead repeats.
+  · invoice-docs: Print button now printA4() + portal print copy → verified via headless Chrome print-to-PDF: single page, TAX INVOICE present, ZERO shell leakage (previously 2-page leak risk).
+- FEATURE B — Party statement A4 print (R7/R16): new StatementSheet (letterhead w/ logo-or-monogram, GSTIN block, "Statement of Account", Bill-To + opening/txns/Dr/Cr totals grid, full entries table w/ running Dr/Cr balances, totals row, closing block w/ amount-in-words — deduped "Only" — signature line, system-generated footer) + StatementPrintDialog (scaled 66% live preview, Print → printA4, portal copy mounts only while open). Verified: print PDF = exactly 1 page, statement only, no chrome.
+- FEATURE C — Settle-from-context deep links: `src/lib/settle-bus.ts` (requestSettleCustomer/Vendor dispatch window event AND park a one-shot pending slot; views consume on mount → race-free regardless of mount order). party-ledgers rows: hover-reveal "Settle" (SALES, green) / "Pay" (PURCHASE, blue) chips on rows w/ nonzero running balance → navigates to Receipts / Vendor Payments with dialog pre-opened. Both dialogs accept preset id: preselect party, prefill amount = current outstanding/payable, auto-allocate oldest-first once open docs arrive. E2E browser-verified both directions (Latur ₹4,094.58 → INV/0001 allocated; DMK Polymers ₹5,326 → open PO allocated). No data posted (cancelled dialogs).
+- FEATURE D — Dashboard GST compliance pulse: loads GET /api/v1/gstr2b current period; ribbon card between KPIs and charts — status (CLEAN PERIOD green / REVIEW EXCEPTIONS amber / ITC AT RISK red / NO 2B DATA neutral w/ import hint), pulsing status dot, 4 mini-stats (ITC books, ITC 2B, matched bills, at-risk ₹), match-rate meter bar (green/amber/red), whole card keyboard-accessible drill → finance/gstr2b. Verified CLEAN PERIOD w/ 100% meter + drill navigation.
+- STYLING: party header gold letterhead gradient strip; balance flow strip (Opening → N txns Dr/Cr totals → Closing badges w/ arrows); zebra statement rows + sticky thead + hover reveal actions; dmk-enter on pulse card; mobile 390px verified (list/statement stack, header wraps).
+- Regression: TB Δ=0 · AR recon Δ=0 (33,906.58 − 5,000 = 28,906.58) · AP recon Δ=0 (30,326 − 25,100 − 224.20 = 5,001.80) · console errors zero across Dashboard/Aging/GSTR-2B/Invoice Register/Vendor Payments/Stock/Journals/Reports/B2C · lint 0/0 · tsc (app) 0 · transient 500s on low-stock seen only at compile boundaries during edits (dev-mode race; endpoint 200 after).
+
+Stage Summary:
+- The print pipeline is now deterministic: any view can print a pixel-exact A4 document with zero chrome leakage; tax invoices AND party statements both verified via actual PDF rendering.
+- AR/AP settlement is reachable from where the owner thinks about it: the party ledger row now deep-links into a pre-filled, auto-allocated settlement dialog (event + pending-slot bus, race-free).
+- The dashboard now answers "is my ITC safe this month?" at a glance and drills into the recon view.
+- Risks: none open. Statement print assumes A4 portrait single-firm letterhead (fine per R16); if a ledger has hundreds of rows the statement grows to multiple pages — thead repeat + row break rules already in place.
+- Suggested next cycle: vendor bill-number capture on POs to upgrade GSTR-2B matching to bill-first · customer/vendor statement email/PDF export batching · dashboard overdue-receivables pulse card (mirror of GST pulse) · aging view drill into filtered party ledger.
+
+---
+Task ID: 16
+Agent: ATLAS (cron webDevReview — cycle 16)
+Task: QA assessment + vendor bill capture on POs (bill-first GSTR-2B matching) + overdue-receivables dashboard pulse + aging drill-throughs
+
+Work Log:
+- QA first: worklog review, dev.log clean, lint 0/0, boot 200, agent-browser walk (Dashboard, Aging, GSTR-2B, Party Ledgers) with ZERO console errors; TB ΣDr=ΣCr Δ=0; AR + AP subledger reconciliations both Δ=0 → project STABLE. Two real bugs found & fixed before features:
+  · BUG 1 (money-correctness): Dashboard Receivables/Payables KPIs used `closingBalance: { gt: 0 }` aggregates — vendor credit balances (e.g. Shree Ganesh −₹324.20 from the standalone DN) were DROPPED, so Payables showed ₹5,326.00 vs GL ₹5,001.80. Fix in _lib/dashboard.ts: fetch full balance lists, net them (matches GL/BS/TB), and expose `receivablesAdvances` / `payablesCredits`; KPI subs now read "Net · incl. ₹324.20 credits" when non-zero. Verified payables KPI = 5,001.80 exactly.
+  · BUG 2: GST pulse "Period" label rendered empty — gstr2b GET summary lacked `period`. Added `period` to the summary payload (+ type); dashboard pulse now shows "Period 2026-09".
+- FEATURE A — Vendor bill identity on POs + bill-first GSTR-2B matching (closes the cycle-14 upgrade note):
+  · Schema: PurchaseOrder gains `vendorBillNo String @default("")` + `vendorBillDate DateTime?` (+ @@index([firmId, vendorBillNo])); additive db:push; dev server restarted to pick up regenerated client.
+  · createPurchaseOrder + PATCH /purchase-orders/[id] + POST /[id]/confirm all accept the bill fields (capture at PO time, edit time, or GRN time — bill arrives with goods).
+  · gstr2b GET matching: new PASS 0 BILL-FIRST — normalized (uppercase, separators stripped) vendorBillNo === normalized 2B invoiceNo with GSTIN agreement when both known; amount NOT required (immune to freight/tax drift). Legacy passes 1/2 (GSTIN+grand, GSTIN+taxable) become fallback with basis AMOUNT. Rows expose `matchBasis` ("BILL_NO" | "AMOUNT" | null); books rows carry vendorBillNo; summary adds `billMatched`.
+  · UI: PO form gained Vendor bill no./date fields (+ hint); GRN dialog gained the same pair (prefills from PO); PO table shows "Bill X" sub-line under PO #; PO detail shows a gold "VENDOR BILL … used for GSTR-2B bill-first matching" strip; GSTR-2B: per-row basis badges (gold BILL NO / info AMOUNT), "How matching works" strip rewritten, KPI sub "N matched · M by bill no.", books table gained Vendor Bill column; CSV export includes Match Basis; vendor-payments settle panel shows "Bill X" per open bill; AP aging rows show Bill sub-line.
+- FEATURE B — Dashboard overdue-receivables pulse (mirror of GST pulse): loads /ledger/aging-invoices in the dashboard Promise.all; states NO OPEN INVOICES (neutral) / ALL WITHIN TERMS (green, next-due date) / N OVERDUE (amber <40% of open book, red ≥40%); mini stats (Open book, Overdue, Open invoices, Worst past due + worst party first-name / Next due when clean), overdue-share meter, keyboard-accessible drill → invoice-wise AR aging tab; footer clarifies "₹5,000.00 sits as on-account receipts awaiting allocation" when unapplied > 0 (preempts open-book 33,906.58 vs GL 28,906.58 confusion).
+- FEATURE C — Aging → party-ledger drill-through: settle-bus extended into the general cross-view bus (requestAgingTab / requestLedgerParty + one-shot pending slots + live events). AgingView tabs are now CONTROLLED (dashboard pulse presets "inv"); aging party names (classic AR/AP rows, invoice-wise rows, PO-wise rows) are PartyLink buttons (hover-reveal ↗, focus ring, title tooltip) → requestLedgerParty + setView("finance/ledgers"); PartyLedgersView tabs controlled + PartyTab auto-selects the preset party once the directory loads. By-party/by-vendor rollup chips are now buttons that toggle the party/vendor filter (highlighted when active).
+- Verification (live API + browser): E2E bill-first — created PO/0005 to Sri Balaji (bill SB/26-27/4521, PATCH-verified editable while PENDING), GRN-confirmed with bill stamp; re-imported Sep 2B with a second row SB/26-27/4521 at a deliberately DIFFERENT amount (2B ₹12,390 vs books ₹11,564) → matched BILL_NO to PO/0005 (amount-proximity would have failed) while SB/26-27/4512 still matched by AMOUNT; summary { period, billMatched:1, matched:2/2 }. Pulse drill click → aging opened on Invoice-wise tab; aging row click → Party Ledgers preselected Solapur Balaji Plastics w/ full statement. TB after mutations ΣDr=ΣCr=₹10,99,135.08 Δ=0; AR recon Δ=0; AP recon Δ=0 (AP now includes PO/0005 open 11,564 w/ bill no); payables KPI 5,001.80+11,564=16,565.80 exact; console errors 0; lint 0/0; tsc (app) 0; mobile 390px verified on dashboard (KPIs 2-up, both pulses stack, footer wrap) and PO/detail dialogs.
+
+Stage Summary:
+- Platform remains paisa-balanced across every mutation; both subledgers reconcile Δ=0. This cycle fixed a real money-display bug (net vs gross KPIs), completed the GST compliance loop (bill-first matching keyed on captured supplier bill numbers — exact identity, not amount guesses), and gave collections its own executive pulse with drill-through.
+- Cross-view handoff bus is now general-purpose (settle, aging-tab, ledger-party) — more deep links are cheap to add.
+- Risks: none open. Bill-first matching requires bill numbers to be captured on POs; legacy POs without them still match by amount. Note: viewport reset after agent-browser session reuse needed `close` + `set viewport` (cycle-14 lesson refined).
+- Suggested next cycle: settle-by-allocation directly from invoice/PO register rows · customer statement PDF email batching · dashboard "ITC at risk" already covered — consider AP overdue pulse pairing or a combined "cash cockpit" · stock-adjustment reasons report.
+
+---
+Task ID: 17
+Agent: ATLAS (cron webDevReview — cycle 17)
+Task: QA assessment + settle/pay deep links from registers + GSTR-1 sales-side report + Action Center notification feed + styling polish
+
+Work Log:
+- QA first: worklog review, dev.log clean, lint 0/0, boot 200, agent-browser walk (Dashboard, Invoice Register, Aging, GSTR-2B, Reports, AI Copilot, Invoices, Stock Levels) with ZERO console errors; TB ΣDr=ΣCr=₹10,99,135.08 Δ=0; AR recon Δ=0 (33,906.58 − 5,000 = 28,906.58); AP recon Δ=0 (41,890 − 25,100 − 224.20 = 16,565.80) → project STABLE → proceeded to features.
+- FEATURE A — Settle/Pay deep links from the registers (closes the settlement loop everywhere; the owner can now act on any open document from where they see it):
+  · settle-bus extended with requestSettleInvoice(invoiceId, customerId) + requestPayPo(poId, vendorId) — same race-free pattern (live event + one-shot pending slot consumed on mount).
+  · purchase-orders GET now attaches paid/credited/outstanding for CONFIRMED POs via settledTotalsByPo (mirror of the invoices GET subledger badges); types/erp.ts PurchaseOrder extended.
+  · receipts.tsx: NewReceiptDialog accepts presetInvoice — preselects the invoice's customer, pins the FULL outstanding of that invoice into the allocation panel once open invoices load, and matches the receipt amount.
+  · invoice-register.tsx: outstanding rows (credit, open) render a hover-reveal green "SETTLE" chip (opacity-0 group-hover/row pattern, keyboard focusable, title tooltip) → deep-links to Receipts with toast confirmation.
+  · vendor-payments.tsx: RecordPaymentDialog accepts presetPoId — preselects the vendor via the existing preset machinery, then pins the bill's full outstanding + payment amount once open POs load.
+  · purchase-orders.tsx: new BALANCE column (blue ₹ outstanding / SETTLED badge / — for non-confirmed), hover-reveal blue "PAY" chip → deep-links to Vendor Payments; footer gains "₹X open payable — hover a row to Pay".
+  · E2E verified both: INV register row ₹1,509 → dialog preselected Latur + amount 1,509 + INV/0006 allocation pinned; PO/0001 ₹30,326 → dialog preselected DMK Polymers + amount 30,326 + PO/0001 allocation pinned (advance warning correctly shown since ₹25,100 was on-account).
+- FEATURE B — GSTR-1 sales-side compliance report (the filing mirror of the GSTR-2B purchase recon):
+  · reports route type=gstr1: POSTED invoices in window → doc rows (docNo, date, party, GSTIN, B2B/B2C classification by buyer GSTIN, place of supply, taxable, CGST/SGST/IGST, total), rate-wise buckets (from line items), HSN-wise summary (qty, taxable, taxes), B2B/B2C split totals.
+  · Reports UI: 6th card "GSTR-1 (Sales)" (ScrollText icon; card grid → lg:grid-cols-6), dedicated Gstr1Report section — 4 stagger KPI cards (Total Output Tax, B2B Taxable + docs, B2C Taxable + docs, Invoices), self-proving CROSS-FOOTED ✓ strip (rate-wise AND hsn-wise taxable both reconcile to invoice totals), Rate-wise table with gold % badges + tfoot TOTAL, HSN-wise scroll table, invoice docs table (GSTIN mono, B2B/B2C badges, POS), multi-section CSV export (totals → rate-wise → HSN → docs).
+  · Verified live: ₹6,470.38 output tax = 2,371.19 CGST + 2,371.19 SGST + 1,728 IGST over 6 docs (4 B2B ₹33,371 / 2 B2C ₹2,575.50), rate 18% qty 190, HSN 3924; CROSS-FOOTED ✓.
+- FEATURE C — Header bell is now a real Action Center (was low-stock only):
+  · Parallel fetch of low-stock + aging-invoices totals (overdueInvoices/overdue ₹) + GSTR-2B current-period summary (missingInBooks, netItcRisk) via Promise.allSettled; severity-sorted feed items (danger overdue / GST risk, warning stock), each clickable → navigates (overdue item presets the aging invoice-wise tab via requestAgingTab).
+  · Badge = total count; pulsing red dot when money is overdue or ITC at risk; ALL CLEAR empty state with checkmark; "Re-check now" refetch row; 320px scroll region.
+  · E2E verified both paths: temp-patched Hyderabad creditDays 45→0 (QA only, restored immediately) → bell showed "1 invoice overdue · ₹11,328.00 past credit terms" with pulse dot → click drilled into Aging invoice-wise tab with OVERDUE KPI + party chip; restore → ALL CLEAR again. No journal touched; books unchanged.
+- STYLING: hover-reveal chip system now consistent across Party Ledgers, Invoice Register and Purchase Orders (same opacity/focus/tooltip language, green=collect, blue=pay); tfoot TOTAL styling on rate-wise table; gold rate badges; stagger KPI entrances; footer coaching line on POs; title tooltips on truncated party cells; bell count + pulse animations.
+- Verification: tsc 0 (app code), lint 0/0, dev.log clean, zero console errors across the walk (desktop 1440 + mobile 390: PO table scrolls-x with BALANCE column, GSTR-1 KPIs stack 2-up, bell dropdown fits); TB/recon invariants re-verified after all QA mutations (which were fully reverted).
+
+Stage Summary:
+- The settlement loop is now closed from every angle: party ledger rows, invoice register rows, and PO rows all deep-link into pre-filled, pre-allocated settlement dialogs. GSTR-1 gives the sales side of GST filing the same rigor the GSTR-2B recon gave purchases, with a self-proving cross-foot strip. The header bell triages stock/collections/GST in one glance and drills through.
+- Risks: none open. Note: GSTR-1 B2B/B2C classification is GSTIN-presence-based (counter sales with a typed GSTIN would classify B2B); HSN description uses the first line item seen per HSN code.
+- Suggested next cycle: recurring invoice templates (subscription-style monthly billing) · product profitability report (margin vs WAC) · batch statement PDF print (all parties with balance) · day-book cash-flow mini-chart · firm-level data backup/export in Settings.
+
+---
+Task ID: 18
+Agent: ATLAS (cron webDevReview — cycle 18)
+Task: QA assessment + product profitability report (margin vs WAC) + day-book cash-flow trend chart + batch statement print + firm JSON backup/export + styling polish
+
+Work Log:
+- QA first: worklog review, dev.log clean, lint 0/0, boot 200, agent-browser walk with ZERO console errors; TB ΣDr=ΣCr=₹10,99,135.08 Δ=0; AR recon Δ=0 (33,906.58 − 5,000 = 28,906.58); AP recon Δ=0 (41,890 − 25,100 − 224.20 = 16,565.80); GSTR-2B Sep 2/2 matched → project STABLE → proceeded to the four backlog features. Mobile 390px boot: no horizontal overflow.
+- FEATURE A — Product Profitability report (margin vs WAC):
+  · Backend: reports route type=profitability — per-SKU aggregation over POSTED invoices in window (qty, taxable revenue, distinct invoices), WAC from confirmed receipt history (fallback last purchase cost, same engine as valuation), COGS = netQty × WAC, sales returns netted (qty + inverse-tax taxable approximation from GST-inclusive note totals), totals (revenue/COGS/profit/margin%/products/lossMakers/bestSku) + method string. Sorted by profit desc.
+  · UI: 7th report card "Profitability" (TrendingUp icon; card grid → lg:grid-cols-4 xl:grid-cols-7); 4 stagger KPI cards (Net Revenue, COGS @ WAC, Gross Profit + margin + best SKU, Loss Makers with zero-state); Basis strip; "Top Products by Gross Profit" horizontal bar chart (green bars, red for negatives via recharts Cell, compactINR axis); per-product table with PROFIT/MARGIN/REVENUE/QUANTITY sort toggles (gold active state), tiered margin badges (green ≥20% / gold ≥10% / amber ≥0 / red negative), returned-qty warning highlight, tfoot totals; CSV export (totals + full rows). Verified live: ₹35,546.99 revenue − ₹30,540 COGS = ₹5,006.99 profit @ 14.1% margin over 10 SKUs, best = Executive High-Back Chair; margin sort reorders correctly (51.5% first); CSV downloaded and validated.
+- FEATURE B — Day-book cash-flow mini-chart:
+  · Backend: day-book route accepts trendDays (1–60, default off) → `trend[]` of the last N days ending on the selected date, per-day cash/bank in+out from journal lines on accounts 1000/1010, plus derived in/out/net.
+  · UI: FlowTrendChart card (dmk-enter) between flow strips and vouchers — ComposedChart with green IN bars, red OUT bars, gold NET line w/ dots, legend, IN/OUT/NET badge chips in the header, active-days count, zero-movement empty state. Verified: last 14 days ending 02 Sept shows IN ₹9K / OUT ₹39K / NET −₹30K with the ₹25,000 payment and ₹13,513 settlement dips visible. Mobile 390px: axis thins, badges wrap, no overflow.
+- FEATURE C — Batch statement print (all open-balance parties):
+  · party-ledgers PartyTab: gold "Print all statements · N open" action button under the search (Loader2 progress "Preparing k…", disabled while loading); printAllStatements() filters |balance|>0.005, sorts largest-first, caps at 24, sequentially fetches ledgers with per-item progress and failure tolerance (skipped + toast note), then opens BatchPrintDialog.
+  · BatchPrintDialog (ALWAYS mounted at tab root — first placement inside the ledger-conditional block never mounted when no party selected, caught in browser E2E and moved): page count title, party/balance/entry-count list, batch receivables/payables total, Print N pages → printA4() with A4PrintPortal stacking all StatementSheets; new CSS rule `body.printing-a4 .dmk-batch-root .print-a4 + .print-a4 { page-break-before: always }` so each party prints on its own A4 page. Verified: 3 sheets (Solapur ₹13,484 → Hyderabad ₹11,328 → Latur ₹4,094.58), batch total ₹28,906.58 = GL exactly; portal DOM shows 3 .print-a4 sheets.
+- FEATURE D — Firm data backup/export (Settings):
+  · New route GET /api/v1/backup?firmId= — versioned envelope { format: "dmk-mart-erp-backup", version: 1, generatedAt, firm, counts, data } containing the firm's entire isolated universe: products, customers, vendors, POs+items, invoices+lineItems, sales/purchase returns+items, vendor payments+PaymentAllocations, customer receipts+ReceiptAllocations, COA, journals+lines, inventory movements, stock adjustments, party ledger entries, GSTR-2B records.
+  · Settings: "Data & Backup" card (DatabaseBackup icon, active-firm badge, explanation of envelope contents, blue export button with Loader2 "Preparing…", core-record estimate line, last-export badge); client-side Blob download as dmk-backup-<firmCode>-<date>.json. Verified: file downloaded, 15 entity collections, nested lines/allocations present.
+- STYLING: stagger entrances on profitability KPIs; gold accent language kept (sort toggles, batch button, margin badges); dmk-enter on trend card; SKU cells nowrap (mobile wrap fix); removed emoji from KPI zero-state; mobile 390px verified on profitability (cards 2-up, chart + table scroll), day book (strips stack, chart thins), settings (backup card stacks); desktop screenshots reviewed for all four features.
+- Verification: lint 0/0 · tsc (src) 0 · dev.log zero 500/404 · zero console errors across a 16-view walk (Dashboard→Settings) · TB Δ=0 · AR recon Δ=0 · AP recon Δ=0 · GSTR-2B matched 2/2. No data mutations this cycle (only reads + one real backup download).
+- Notes: recharts bars need animation time before screenshots (initial full-page capture caught bars at width 0 — rects present in SVG, fine in reality). agent-browser viewport must be re-set after every `close` (session relaunch resets to 1280) — refined the known quirk: `open` FIRST, then `set viewport`, then `reload`.
+
+Stage Summary:
+- The owner can now answer "which products actually make me money" (margin vs WAC with returns netted), "where is my cash going" (14-day in/out/net pulse on the Day Book), "print everyone's statement in one go" (batch A4 run, one page per party), and "can I hand my books to my accountant" (versioned full-firm JSON backup).
+- Books remain paisa-balanced; batch receivables total proves out against the GL (₹28,906.58).
+- Risks: none open. Profitability return-netting uses inverse-tax approximation (SalesReturnItem stores GST-inclusive totals); WAC ignores purchase returns (same basis as the valuation report — consistent).
+- Suggested next cycle: recurring invoice templates (monthly subscription billing) · restore/import pipeline for the backup envelope (JSON → DB with preflight) · profitability drill-through (click SKU → its line items) · AP overdue pulse to pair the AR one · low-stock reorder suggestion (vendor + last cost).

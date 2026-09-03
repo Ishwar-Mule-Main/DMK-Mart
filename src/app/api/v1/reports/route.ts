@@ -270,10 +270,20 @@ export async function GET(request: NextRequest) {
     // sales returns in window net out qty + taxable value
     // (inverse-tax approximation from GST-inclusive note totals).
     if (type === "profitability") {
+      // Optional drill-through: type=profitability&drillSku=<sku> returns the
+      // contributing invoice lines (+ returns) for one SKU instead of the
+      // aggregate — same window, same WAC engine, so the totals reconcile
+      // exactly with that SKU's row in the per-product table.
+      const drillSku = getStr(sp.get("drillSku"));
+
       const [invoices, salesReturns, products, poItems] = await Promise.all([
         db.invoice.findMany({
           where: { firmId, status: "POSTED", ...range("invoiceDate") },
-          include: { lineItems: true },
+          include: {
+            customer: { select: { partyName: true } },
+            lineItems: true,
+          },
+          orderBy: { invoiceDate: "desc" },
           take: 2000,
         }),
         db.salesReturn.findMany({
@@ -281,10 +291,10 @@ export async function GET(request: NextRequest) {
             ...(dateFrom ? { gte: startOfDay(dateFrom) } : {}),
             ...(dateTo ? { lte: endOfDay(dateTo) } : {}),
           } },
-          include: { items: true },
+          include: { items: true, customer: { select: { partyName: true } } },
           take: 2000,
         }),
-        db.product.findMany({ where: { firmId }, select: { id: true, sku: true, purchaseCost: true } }),
+        db.product.findMany({ where: { firmId }, select: { id: true, sku: true, name: true, purchaseCost: true } }),
         db.purchaseOrderItem.findMany({
           where: { po: { firmId, status: "CONFIRMED" } },
           select: { productId: true, receivedQty: true, unitCost: true },
@@ -303,6 +313,106 @@ export async function GET(request: NextRequest) {
       for (const p of products) {
         const a = costAgg.get(p.id);
         wacOf.set(p.id, a && a.qty > 0 ? round2(a.value / a.qty) : round2(p.purchaseCost));
+      }
+
+      // ── Drill-through payload (one SKU) ───────────────────────
+      // Sale lines only (positive qty) from POSTED invoices in the
+      // same window; returns listed separately from SalesReturnItem
+      // using the same inverse-tax approximation as the aggregate.
+      // Net profit nets returns AND credits back returned COGS, so
+      // totals reconcile 1:1 with the per-product aggregate row.
+      if (drillSku) {
+        const product = products.find((p) => p.sku === drillSku);
+        if (!product) {
+          throw new BusinessError("ERR_VALIDATION", `SKU ${drillSku} not found for this firm`, 404);
+        }
+        const wac = wacOf.get(product.id) ?? round2(product.purchaseCost);
+
+        interface DrillLine {
+          invoiceId: string; invoiceNumber: string; invoiceDate: string; customerName: string;
+          qty: number; unitPrice: number; taxable: number; cogsUnit: number; cogs: number; profit: number; marginPct: number;
+        }
+        const lines: DrillLine[] = [];
+        let qty = 0, revenue = 0, cogs = 0;
+        const invoiceNos = new Set<string>();
+        for (const inv of invoices) {
+          for (const l of inv.lineItems) {
+            if (l.sku !== drillSku) continue;
+            const q = Number(l.quantity);
+            if (!(q > 0)) continue;
+            const tx = round2(Number(l.taxableAmount));
+            const lineCogs = round2(q * wac);
+            const lineProfit = round2(tx - lineCogs);
+            lines.push({
+              invoiceId: inv.id,
+              invoiceNumber: inv.invoiceNumber,
+              invoiceDate: inv.invoiceDate.toISOString(),
+              customerName: (inv.customer?.partyName ?? inv.walkInName) || "Counter Sale",
+              qty: q,
+              unitPrice: round2(Number(l.unitPrice)),
+              taxable: tx,
+              cogsUnit: wac,
+              cogs: lineCogs,
+              profit: lineProfit,
+              marginPct: tx > 0 ? round2((lineProfit / tx) * 100) : 0,
+            });
+            qty = round2(qty + q);
+            revenue = round2(revenue + tx);
+            cogs = round2(cogs + lineCogs);
+            invoiceNos.add(inv.invoiceNumber);
+          }
+        }
+
+        interface DrillReturn { creditNoteNo: string; returnDate: string; customerName: string; qty: number; amount: number }
+        const returns: DrillReturn[] = [];
+        let returnsQty = 0, returnsAmount = 0;
+        for (const sr of salesReturns) {
+          for (const it of sr.items) {
+            if (it.productId !== product.id) continue;
+            const rate = Number(it.gstRate) || 0;
+            const amount = round2(Number(it.totalAmount) / (1 + rate / 100));
+            returns.push({
+              creditNoteNo: sr.creditNoteNo,
+              returnDate: sr.returnDate.toISOString(),
+              customerName: sr.customer?.partyName ?? "Counter Sale",
+              qty: round2(Number(it.damagedQty)),
+              amount,
+            });
+            returnsQty = round2(returnsQty + Number(it.damagedQty));
+            returnsAmount = round2(returnsAmount + amount);
+          }
+        }
+
+        const profit = round2(revenue - cogs);
+        const netRevenue = round2(revenue - returnsAmount);
+        const netCogs = round2(cogs - round2(returnsQty * wac));
+        const netProfit = round2(netRevenue - netCogs);
+
+        return ok({
+          type,
+          drill: {
+            sku: drillSku,
+            productName: product.name || drillSku,
+            wac,
+            basis: "COGS = qty × WAC (weighted average cost from confirmed receipts, fallback last purchase cost) — same engine as the aggregate table. Net profit = (gross revenue − returns value) − (sold qty − returned qty) × WAC; returns use the inverse-tax approximation, so drill totals reconcile exactly with the per-product row.",
+            lines: lines.sort((a, b) => (a.invoiceDate < b.invoiceDate ? 1 : -1)),
+            returns: returns.sort((a, b) => (a.returnDate < b.returnDate ? 1 : -1)),
+            totals: {
+              qty,
+              revenue,
+              cogs,
+              profit,
+              marginPct: revenue > 0 ? round2((profit / revenue) * 100) : 0,
+              invoices: invoiceNos.size,
+              returnsQty,
+              returnsAmount,
+              netRevenue,
+              netCogs,
+              netProfit,
+            },
+          },
+          generatedAt: new Date().toISOString(),
+        });
       }
 
       // Sales aggregation per product (sku-keyed, carries display meta)

@@ -1,0 +1,799 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→// ═══════════════════════════════════════════════════════════════
+     4→     4→// SETTINGS — FIRM MANAGEMENT (owner workspace, R20: firm = account)
+     5→     5→// POST/GET /api/v1/firms · PATCH /api/v1/firms/[id]
+     6→     6→// FY switcher (R17) drives transactional view windows.
+     7→     7→// ═══════════════════════════════════════════════════════════════
+     8→     8→
+     9→     9→import * as React from "react";
+    10→    10→import {
+    11→    11→  Building2,
+    12→    12→  CalendarRange,
+    13→    13→  Check,
+    14→    14→  DatabaseBackup,
+    15→    15→  Loader2,
+    16→    16→  Pencil,
+    17→    17→  Plus,
+    18→    18→  RefreshCw,
+    19→    19→  Settings as SettingsIcon,
+    20→    20→  ShieldCheck,
+    21→    21→  ArrowLeftRight,
+    22→    22→  TriangleAlert,
+    23→    23→} from "lucide-react";
+    24→    24→
+    25→    25→import { Badge, ErrorText, Field, PageHeader, inputCls } from "../shared";
+    26→    26→import { Button } from "@/components/ui/button";
+    27→    27→import { Input } from "@/components/ui/input";
+    28→    28→import { Textarea } from "@/components/ui/textarea";
+    29→    29→import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+    30→    30→import { Label } from "@/components/ui/label";
+    31→    31→import {
+    32→    32→  Dialog,
+    33→    33→  DialogContent,
+    34→    34→  DialogDescription,
+    35→    35→  DialogFooter,
+    36→    36→  DialogHeader,
+    37→    37→  DialogTitle,
+    38→    38→} from "@/components/ui/dialog";
+    39→    39→import {
+    40→    40→  Select,
+    41→    41→  SelectContent,
+    42→    42→  SelectItem,
+    43→    43→  SelectTrigger,
+    44→    44→  SelectValue,
+    45→    45→} from "@/components/ui/select";
+    46→    46→import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api-client";
+    47→    47→import { formatINR } from "@/lib/format";
+    48→    48→import { useErpStore } from "@/store/erp-store";
+    49→    49→import { useToast } from "@/hooks/use-toast";
+    50→    50→import type { Firm } from "@/types/erp";
+    51→    51→import { cn } from "@/lib/utils";
+    52→    52→
+    53→    53→const STATES: Array<{ code: string; name: string }> = [
+    54→    54→  { code: "27", name: "Maharashtra (27)" },
+    55→    55→  { code: "29", name: "Karnataka (29)" },
+    56→    56→  { code: "36", name: "Telangana (36)" },
+    57→    57→  { code: "33", name: "Tamil Nadu (33)" },
+    58→    58→  { code: "24", name: "Gujarat (24)" },
+    59→    59→  { code: "07", name: "Delhi (07)" },
+    60→    60→  { code: "09", name: "Uttar Pradesh (09)" },
+    61→    61→  { code: "23", name: "Madhya Pradesh (23)" },
+    62→    62→  { code: "37", name: "Andhra Pradesh (37)" },
+    63→    63→  { code: "32", name: "Kerala (32)" },
+    64→    64→  { code: "19", name: "West Bengal (19)" },
+    65→    65→  { code: "21", name: "Odisha (21)" },
+    66→    66→  { code: "10", name: "Bihar (10)" },
+    67→    67→  { code: "06", name: "Haryana (06)" },
+    68→    68→  { code: "08", name: "Rajasthan (08)" },
+    69→    69→  { code: "03", name: "Punjab (03)" },
+    70→    70→];
+    71→    71→
+    72→    72→const FY_OPTIONS = ["2025-26", "2026-27", "2027-28"];
+    73→    73→
+    74→    74→interface FirmCounts {
+    75→    75→  products: number;
+    76→    76→  customers: number;
+    77→    77→  vendors: number;
+    78→    78→  invoices: number;
+    79→    79→  purchaseOrders: number;
+    80→    80→}
+    81→    81→
+    82→    82→interface FirmForm {
+    83→    83→  firmName: string;
+    84→    84→  firmCode: string;
+    85→    85→  gstin: string;
+    86→    86→  state: string;
+    87→    87→  stateCode: string;
+    88→    88→  address: string;
+    89→    89→  phone: string;
+    90→    90→  email: string;
+    91→    91→  bankName: string;
+    92→    92→  bankAccount: string;
+    93→    93→  ifsc: string;
+    94→    94→  financialYear: string;
+    95→    95→  invoicePrefix: string;
+    96→    96→  openingCash: string;
+    97→    97→  openingBank: string;
+    98→    98→}
+    99→    99→
+   100→   100→const EMPTY_FORM: FirmForm = {
+   101→   101→  firmName: "",
+   102→   102→  firmCode: "",
+   103→   103→  gstin: "",
+   104→   104→  state: "27", // holds the state CODE while the Select is bound to it
+   105→   105→  stateCode: "27",
+   106→   106→  address: "",
+   107→   107→  phone: "",
+   108→   108→  email: "",
+   109→   109→  bankName: "",
+   110→   110→  bankAccount: "",
+   111→   111→  ifsc: "",
+   112→   112→  financialYear: "2025-26",
+   113→   113→  invoicePrefix: "",
+   114→   114→  openingCash: "",
+   115→   115→  openingBank: "",
+   116→   116→};
+   117→   117→
+   118→   118→function formFromFirm(f: Firm): FirmForm {
+   119→   119→  return {
+   120→   120→    firmName: f.firmName,
+   121→   121→    firmCode: f.firmCode,
+   122→   122→    gstin: f.gstin,
+   123→   123→    state: f.stateCode,
+   124→   124→    stateCode: f.stateCode,
+   125→   125→    address: f.address,
+   126→   126→    phone: f.phone,
+   127→   127→    email: f.email,
+   128→   128→    bankName: f.bankName,
+   129→   129→    bankAccount: f.bankAccount,
+   130→   130→    ifsc: f.ifsc,
+   131→   131→    financialYear: f.financialYear || "2025-26",
+   132→   132→    invoicePrefix: f.invoicePrefix,
+   133→   133→    openingCash: "",
+   134→   134→    openingBank: "",
+   135→   135→  };
+   136→   136→}
+   137→   137→
+   138→   138→export default function SettingsView() {
+   139→   139→  const firms = useErpStore((s) => s.firms);
+   140→   140→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   141→   141→  const financialYear = useErpStore((s) => s.financialYear);
+   142→   142→  const setFirms = useErpStore((s) => s.setFirms);
+   143→   143→  const setActiveFirm = useErpStore((s) => s.setActiveFirm);
+   144→   144→  const setFinancialYear = useErpStore((s) => s.setFinancialYear);
+   145→   145→  const { toast } = useToast();
+   146→   146→
+   147→   147→  const [counts, setCounts] = React.useState<Record<string, FirmCounts>>({});
+   148→   148→  const [refreshing, setRefreshing] = React.useState(false);
+   149→   149→  const [createOpen, setCreateOpen] = React.useState(false);
+   150→   150→  const [editOpen, setEditOpen] = React.useState(false);
+   151→   151→  const [editing, setEditing] = React.useState<Firm | null>(null);
+   152→   152→  const [fySaving, setFySaving] = React.useState(false);
+   153→   153→
+   154→   154→  const activeFirm = firms.find((f) => f.id === activeFirmId);
+   155→   155→
+   156→   156→  const refreshFirms = React.useCallback(async () => {
+   157→   157→    setRefreshing(true);
+   158→   158→    try {
+   159→   159→      const list = await apiGet<Firm[]>("/api/v1/firms");
+   160→   160→      setFirms(list ?? []);
+   161→   161→    } catch (e) {
+   162→   162→      toast({
+   163→   163→        variant: "destructive",
+   164→   164→        title: "Could not refresh firms",
+   165→   165→        description: e instanceof Error ? e.message : "Unknown error",
+   166→   166→      });
+   167→   167→    } finally {
+   168→   168→      setRefreshing(false);
+   169→   169→    }
+   170→   170→  }, [setFirms, toast]);
+   171→   171→
+   172→   172→  // Entity counts per firm (best-effort)
+   173→   173→  React.useEffect(() => {
+   174→   174→    if (firms.length === 0) return;
+   175→   175→    let alive = true;
+   176→   176→    (async () => {
+   177→   177→      const results = await Promise.all(
+   178→   178→        firms.map(async (f) => {
+   179→   179→          try {
+   180→   180→            const res = await apiGet<{ counts: FirmCounts }>(`/api/v1/firms/${f.id}`);
+   181→   181→            return [f.id, res.counts] as const;
+   182→   182→          } catch {
+   183→   183→            return [f.id, null] as const;
+   184→   184→          }
+   185→   185→        })
+   186→   186→      );
+   187→   187→      if (alive) {
+   188→   188→        const map: Record<string, FirmCounts> = {};
+   189→   189→        for (const [id, c] of results) if (c) map[id] = c;
+   190→   190→        setCounts(map);
+   191→   191→      }
+   192→   192→    })();
+   193→   193→    return () => {
+   194→   194→      alive = false;
+   195→   195→    };
+   196→   196→  }, [firms]);
+   197→   197→
+   198→   198→  async function switchFirm(id: string) {
+   199→   199→    if (id === activeFirmId) return;
+   200→   200→    setActiveFirm(id);
+   201→   201→    toast({ title: "Firm switched", description: "All views now show this firm's isolated universe." });
+   202→   202→  }
+   203→   203→
+   204→   204→  async function changeFy(fy: string) {
+   205→   205→    setFinancialYear(fy);
+   206→   206→    if (!activeFirmId) return;
+   207→   207→    setFySaving(true);
+   208→   208→    try {
+   209→   209→      await apiPatch(`/api/v1/firms/${activeFirmId}`, { financialYear: fy });
+   210→   210→      await refreshFirms();
+   211→   211→      toast({ title: "Financial year updated", description: `Views now filter by FY ${fy} (Apr–Mar).` });
+   212→   212→    } catch (e) {
+   213→   213→      toast({
+   214→   214→        variant: "destructive",
+   215→   215→        title: "FY saved locally only",
+   216→   216→        description: e instanceof ApiError ? e.message : "Could not persist to firm profile",
+   217→   217→      });
+   218→   218→    } finally {
+   219→   219→      setFySaving(false);
+   220→   220→    }
+   221→   221→  }
+   222→   222→
+   223→   223→  return (
+   224→   224→    <div className="space-y-4">
+   225→   225→      <PageHeader
+   226→   226→        title="Settings & Firms"
+   227→   227→        subtitle="Owner workspace · firm = account · every universe fully isolated (R1, R20)"
+   228→   228→        icon={SettingsIcon}
+   229→   229→        actions={
+   230→   230→          <>
+   231→   231→            <Button
+   232→   232→              variant="outline"
+   233→   233→              size="sm"
+   234→   234→              onClick={() => void refreshFirms()}
+   235→   235→              disabled={refreshing}
+   236→   236→              className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
+   237→   237→            >
+   238→   238→              <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} /> Refresh
+   239→   239→            </Button>
+   240→   240→            <Button
+   241→   241→              size="sm"
+   242→   242→              onClick={() => setCreateOpen(true)}
+   243→   243→              className="h-9 gap-2 bg-dmk-orange text-[12.5px] font-semibold text-white hover:bg-dmk-orange/85"
+   244→   244→            >
+   245→   245→              <Plus className="h-4 w-4" /> Create New Firm
+   246→   246→            </Button>
+   247→   247→          </>
+   248→   248→        }
+   249→   249→      />
+   250→   250→
+   251→   251→      {/* ── Firms list ──────────────────────────────────── */}
+   252→   252→      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+   253→   253→        {firms.map((f) => {
+   254→   254→          const isActive = f.id === activeFirmId;
+   255→   255→          const c = counts[f.id];
+   256→   256→          return (
+   257→   257→            <div
+   258→   258→              key={f.id}
+   259→   259→              className={cn(
+   260→   260→                "dmk-card p-5 flex flex-col gap-3",
+   261→   261→                isActive && "ring-1 ring-dmk-gold/70 shadow-[0_0_0_1px_rgba(255,204,0,0.25)]"
+   262→   262→              )}
+   263→   263→            >
+   264→   264→              <div className="flex items-start justify-between gap-3">
+   265→   265→                <div className="flex items-center gap-3 min-w-0">
+   266→   266→                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-dmk-input-well border border-dmk-border-subtle">
+   267→   267→                    <Building2 className="h-5 w-5 text-dmk-orange" strokeWidth={1.75} />
+   268→   268→                  </div>
+   269→   269→                  <div className="min-w-0">
+   270→   270→                    <h2 className="text-[15px] font-bold text-dmk-text-primary truncate">{f.firmName}</h2>
+   271→   271→                    <p className="text-[11.5px] text-dmk-text-muted font-money">
+   272→   272→                      {f.firmCode} · {f.gstin || "no GSTIN"}
+   273→   273→                    </p>
+   274→   274→                  </div>
+   275→   275→                </div>
+   276→   276→                {isActive ? (
+   277→   277→                  <span className="dmk-badge bg-[rgba(255,204,0,0.15)] text-dmk-gold shrink-0">● ACTIVE</span>
+   278→   278→                ) : (
+   279→   279→                  <Badge tone="neutral">{f.stateCode}</Badge>
+   280→   280→                )}
+   281→   281→              </div>
+   282→   282→
+   283→   283→              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1.5 text-[11.5px]">
+   284→   284→                <span className="text-dmk-text-muted">
+   285→   285→                  State <span className="text-dmk-text-secondary block">{f.state || "—"}</span>
+   286→   286→                </span>
+   287→   287→                <span className="text-dmk-text-muted">
+   288→   288→                  FY <span className="text-dmk-text-secondary block font-money">{f.financialYear}</span>
+   289→   289→                </span>
+   290→   290→                <span className="text-dmk-text-muted">
+   291→   291→                  Prefix <span className="text-dmk-text-secondary block font-money">{f.invoicePrefix}</span>
+   292→   292→                </span>
+   293→   293→                <span className="text-dmk-text-muted">
+   294→   294→                  Opening <span className="text-dmk-text-secondary block font-money">{formatINR(f.openingCash + f.openingBank)}</span>
+   295→   295→                </span>
+   296→   296→              </div>
+   297→   297→
+   298→   298→              <div className="flex flex-wrap gap-1.5">
+   299→   299→                <span className="dmk-badge dmk-badge-neutral">Products {c?.products ?? "—"}</span>
+   300→   300→                <span className="dmk-badge dmk-badge-neutral">Customers {c?.customers ?? "—"}</span>
+   301→   301→                <span className="dmk-badge dmk-badge-neutral">Vendors {c?.vendors ?? "—"}</span>
+   302→   302→                <span className="dmk-badge dmk-badge-neutral">Invoices {c?.invoices ?? "—"}</span>
+   303→   303→                <span className="dmk-badge dmk-badge-neutral">POs {c?.purchaseOrders ?? "—"}</span>
+   304→   304→              </div>
+   305→   305→
+   306→   306→              <div className="flex items-center gap-2 pt-1 border-t border-dmk-border-subtle mt-1">
+   307→   307→                {isActive ? (
+   308→   308→                  <span className="flex items-center gap-1.5 text-[12px] text-dmk-gold font-semibold h-9">
+   309→   309→                    <Check className="h-4 w-4" /> Currently active firm
+   310→   310→                  </span>
+   311→   311→                ) : (
+   312→   312→                  <Button
+   313→   313→                    size="sm"
+   314→   314→                    onClick={() => void switchFirm(f.id)}
+   315→   315→                    className="h-9 gap-2 bg-dmk-blue text-white text-[12.5px] font-semibold hover:bg-dmk-blue/85"
+   316→   316→                  >
+   317→   317→                    <ArrowLeftRight className="h-4 w-4" /> Switch To This Firm
+   318→   318→                  </Button>
+   319→   319→                )}
+   320→   320→                <Button
+   321→   321→                  variant="outline"
+   322→   322→                  size="sm"
+   323→   323→                  onClick={() => {
+   324→   324→                    setEditing(f);
+   325→   325→                    setEditOpen(true);
+   326→   326→                  }}
+   327→   327→                  className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover ml-auto"
+   328→   328→                >
+   329→   329→                  <Pencil className="h-3.5 w-3.5" /> Edit
+   330→   330→                </Button>
+   331→   331→              </div>
+   332→   332→            </div>
+   333→   333→          );
+   334→   334→        })}
+   335→   335→      </div>
+   336→   336→
+   337→   337→      {/* ── Financial year switcher ─────────────────────── */}
+   338→   338→      <div className="dmk-card p-5">
+   339→   339→        <div className="flex items-center gap-2.5 mb-4">
+   340→   340→          <CalendarRange className="h-4 w-4 text-dmk-blue" />
+   341→   341→          <h2 className="text-[15px] font-semibold text-dmk-text-primary">Financial Year</h2>
+   342→   342→          <Badge tone="info">R17 · APR–MAR</Badge>
+   343→   343→        </div>
+   344→   344→        <RadioGroup
+   345→   345→          value={financialYear || activeFirm?.financialYear || "2025-26"}
+   346→   346→          onValueChange={(v) => void changeFy(v)}
+   347→   347→          className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+   348→   348→          disabled={fySaving}
+   349→   349→        >
+   350→   350→          {FY_OPTIONS.map((fy) => {
+   351→   351→            const selected = (financialYear || activeFirm?.financialYear) === fy;
+   352→   352→            return (
+   353→   353→              <Label
+   354→   354→                key={fy}
+   355→   355→                htmlFor={`fy-${fy}`}
+   356→   356→                className={cn(
+   357→   357→                  "flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 transition-colors",
+   358→   358→                  selected
+   359→   359→                    ? "border-dmk-blue/60 bg-dmk-hover"
+   360→   360→                    : "border-dmk-border-subtle bg-dmk-input-well hover:bg-dmk-hover/60"
+   361→   361→                )}
+   362→   362→              >
+   363→   363→                <RadioGroupItem value={fy} id={`fy-${fy}`} className="border-dmk-border-medium" />
+   364→   364→                <span className="flex flex-col">
+   365→   365→                  <span className={cn("font-money text-[14px] font-semibold", selected ? "text-dmk-text-primary" : "text-dmk-text-secondary")}>
+   366→   366→                    FY {fy}
+   367→   367→                  </span>
+   368→   368→                  <span className="text-[10.5px] text-dmk-text-muted">
+   369→   369→                    Apr 1 {fy.slice(0, 4)} – Mar 31 {`20${fy.slice(5)}`}
+   370→   370→                  </span>
+   371→   371→                </span>
+   372→   372→              </Label>
+   373→   373→            );
+   374→   374→          })}
+   375→   375→        </RadioGroup>
+   376→   376→        <p className="text-[11.5px] text-dmk-text-muted mt-3">
+   377→   377→          Filters transactional views by FY — P&amp;L windows default to this year&apos;s Apr–Mar range. Books and ledgers remain continuous.
+   378→   378→        </p>
+   379→   379→      </div>
+   380→   380→
+   381→   381→            {/* ── Data & backup ───────────────────────────────────────── */}
+   382→   382→      <BackupCard firm={activeFirm} counts={activeFirmId ? counts[activeFirmId] : undefined} />
+   383→   383→
+   384→   384→      {/* ── Platform info ───────────────────────────────── */}
+   385→   385→      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+   386→   386→        <div className="dmk-card p-5">
+   387→   387→          <div className="flex items-center gap-2.5 mb-3">
+   388→   388→            <ShieldCheck className="h-4 w-4 text-dmk-success" />
+   389→   389→            <h2 className="text-[15px] font-semibold text-dmk-text-primary">Platform Info</h2>
+   390→   390→          </div>
+   391→   391→          <dl className="space-y-2 text-[12.5px]">
+   392→   392→            {[
+   393→   393→              ["Platform", "DMK Mart ERP"],
+   394→   394→              ["Version", "v1.0.0 (delivery sprint)"],
+   395→   395→              ["Design system", "Midnight Ledger (navy, frozen)"],
+   396→   396→              ["Business rules", "R1 – R20 enforced (20 rules)"],
+   397→   397→              ["Stack", "Next.js 16 · React 19 · Prisma/SQLite · Tailwind 4"],
+   398→   398→              ["Accounting", "Double-entry, Σ Dr = Σ Cr on every voucher (R6)"],
+   399→   399→            ].map(([k, v]) => (
+   400→   400→              <div key={k} className="flex items-center justify-between gap-4 border-b border-dmk-border-subtle/60 pb-2 last:border-0 last:pb-0">
+   401→   401→                <dt className="text-dmk-text-muted shrink-0">{k}</dt>
+   402→   402→                <dd className="text-dmk-text-primary text-right">{v}</dd>
+   403→   403→              </div>
+   404→   404→            ))}
+   405→   405→          </dl>
+   406→   406→        </div>
+   407→   407→
+   408→   408→        {/* ── Danger zone ───────────────────────────────── */}
+   409→   409→        <div className="dmk-well border-[rgba(245,158,11,0.35)] p-5">
+   410→   410→          <div className="flex items-center gap-2.5 mb-3">
+   411→   411→            <TriangleAlert className="h-4 w-4 text-dmk-warning" />
+   412→   412→            <h2 className="text-[15px] font-semibold text-dmk-warning">Danger Zone — Isolation Guarantees</h2>
+   413→   413→          </div>
+   414→   414→          <ul className="space-y-2 text-[12.5px] text-dmk-text-secondary list-disc pl-5">
+   415→   415→            <li>Platform is owner-only — no user accounts, no RBAC. <span className="text-dmk-text-primary font-medium">Firm = account.</span></li>
+   416→   416→            <li>All data is isolated per firm: products, stock, parties, books and AI grounding never cross firms (R1).</li>
+   417→   417→            <li>Deleting or deactivating a firm is disabled in this build to protect accounting continuity.</li>
+   418→   418→            <li>Opening balances post an OPENING journal at creation — never edit firm openings directly.</li>
+   419→   419→          </ul>
+   420→   420→        </div>
+   421→   421→      </div>
+   422→   422→
+   423→   423→      {/* ── Create dialog ───────────────────────────────── */}
+   424→   424→      <FirmDialog
+   425→   425→        open={createOpen}
+   426→   426→        onOpenChange={setCreateOpen}
+   427→   427→        mode="create"
+   428→   428→        onSaved={(newId) => {
+   429→   429→          void refreshFirms();
+   430→   430→          if (newId) {
+   431→   431→            setActiveFirm(newId);
+   432→   432→            toast({ title: "Firm created & activated", description: "COA seeded; opening journal posted if capital was entered." });
+   433→   433→          }
+   434→   434→        }}
+   435→   435→      />
+   436→   436→
+   437→   437→      {/* ── Edit dialog ─────────────────────────────────── */}
+   438→   438→      <FirmDialog
+   439→   439→        open={editOpen}
+   440→   440→        onOpenChange={(v) => {
+   441→   441→          setEditOpen(v);
+   442→   442→          if (!v) setEditing(null);
+   443→   443→        }}
+   444→   444→        mode="edit"
+   445→   445→        firm={editing}
+   446→   446→        onSaved={() => {
+   447→   447→          void refreshFirms();
+   448→   448→          toast({ title: "Firm profile updated", description: "Changes apply to invoices and GST docs immediately." });
+   449→   449→        }}
+   450→   450→      />
+   451→   451→    </div>
+   452→   452→  );
+   453→   453→}
+   454→   454→
+   455→   455→// ═══════════════════════════════════════════════════════════════
+   456→   456→// DATA & BACKUP — firm-level JSON export (R1/R20: firm = account)
+   457→   457→// ═══════════════════════════════════════════════════════════════
+   458→   458→
+   459→   459→function BackupCard({
+   460→   460→  firm,
+   461→   461→  counts,
+   462→   462→}: {
+   463→   463→  firm?: Firm;
+   464→   464→  counts?: FirmCounts;
+   465→   465→}) {
+   466→   466→  const { toast } = useToast();
+   467→   467→  const [exporting, setExporting] = React.useState(false);
+   468→   468→  const [lastExport, setLastExport] = React.useState<string | null>(null);
+   469→   469→
+   470→   470→  async function exportBackup() {
+   471→   471→    if (!firm || exporting) return;
+   472→   472→    setExporting(true);
+   473→   473→    try {
+   474→   474→      const res = await fetch(`/api/v1/backup?firmId=${firm.id}`);
+   475→   475→      if (!res.ok) {
+   476→   476→        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+   477→   477→        throw new Error(body?.message ?? `Export failed (${res.status})`);
+   478→   478→      }
+   479→   479→      const payload = await res.json();
+   480→   480→      const stamp = new Date().toISOString().slice(0, 10);
+   481→   481→      const totalRecords = payload?.counts
+   482→   482→        ? Object.values(payload.counts as Record<string, number>).reduce((a, b) => a + b, 0)
+   483→   483→        : 0;
+   484→   484→      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+   485→   485→      const url = URL.createObjectURL(blob);
+   486→   486→      const a = document.createElement("a");
+   487→   487→      a.href = url;
+   488→   488→      a.download = `dmk-backup-${(firm.firmCode || firm.firmName).replace(/\s+/g, "-").toLowerCase()}-${stamp}.json`;
+   489→   489→      document.body.appendChild(a);
+   490→   490→      a.click();
+   491→   491→      a.remove();
+   492→   492→      URL.revokeObjectURL(url);
+   493→   493→      setLastExport(new Date().toLocaleString("en-IN"));
+   494→   494→      toast({
+   495→   495→        title: "Backup downloaded",
+   496→   496→        description: `${totalRecords} records exported for ${firm.firmName}.`,
+   497→   497→      });
+   498→   498→    } catch (e) {
+   499→   499→      toast({
+   500→   500→        variant: "destructive",
+   501→   501→        title: "Backup failed",
+   502→   502→        description: e instanceof Error ? e.message : "Unknown error",
+   503→   503→      });
+   504→   504→    } finally {
+   505→   505→      setExporting(false);
+   506→   506→    }
+   507→   507→  }
+   508→   508→
+   509→   509→  const recordCount = counts
+   510→   510→    ? counts.products + counts.customers + counts.vendors + counts.invoices + counts.purchaseOrders
+   511→   511→    : null;
+   512→   512→
+   513→   513→  return (
+   514→   514→    <div className="dmk-card p-5">
+   515→   515→      <div className="flex items-center gap-2.5 mb-3">
+   516→   516→        <DatabaseBackup className="h-4 w-4 text-dmk-info" />
+   517→   517→        <h2 className="text-[15px] font-semibold text-dmk-text-primary">Data &amp; Backup</h2>
+   518→   518→        {firm && <Badge tone="info">{firm.firmName}</Badge>}
+   519→   519→      </div>
+   520→   520→      <p className="text-[12.5px] text-dmk-text-secondary mb-3">
+   521→   521→        Download the complete data universe of the active firm as a versioned JSON envelope — firm profile, masters,
+   522→   522→        documents, subledger allocations, journals, inventory audit trail and GSTR-2B records. Keep it with your
+   523→   523→        accountant or feed it into any restore pipeline.
+   524→   524→      </p>
+   525→   525→      <div className="flex flex-wrap items-center gap-3">
+   526→   526→        <Button
+   527→   527→          onClick={() => void exportBackup()}
+   528→   528→          disabled={!firm || exporting}
+   529→   529→          className="h-9 gap-2 bg-dmk-info text-[12.5px] font-semibold text-white hover:bg-dmk-info/85 disabled:opacity-50"
+   530→   530→        >
+   531→   531→          {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <DatabaseBackup className="h-3.5 w-3.5" />}
+   532→   532→          {exporting ? "Preparing…" : "Export full backup (JSON)"}
+   533→   533→        </Button>
+   534→   534→        <span className="text-[11.5px] text-dmk-text-muted">
+   535→   535→          {recordCount !== null
+   536→   536→            ? `≈ ${recordCount} core records · ${counts?.invoices ?? 0} invoices · ${counts?.purchaseOrders ?? 0} POs`
+   537→   537→            : "Entity counts load with the firm list"}
+   538→   538→        </span>
+   539→   539→        {lastExport && (
+   540→   540→          <span className="dmk-badge bg-dmk-success/10 text-dmk-success">Last export {lastExport}</span>
+   541→   541→        )}
+   542→   542→      </div>
+   543→   543→    </div>
+   544→   544→  );
+   545→   545→}
+   546→   546→
+   547→   547→// ═══════════════════════════════════════════════════════════════
+   548→   548→// FIRM DIALOG (create / edit)
+   549→   549→// ═══════════════════════════════════════════════════════════════
+   550→   550→
+   551→   551→function FirmDialog({
+   552→   552→  open,
+   553→   553→  onOpenChange,
+   554→   554→  mode,
+   555→   555→  firm,
+   556→   556→  onSaved,
+   557→   557→}: {
+   558→   558→  open: boolean;
+   559→   559→  onOpenChange: (v: boolean) => void;
+   560→   560→  mode: "create" | "edit";
+   561→   561→  firm?: Firm | null;
+   562→   562→  onSaved: (newFirmId?: string) => void;
+   563→   563→}) {
+   564→   564→  const { toast } = useToast();
+   565→   565→  const [form, setForm] = React.useState<FirmForm>(EMPTY_FORM);
+   566→   566→  const [saving, setSaving] = React.useState(false);
+   567→   567→  const [formError, setFormError] = React.useState<string | null>(null);
+   568→   568→
+   569→   569→  React.useEffect(() => {
+   570→   570→    if (!open) return;
+   571→   571→    setFormError(null);
+   572→   572→    setForm(mode === "edit" && firm ? formFromFirm(firm) : { ...EMPTY_FORM, invoicePrefix: "" });
+   573→   573→  }, [open, mode, firm]);
+   574→   574→
+   575→   575→  function set<K extends keyof FirmForm>(key: K, value: FirmForm[K]) {
+   576→   576→    setForm((prev) => ({ ...prev, [key]: value }));
+   577→   577→  }
+   578→   578→
+   579→   579→  const gstinPrefix = /^\d{2}/.test(form.gstin) ? form.gstin.slice(0, 2) : "";
+   580→   580→  const createValid = form.firmName.trim() !== "" && form.firmCode.trim() !== "";
+   581→   581→  const editValid = form.firmName.trim() !== "";
+   582→   582→  const stateName =
+   583→   583→    STATES.find((s) => s.code === form.state)?.name.replace(/\s*\(\d+\)$/, "") ??
+   584→   584→    (mode === "edit" && firm ? firm.state : "Maharashtra");
+   585→   585→
+   586→   586→  async function save() {
+   587→   587→    setSaving(true);
+   588→   588→    setFormError(null);
+   589→   589→    try {
+   590→   590→      if (mode === "create") {
+   591→   591→        const res = await apiPost<{ firm: Firm }>("/api/v1/firms", {
+   592→   592→          firmName: form.firmName.trim(),
+   593→   593→          firmCode: form.firmCode.trim().toUpperCase(),
+   594→   594→          gstin: form.gstin.trim(),
+   595→   595→          state: stateName,
+   596→   596→          stateCode: form.state,
+   597→   597→          address: form.address.trim(),
+   598→   598→          phone: form.phone.trim(),
+   599→   599→          email: form.email.trim(),
+   600→   600→          bankName: form.bankName.trim(),
+   601→   601→          bankAccount: form.bankAccount.trim(),
+   602→   602→          ifsc: form.ifsc.trim().toUpperCase(),
+   603→   603→          financialYear: form.financialYear,
+   604→   604→          invoicePrefix: form.invoicePrefix.trim() || undefined,
+   605→   605→          openingCash: Number(form.openingCash) || 0,
+   606→   606→          openingBank: Number(form.openingBank) || 0,
+   607→   607→        });
+   608→   608→        onOpenChange(false);
+   609→   609→        onSaved(res.firm.id);
+   610→   610→      } else if (firm) {
+   611→   611→        await apiPatch(`/api/v1/firms/${firm.id}`, {
+   612→   612→          firmName: form.firmName.trim(),
+   613→   613→          gstin: form.gstin.trim(),
+   614→   614→          state: stateName,
+   615→   615→          stateCode: form.state,
+   616→   616→          address: form.address.trim(),
+   617→   617→          phone: form.phone.trim(),
+   618→   618→          email: form.email.trim(),
+   619→   619→          bankName: form.bankName.trim(),
+   620→   620→          bankAccount: form.bankAccount.trim(),
+   621→   621→          ifsc: form.ifsc.trim().toUpperCase(),
+   622→   622→          financialYear: form.financialYear,
+   623→   623→          invoicePrefix: form.invoicePrefix.trim(),
+   624→   624→        });
+   625→   625→        onOpenChange(false);
+   626→   626→        onSaved();
+   627→   627→      }
+   628→   628→    } catch (e) {
+   629→   629→      const msg = e instanceof ApiError ? `${e.message}${e.code ? ` (${e.code})` : ""}` : "Request failed";
+   630→   630→      setFormError(msg);
+   631→   631→      toast({ variant: "destructive", title: mode === "create" ? "Could not create firm" : "Could not update firm", description: msg });
+   632→   632→    } finally {
+   633→   633→      setSaving(false);
+   634→   634→    }
+   635→   635→  }
+   636→   636→
+   637→   637→  return (
+   638→   638→    <Dialog open={open} onOpenChange={onOpenChange}>
+   639→   639→      <DialogContent className="max-w-2xl bg-dmk-bg-secondary border-dmk-border-medium max-h-[90vh] overflow-y-auto">
+   640→   640→        <DialogHeader>
+   641→   641→          <DialogTitle className="text-dmk-text-primary">
+   642→   642→            {mode === "create" ? "Create New Firm" : `Edit ${firm?.firmName ?? "Firm"}`}
+   643→   643→          </DialogTitle>
+   644→   644→          <DialogDescription className="text-dmk-text-muted text-[12px]">
+   645→   645→            {mode === "create"
+   646→   646→              ? "A new firm is a fresh isolated universe — chart of accounts is seeded automatically and the opening journal posts on save."
+   647→   647→              : "Profile fields feed invoices, A4 documents and GST place-of-supply logic. Firm code and opening balances are immutable."}
+   648→   648→          </DialogDescription>
+   649→   649→        </DialogHeader>
+   650→   650→
+   651→   651→        <div className="space-y-3">
+   652→   652→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   653→   653→            <Field label="Firm Name *">
+   654→   654→              <Input value={form.firmName} onChange={(e) => set("firmName", e.target.value)} placeholder="DMK Mart" className={inputCls} />
+   655→   655→            </Field>
+   656→   656→            <Field label="Firm Code *" hint={mode === "edit" ? "Immutable after creation" : "Short unique code, e.g. DMK"}>
+   657→   657→              <Input
+   658→   658→                value={form.firmCode}
+   659→   659→                onChange={(e) => set("firmCode", e.target.value.toUpperCase())}
+   660→   660→                placeholder="DMK"
+   661→   661→                disabled={mode === "edit"}
+   662→   662→                className={cn(inputCls, "font-money uppercase")}
+   663→   663→              />
+   664→   664→            </Field>
+   665→   665→          </div>
+   666→   666→
+   667→   667→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   668→   668→            <Field label="GSTIN" hint={gstinPrefix ? `First 2 digits “${gstinPrefix}” auto-map to state code` : "15 characters; first 2 digits = state code"}>
+   669→   669→              <Input
+   670→   670→                value={form.gstin}
+   671→   671→                onChange={(e) => set("gstin", e.target.value.toUpperCase())}
+   672→   672→                placeholder="27AAAAA0000A1Z5"
+   673→   673→                maxLength={15}
+   674→   674→                className={cn(inputCls, "font-money uppercase")}
+   675→   675→              />
+   676→   676→            </Field>
+   677→   677→            <Field label="State">
+   678→   678→              <Select
+   679→   679→                value={form.state}
+   680→   680→                onValueChange={(v) => {
+   681→   681→                  set("state", v);
+   682→   682→                  set("stateCode", v);
+   683→   683→                }}
+   684→   684→              >
+   685→   685→                <SelectTrigger className={cn(inputCls, "w-full")}>
+   686→   686→                  <SelectValue placeholder="Select state" />
+   687→   687→                </SelectTrigger>
+   688→   688→                <SelectContent className="bg-dmk-bg-tertiary border-dmk-border-medium max-h-64">
+   689→   689→                  {STATES.map((s) => (
+   690→   690→                    <SelectItem key={s.code} value={s.code} className="text-[12.5px]">
+   691→   691→                      {s.name}
+   692→   692→                    </SelectItem>
+   693→   693→                  ))}
+   694→   694→                </SelectContent>
+   695→   695→              </Select>
+   696→   696→            </Field>
+   697→   697→          </div>
+   698→   698→
+   699→   699→          <Field label="Address">
+   700→   700→            <Textarea value={form.address} onChange={(e) => set("address", e.target.value)} rows={2} placeholder="Shop no, street, city, PIN" className="bg-dmk-input-well border-dmk-border-subtle text-[13px] text-dmk-text-primary dmk-input resize-none" />
+   701→   701→          </Field>
+   702→   702→
+   703→   703→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   704→   704→            <Field label="Phone">
+   705→   705→              <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+91…" className={inputCls} />
+   706→   706→            </Field>
+   707→   707→            <Field label="Email">
+   708→   708→              <Input value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="owner@firm.in" className={inputCls} />
+   709→   709→            </Field>
+   710→   710→          </div>
+   711→   711→
+   712→   712→          <div className="dmk-well p-3 space-y-3">
+   713→   713→            <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Bank Details (printed on A4 invoices)</p>
+   714→   714→            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   715→   715→              <Field label="Bank Name">
+   716→   716→                <Input value={form.bankName} onChange={(e) => set("bankName", e.target.value)} placeholder="HDFC Bank" className={inputCls} />
+   717→   717→              </Field>
+   718→   718→              <Field label="Account Number">
+   719→   719→                <Input value={form.bankAccount} onChange={(e) => set("bankAccount", e.target.value)} className={cn(inputCls, "font-money")} />
+   720→   720→              </Field>
+   721→   721→              <Field label="IFSC">
+   722→   722→                <Input value={form.ifsc} onChange={(e) => set("ifsc", e.target.value.toUpperCase())} className={cn(inputCls, "font-money uppercase")} />
+   723→   723→              </Field>
+   724→   724→            </div>
+   725→   725→          </div>
+   726→   726→
+   727→   727→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   728→   728→            <Field label="Financial Year">
+   729→   729→              <Select value={form.financialYear} onValueChange={(v) => set("financialYear", v)}>
+   730→   730→                <SelectTrigger className={cn(inputCls, "w-full")}>
+   731→   731→                  <SelectValue />
+   732→   732→                </SelectTrigger>
+   733→   733→                <SelectContent className="bg-dmk-bg-tertiary border-dmk-border-medium">
+   734→   734→                  {FY_OPTIONS.map((fy) => (
+   735→   735→                    <SelectItem key={fy} value={fy} className="text-[12.5px]">
+   736→   736→                      FY {fy}
+   737→   737→                    </SelectItem>
+   738→   738→                  ))}
+   739→   739→                </SelectContent>
+   740→   740→              </Select>
+   741→   741→            </Field>
+   742→   742→            <Field label="Invoice Prefix" hint="Defaults to firm code when blank">
+   743→   743→              <Input
+   744→   744→                value={form.invoicePrefix}
+   745→   745→                onChange={(e) => set("invoicePrefix", e.target.value.toUpperCase())}
+   746→   746→                placeholder="DMK"
+   747→   747→                className={cn(inputCls, "font-money uppercase")}
+   748→   748→              />
+   749→   749→            </Field>
+   750→   750→          </div>
+   751→   751→
+   752→   752→          {mode === "create" && (
+   753→   753→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   754→   754→              <Field label="Opening Cash (₹)" hint="Posts Dr Cash in the OPENING journal">
+   755→   755→                <Input
+   756→   756→                  type="number"
+   757→   757→                  min="0"
+   758→   758→                  step="0.01"
+   759→   759→                  value={form.openingCash}
+   760→   760→                  onChange={(e) => set("openingCash", e.target.value)}
+   761→   761→                  placeholder="0.00"
+   762→   762→                  className={cn(inputCls, "text-right font-money")}
+   763→   763→                />
+   764→   764→              </Field>
+   765→   765→              <Field label="Opening Bank (₹)" hint="Posts Dr Bank in the OPENING journal">
+   766→   766→                <Input
+   767→   767→                  type="number"
+   768→   768→                  min="0"
+   769→   769→                  step="0.01"
+   770→   770→                  value={form.openingBank}
+   771→   771→                  onChange={(e) => set("openingBank", e.target.value)}
+   772→   772→                  placeholder="0.00"
+   773→   773→                  className={cn(inputCls, "text-right font-money")}
+   774→   774→                />
+   775→   775→              </Field>
+   776→   776→            </div>
+   777→   777→          )}
+   778→   778→
+   779→   779→          {formError && <ErrorText>{formError}</ErrorText>}
+   780→   780→        </div>
+   781→   781→
+   782→   782→        <DialogFooter>
+   783→   783→          <Button variant="outline" onClick={() => onOpenChange(false)} className="h-9 border-dmk-border-subtle bg-transparent hover:bg-dmk-hover">
+   784→   784→            Cancel
+   785→   785→          </Button>
+   786→   786→          <Button
+   787→   787→            onClick={() => void save()}
+   788→   788→            disabled={saving || (mode === "create" ? !createValid : !editValid)}
+   789→   789→            className="h-9 gap-2 bg-dmk-orange text-white hover:bg-dmk-orange/85 disabled:opacity-40"
+   790→   790→          >
+   791→   791→            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+   792→   792→            {mode === "create" ? "Create Firm" : "Save Changes"}
+   793→   793→          </Button>
+   794→   794→        </DialogFooter>
+   795→   795→      </DialogContent>
+   796→   796→    </Dialog>
+   797→   797→  );
+   798→   798→}
+   799→   799→

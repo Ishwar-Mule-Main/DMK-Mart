@@ -21,9 +21,11 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   Boxes,
+  ChevronRight,
   Download,
   FileText,
   Landmark,
+  Loader2,
   Percent,
   RefreshCw,
   Scale,
@@ -36,6 +38,13 @@ import type { LucideIcon } from "lucide-react";
 import { Badge, EmptyState, ErrorText, LoadingRows, PageHeader, inputCls } from "../shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { apiGet } from "@/lib/api-client";
 import { downloadCSV, formatINR, formatDate, toISODate } from "@/lib/format";
 import { useErpStore, useActiveFirm } from "@/store/erp-store";
@@ -518,6 +527,9 @@ export default function ReportsView() {
           rows={(data.rows ?? []) as ProfitRow[]}
           totals={data.totals as ProfitTotals}
           method={data.method}
+          firmId={activeFirmId}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
         />
       ) : data.type === "stock" ? (
         <StockReport rows={(data.rows ?? []) as StockRow[]} totals={data.totals as { stockValue: number; damagedValue: number } | undefined} />
@@ -1316,12 +1328,21 @@ function ProfitabilityReport({
   rows,
   totals,
   method,
+  firmId,
+  dateFrom,
+  dateTo,
 }: {
   rows: ProfitRow[];
   totals: ProfitTotals;
   method?: string;
+  firmId: string | null;
+  dateFrom: string;
+  dateTo: string;
 }) {
   const [sortBy, setSortBy] = React.useState<"profit" | "margin" | "revenue" | "qty">("profit");
+  const [drillRow, setDrillRow] = React.useState<ProfitRow | null>(null);
+
+  const openDrill = (r: ProfitRow) => setDrillRow(r);
 
   const sorted = React.useMemo(() => {
     const copy = [...rows];
@@ -1488,11 +1509,26 @@ function ProfitabilityReport({
                   <th className="num text-right">Profit (₹)</th>
                   <th className="num text-right">Margin</th>
                   <th className="num text-right hidden lg:table-cell">Invoices</th>
+                  <th className="w-8"><span className="sr-only">Drill through</span></th>
                 </tr>
               </thead>
               <tbody>
                 {sorted.map((r) => (
-                  <tr key={r.sku}>
+                  <tr
+                    key={r.sku}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Drill into ${r.sku} — view contributing invoice lines`}
+                    title="Click to view the invoice lines behind this row"
+                    onClick={() => openDrill(r)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openDrill(r);
+                      }
+                    }}
+                    className="cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-dmk-gold/60"
+                  >
                     <td className="font-money text-[12px] text-dmk-text-secondary whitespace-nowrap">{r.sku}</td>
                     <td className="max-w-[220px]">
                       <span className="block truncate text-[12.5px] font-medium" title={r.name}>{r.name}</span>
@@ -1525,6 +1561,9 @@ function ProfitabilityReport({
                       </span>
                     </td>
                     <td className="num text-right hidden lg:table-cell text-dmk-text-muted">{r.invoiceCount}</td>
+                    <td className="w-8 pr-2">
+                      <ChevronRight className="h-3.5 w-3.5 text-dmk-gold" aria-hidden="true" />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1541,12 +1580,312 @@ function ProfitabilityReport({
                   </td>
                   <td className="num text-right font-money font-bold text-dmk-gold">{totals.marginPct.toFixed(1)}%</td>
                   <td className="hidden lg:table-cell" />
+                  <td />
                 </tr>
               </tfoot>
             </table>
           </div>
         )}
+        {rows.length > 0 && (
+          <p className="px-4 py-2 text-[10.5px] text-dmk-text-muted border-t border-dmk-border-subtle">
+            Click a row to drill into the invoice lines and returns behind its profit number.
+          </p>
+        )}
       </div>
+
+      {/* ── SKU drill-through dialog ──────────────────── */}
+      <SkuDrillDialog
+        row={drillRow}
+        firmId={firmId}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onOpenChange={(open) => !open && setDrillRow(null)}
+      />
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SKU DRILL-THROUGH — invoice lines + returns behind one SKU row
+// GET /api/v1/reports?type=profitability&drillSku=<sku>&dateFrom&dateTo
+// ═══════════════════════════════════════════════════════════════
+
+interface DrillLine {
+  invoiceId: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  customerName: string;
+  qty: number;
+  unitPrice: number;
+  taxable: number;
+  cogsUnit: number;
+  cogs: number;
+  profit: number;
+  marginPct: number;
+}
+
+interface DrillReturn {
+  creditNoteNo: string;
+  returnDate: string;
+  customerName: string;
+  qty: number;
+  amount: number;
+}
+
+interface DrillTotals {
+  qty: number;
+  revenue: number;
+  cogs: number;
+  profit: number;
+  marginPct: number;
+  invoices: number;
+  returnsQty: number;
+  returnsAmount: number;
+  netRevenue: number;
+  netCogs: number;
+  netProfit: number;
+}
+
+interface DrillPayload {
+  sku: string;
+  productName: string;
+  wac: number;
+  basis: string;
+  lines: DrillLine[];
+  returns: DrillReturn[];
+  totals: DrillTotals;
+}
+
+function marginBadgeCls(m: number): string {
+  if (m >= 20) return "bg-dmk-success/15 text-dmk-success";
+  if (m >= 10) return "bg-dmk-gold/15 text-dmk-gold";
+  if (m >= 0) return "bg-dmk-warning/15 text-dmk-warning";
+  return "bg-dmk-danger/15 text-dmk-danger";
+}
+
+function SkuDrillDialog({
+  row,
+  firmId,
+  dateFrom,
+  dateTo,
+  onOpenChange,
+}: {
+  row: ProfitRow | null;
+  firmId: string | null;
+  dateFrom: string;
+  dateTo: string;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [drill, setDrill] = React.useState<DrillPayload | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const sku = row?.sku ?? null;
+
+  React.useEffect(() => {
+    if (!sku || !firmId) return;
+    let alive = true;
+    setLoading(true);
+    setError(null);
+    setDrill(null);
+    apiGet<{ drill: DrillPayload }>("/api/v1/reports", {
+      firmId,
+      type: "profitability",
+      drillSku: sku,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+    })
+      .then((res) => {
+        if (alive) setDrill(res.drill);
+      })
+      .catch((e) => {
+        if (alive) setError(e instanceof Error ? e.message : "Drill-through failed");
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sku, firmId, dateFrom, dateTo]);
+
+  const t = drill?.totals ?? null;
+
+  return (
+    <Dialog open={row !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="dmk-card border-dmk-border-medium sm:max-w-4xl max-h-[92vh] overflow-y-auto [&>*]:min-w-0">
+        <DialogHeader>
+          <DialogTitle className="flex flex-wrap items-center gap-2 pr-6 text-[16px] text-dmk-text-primary">
+            <span className="font-money text-dmk-gold">{row?.sku}</span>
+            <span className="text-[13px] font-normal text-dmk-text-secondary truncate max-w-[240px] sm:max-w-none">
+              {drill?.productName ?? row?.name}
+            </span>
+            <span className="dmk-badge font-money bg-dmk-info/15 text-dmk-info">
+              WAC {formatINR(drill?.wac ?? row?.wac ?? 0)}
+            </span>
+          </DialogTitle>
+          <DialogDescription className="text-[12px] text-dmk-text-muted">
+            Contributing invoice lines · {dateFrom} → {dateTo}
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-10 text-[12.5px] text-dmk-text-muted">
+            <Loader2 className="h-4 w-4 animate-spin text-dmk-gold" />
+            Fetching invoice lines…
+          </div>
+        ) : error ? (
+          <ErrorText>{error}</ErrorText>
+        ) : drill && t ? (
+          <div className="space-y-3.5">
+            {/* KPI strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="dmk-well p-3">
+                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">Sold qty</span>
+                <span className="font-money text-[17px] font-semibold text-dmk-text-primary">{t.qty}</span>
+                <span className="block text-[10.5px] text-dmk-text-muted mt-0.5">
+                  {t.invoices} invoice{t.invoices === 1 ? "" : "s"} · {t.returnsQty} returned
+                </span>
+              </div>
+              <div className="dmk-well p-3">
+                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net revenue</span>
+                <span className="font-money text-[17px] font-semibold text-dmk-text-primary">{formatINR(t.netRevenue)}</span>
+                <span className="block text-[10.5px] text-dmk-text-muted mt-0.5 font-money">
+                  gross {formatINR(t.revenue)}
+                  {t.returnsAmount > 0 ? ` − ${formatINR(t.returnsAmount)} ret` : ""}
+                </span>
+              </div>
+              <div className="dmk-well p-3">
+                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">COGS @ WAC</span>
+                <span className="font-money text-[17px] font-semibold text-dmk-info">{formatINR(t.netCogs)}</span>
+                <span className="block text-[10.5px] text-dmk-text-muted mt-0.5">Net of returned qty</span>
+              </div>
+              <div className="dmk-well p-3">
+                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net profit</span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className={cn("font-money text-[17px] font-semibold", t.netProfit >= 0 ? "text-dmk-success" : "text-dmk-danger")}>
+                    {t.netProfit >= 0 ? "" : "−"}{formatINR(Math.abs(t.netProfit))}
+                  </span>
+                  <span className={cn("dmk-badge font-money", marginBadgeCls(t.marginPct))}>
+                    {t.marginPct.toFixed(1)}%
+                  </span>
+                </div>
+                <span className="block text-[10.5px] text-dmk-text-muted mt-0.5">Reconciles with the row above</span>
+              </div>
+            </div>
+
+            {/* Sales lines */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-dmk-text-secondary">Sales lines</h3>
+                <span className="text-[10.5px] text-dmk-text-muted">{drill.lines.length} line{drill.lines.length === 1 ? "" : "s"}</span>
+              </div>
+              {drill.lines.length === 0 ? (
+                <p className="dmk-well px-3 py-4 text-[12px] text-dmk-text-muted text-center">
+                  No sale lines for this SKU in the window.
+                </p>
+              ) : (
+                <div className="max-h-80 overflow-y-auto overflow-x-auto rounded-md border border-dmk-border-subtle">
+                  <table className="dmk-table">
+                    <thead>
+                      <tr>
+                        <th>Invoice #</th>
+                        <th>Date</th>
+                        <th>Customer</th>
+                        <th className="num text-right">Qty</th>
+                        <th className="num text-right">Unit ₹</th>
+                        <th className="num text-right">Taxable ₹</th>
+                        <th className="num text-right hidden sm:table-cell">COGS ₹</th>
+                        <th className="num text-right">Profit ₹</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {drill.lines.map((l) => (
+                        <tr key={l.invoiceId}>
+                          <td className="font-money text-[11.5px] text-dmk-gold whitespace-nowrap">{l.invoiceNumber}</td>
+                          <td className="whitespace-nowrap text-dmk-text-secondary text-[12px]">{formatDate(l.invoiceDate)}</td>
+                          <td className="max-w-[160px]">
+                            <span className="block truncate text-[12px]" title={l.customerName}>{l.customerName}</span>
+                          </td>
+                          <td className="num text-right text-dmk-text-primary">{l.qty}</td>
+                          <td className="num text-right text-dmk-text-secondary font-money">{formatINR(l.unitPrice)}</td>
+                          <td className="num text-right text-dmk-text-primary font-money">{formatINR(l.taxable)}</td>
+                          <td className="num text-right text-dmk-info font-money hidden sm:table-cell">{formatINR(l.cogs)}</td>
+                          <td className={cn("num text-right font-money font-semibold", l.profit >= 0 ? "text-dmk-success" : "text-dmk-danger")}>
+                            {l.profit >= 0 ? "" : "−"}{formatINR(Math.abs(l.profit))}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
+                        <td colSpan={3} className="text-[10.5px] font-bold uppercase tracking-wider text-dmk-text-muted">
+                          Totals
+                        </td>
+                        <td className="num text-right font-money font-bold text-dmk-text-primary">{t.qty}</td>
+                        <td className="num text-right text-dmk-text-muted" />
+                        <td className="num text-right font-money font-bold text-dmk-text-primary">{formatINR(t.revenue)}</td>
+                        <td className="num text-right font-money font-bold text-dmk-info hidden sm:table-cell">{formatINR(t.cogs)}</td>
+                        <td className={cn("num text-right font-money font-bold", t.profit >= 0 ? "text-dmk-success" : "text-dmk-danger")}>
+                          {formatINR(t.profit)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Returns in window */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-dmk-text-secondary">Returns in window</h3>
+                <span className="text-[10.5px] text-dmk-text-muted font-money">
+                  {drill.returns.length > 0 ? `− ${formatINR(t.returnsAmount)}` : "—"}
+                </span>
+              </div>
+              {drill.returns.length === 0 ? (
+                <p className="dmk-well px-3 py-3 text-[12px] text-dmk-text-muted text-center">
+                  No returns in this window — clean margin story for this SKU.
+                </p>
+              ) : (
+                <div className="max-h-56 overflow-y-auto rounded-md border border-dmk-border-subtle">
+                  <table className="dmk-table">
+                    <thead>
+                      <tr>
+                        <th>Credit note</th>
+                        <th>Date</th>
+                        <th>Customer</th>
+                        <th className="num text-right">Qty</th>
+                        <th className="num text-right">Amount ₹</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {drill.returns.map((r) => (
+                        <tr key={`${r.creditNoteNo}-${r.returnDate}`}>
+                          <td className="font-money text-[11.5px] text-dmk-warning whitespace-nowrap">{r.creditNoteNo}</td>
+                          <td className="whitespace-nowrap text-dmk-text-secondary text-[12px]">{formatDate(r.returnDate)}</td>
+                          <td className="max-w-[200px]">
+                            <span className="block truncate text-[12px]" title={r.customerName}>{r.customerName}</span>
+                          </td>
+                          <td className="num text-right text-dmk-warning font-semibold">{r.qty}</td>
+                          <td className="num text-right font-money font-semibold text-dmk-danger">− {formatINR(r.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="dmk-well px-3 py-2">
+              <p className="text-[10.5px] leading-relaxed text-dmk-text-muted">
+                <span className="font-semibold text-dmk-text-secondary">Basis:</span> {drill.basis}
+              </p>
+            </div>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
