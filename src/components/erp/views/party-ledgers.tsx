@@ -492,7 +492,7 @@ function PartyTab({
           <>
             {/* Party header — letterhead-style with gold accent */}
             <div className="dmk-card p-4 relative overflow-hidden">
-              <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-dmk-gold via-dmk-orange to-transparent" />
+              <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-dmk-gold via-dmk-yellow to-transparent" />
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                 <div className="min-w-0">
                   <h2 className="text-[16px] font-bold text-dmk-text-primary truncate">{ledger.party.name}</h2>
@@ -599,7 +599,7 @@ function PartyTab({
                       </td>
                       <td className="num text-right">
                         {opening.suffix === "Dr" ? (
-                          <span className="font-money text-dmk-orange">{formatINR(opening.amount)}</span>
+                          <span className="font-money text-dmk-yellow">{formatINR(opening.amount)}</span>
                         ) : (
                           <span className="text-dmk-text-muted">—</span>
                         )}
@@ -642,7 +642,7 @@ function PartyTab({
                               {r.particulars || "—"}
                             </span>
                           </td>
-                          <td className="num text-right text-dmk-orange">
+                          <td className="num text-right text-dmk-yellow">
                             {r.debitAmount ? formatINR(r.debitAmount) : "—"}
                           </td>
                           <td className="num text-right text-dmk-info">
@@ -715,7 +715,7 @@ function PartyTab({
                       <td colSpan={4} className="font-bold text-dmk-text-primary">Closing Balance</td>
                       <td className="num text-right">
                         {closing.suffix === "Dr" ? (
-                          <span className="font-money font-bold text-dmk-orange">{formatINR(closing.amount)}</span>
+                          <span className="font-money font-bold text-dmk-yellow">{formatINR(closing.amount)}</span>
                         ) : (
                           <span className="text-dmk-text-muted">—</span>
                         )}
@@ -730,7 +730,7 @@ function PartyTab({
                       <td
                         className={cn(
                           "num text-right font-money font-bold",
-                          closing.suffix === "Dr" ? "text-dmk-orange" : closing.suffix === "Cr" ? "text-dmk-info" : "text-dmk-text-primary"
+                          closing.suffix === "Dr" ? "text-dmk-yellow" : closing.suffix === "Cr" ? "text-dmk-info" : "text-dmk-text-primary"
                         )}
                       >
                         {closing.suffix ? `${formatINR(closing.amount)} ${closing.suffix}` : formatINR(0)}
@@ -805,7 +805,7 @@ function SettlementDialog({
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-[16px] text-dmk-text-primary">
-                <Link2 className={cn("h-4 w-4", isReceipt ? "text-dmk-orange" : "text-dmk-info")} />
+                <Link2 className={cn("h-4 w-4", isReceipt ? "text-dmk-yellow" : "text-dmk-info")} />
                 {isReceipt ? "Receipt" : "Payment"} allocation
               </DialogTitle>
               <DialogDescription className="text-[12px] text-dmk-text-muted">
@@ -1139,7 +1139,7 @@ function StatementPrintDialog({
             >
               <X className="h-4 w-4" /> Close
             </Button>
-            <Button onClick={printA4} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+            <Button onClick={printA4} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
               <Printer className="h-4 w-4" /> Print statement
             </Button>
           </div>
@@ -1233,7 +1233,7 @@ function BatchPrintDialog({
               >
                 <X className="h-4 w-4" /> Close
               </Button>
-              <Button onClick={printA4} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+              <Button onClick={printA4} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
                 <Printer className="h-4 w-4" /> Print {sheets.length} pages
               </Button>
             </span>

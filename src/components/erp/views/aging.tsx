@@ -530,7 +530,7 @@ function InvoiceAgingTab() {
                 <span className="text-dmk-text-muted">+</span>
                 <span>party openings <b className="text-dmk-text-secondary">{formatINR(data.reconciliation.openingBalances)}</b></span>
                 <span className="text-dmk-text-muted">=</span>
-                <span>GL receivables <b className="text-dmk-orange">{formatINR(data.reconciliation.glReceivables)}</b></span>
+                <span>GL receivables <b className="text-dmk-yellow">{formatINR(data.reconciliation.glReceivables)}</b></span>
                 {Math.abs(data.reconciliation.difference) <= 0.01 ? (
                   <Badge tone="success">RECONCILED ✓</Badge>
                 ) : (
@@ -549,7 +549,7 @@ function InvoiceAgingTab() {
                 const chip = (
                   <>
                     <span className="text-dmk-text-secondary max-w-[150px] truncate">{p.partyName}</span>
-                    <span className="font-money font-semibold text-dmk-orange">{formatINR(p.outstanding)}</span>
+                    <span className="font-money font-semibold text-dmk-yellow">{formatINR(p.outstanding)}</span>
                     {!!p.unapplied && p.unapplied > 0.009 && (
                       <span className="font-money text-[10px] text-dmk-info" title="Unapplied on-account receipts">−{formatINR(p.unapplied)} unapplied</span>
                     )}
@@ -874,7 +874,7 @@ function PoAgingTab() {
                 <span className="text-dmk-text-muted">−</span>
                 <span>standalone debit notes <b className="text-dmk-warning">{formatINR(data.reconciliation.standaloneDebitNotes)}</b></span>
                 <span className="text-dmk-text-muted">=</span>
-                <span>GL payables <b className="text-dmk-orange">{formatINR(data.reconciliation.glPayables)}</b></span>
+                <span>GL payables <b className="text-dmk-yellow">{formatINR(data.reconciliation.glPayables)}</b></span>
                 {Math.abs(data.reconciliation.difference) <= 0.01 ? (
                   <Badge tone="success">RECONCILED ✓</Badge>
                 ) : (
@@ -893,7 +893,7 @@ function PoAgingTab() {
                 const chip = (
                   <>
                     <span className="text-dmk-text-secondary max-w-[150px] truncate">{v.vendorName}</span>
-                    <span className="font-money font-semibold text-dmk-orange">{formatINR(v.outstanding)}</span>
+                    <span className="font-money font-semibold text-dmk-yellow">{formatINR(v.outstanding)}</span>
                     {!!v.unapplied && v.unapplied > 0.009 && (
                       <span className="font-money text-[10px] text-dmk-info" title="Unapplied on-account payments">−{formatINR(v.unapplied)} unapplied</span>
                     )}

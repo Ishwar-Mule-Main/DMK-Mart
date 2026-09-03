@@ -265,7 +265,7 @@ export default function InvoiceRegisterView() {
                         {settled ? (
                           <Badge tone="success">SETTLED</Badge>
                         ) : osd !== undefined ? (
-                          <span className="font-money text-[11.5px] font-semibold text-dmk-orange">outstanding {formatINR(osd)}</span>
+                          <span className="font-money text-[11.5px] font-semibold text-dmk-yellow">outstanding {formatINR(osd)}</span>
                         ) : (
                           <span className="text-[10.5px] text-dmk-text-muted">outstanding …</span>
                         )}
@@ -308,7 +308,7 @@ export default function InvoiceRegisterView() {
                       label={<>{x.mode} <span className="text-dmk-text-muted">· {x.count} inv</span></>}
                       value={formatINR(x.value)}
                       pct={(x.count / denom) * 100}
-                      barClass={mixBar[x.mode] ?? "bg-dmk-orange"}
+                      barClass={mixBar[x.mode] ?? "bg-dmk-yellow"}
                     />
                   ))
                 )}
@@ -318,7 +318,7 @@ export default function InvoiceRegisterView() {
             <AsideCard
               title="Sales channel"
               icon={ReceiptText}
-              iconClass="text-dmk-orange"
+              iconClass="text-dmk-yellow"
               footnote="B2B invoices can carry credit terms; counter sales are settled on the spot."
             >
               <div className="space-y-2.5">
@@ -332,7 +332,7 @@ export default function InvoiceRegisterView() {
                   label={<><span className="dmk-badge dmk-badge-dr">COUNTER</span> <span className="text-dmk-text-muted">· {list.length - b2bCount} inv</span></>}
                   value={formatINR(list.filter((i) => i.isCounterSale).reduce((s, i) => s + Number(i.grandTotal), 0))}
                   pct={((list.length - b2bCount) / denom) * 100}
-                  barClass="bg-dmk-orange"
+                  barClass="bg-dmk-yellow"
                 />
               </div>
             </AsideCard>
@@ -409,7 +409,7 @@ export default function InvoiceRegisterView() {
                   {Number(detail.totalSgst) > 0 && <div className="flex justify-between"><span className="text-dmk-text-muted">SGST</span><span className="font-money">{formatINR(Number(detail.totalSgst))}</span></div>}
                   {Number(detail.totalIgst) > 0 && <div className="flex justify-between"><span className="text-dmk-text-muted">IGST</span><span className="font-money">{formatINR(Number(detail.totalIgst))}</span></div>}
                   <div className="flex justify-between"><span className="text-dmk-text-muted">Round-off</span><span className="font-money">{formatINR(Number(detail.roundOff))}</span></div>
-                  <div className="flex justify-between border-t border-dmk-border-subtle pt-1.5"><span className="text-dmk-text-secondary font-semibold">Grand Total</span><span className="font-money text-[15px] text-dmk-orange font-bold">{formatINR(Number(detail.grandTotal))}</span></div>
+                  <div className="flex justify-between border-t border-dmk-border-subtle pt-1.5"><span className="text-dmk-text-secondary font-semibold">Grand Total</span><span className="font-money text-[15px] text-dmk-yellow font-bold">{formatINR(Number(detail.grandTotal))}</span></div>
                 </div>
                 <div className="dmk-well p-3">
                   <p className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted mb-1">Amount in words</p>
@@ -429,7 +429,7 @@ export default function InvoiceRegisterView() {
             >
               <FileText className="h-4 w-4" /> Open A4
             </Button>
-            <Button onClick={() => setDetailOpen(false)} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">Close</Button>
+            <Button onClick={() => setDetailOpen(false)} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

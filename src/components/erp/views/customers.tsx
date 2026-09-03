@@ -133,7 +133,7 @@ function B2BTab() {
         </div>
         <Button
           size="sm"
-          className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90"
+          className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
           onClick={() => {
             setEditing(null);
             setEditOpen(true);
@@ -175,7 +175,7 @@ function B2BTab() {
                       <td className="font-money text-[11.5px] text-dmk-text-secondary">{c.gstin || "—"}</td>
                       <td><Badge tone={tierBadgeTone(c.assignedTier)}>{tierLabel(c.assignedTier)}</Badge></td>
                       <td className="num text-[12.5px]">{formatINR(Number(c.creditLimit))}</td>
-                      <td className={cn("num text-[12.5px] font-semibold", outstanding > 0.005 ? "text-dmk-orange" : "text-dmk-success")}>
+                      <td className={cn("num text-[12.5px] font-semibold", outstanding > 0.005 ? "text-dmk-yellow" : "text-dmk-success")}>
                         {outstanding > 0.005 ? `Dr ${formatINR(outstanding)}` : "Clear"}
                       </td>
                       <td className="num text-[12.5px]">{c.creditDays}</td>
@@ -408,7 +408,7 @@ function B2BFormDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />} {editing ? "Save changes" : "Create customer"}
           </Button>
         </DialogFooter>
@@ -451,7 +451,7 @@ function LedgerDialog({ customer, onClose }: { customer: Customer | null; onClos
           <span className="text-dmk-text-muted">Opening <span className="font-money text-dmk-text-secondary">{formatINR(Number(customer?.openingBalance ?? 0))}</span></span>
           <span className="text-dmk-text-muted">
             Closing{" "}
-            <span className={cn("font-money font-semibold", closing > 0.005 ? "text-dmk-orange" : "text-dmk-success")}>
+            <span className={cn("font-money font-semibold", closing > 0.005 ? "text-dmk-yellow" : "text-dmk-success")}>
               {closing > 0.005 ? `Dr ${formatINR(closing)}` : "Clear"}
             </span>
           </span>
@@ -482,7 +482,7 @@ function LedgerDialog({ customer, onClose }: { customer: Customer | null; onClos
                     <td><StatusBadge status={r.voucherType} /></td>
                     <td className="font-money text-[11px] text-dmk-text-secondary">{r.voucherNo || "—"}</td>
                     <td className="max-w-[220px] truncate text-[11.5px] text-dmk-text-secondary">{r.particulars || "—"}</td>
-                    <td className="num text-[12px] text-dmk-orange">{Number(r.debitAmount) > 0 ? formatINR(Number(r.debitAmount)) : "—"}</td>
+                    <td className="num text-[12px] text-dmk-yellow">{Number(r.debitAmount) > 0 ? formatINR(Number(r.debitAmount)) : "—"}</td>
                     <td className="num text-[12px] text-dmk-info">{Number(r.creditAmount) > 0 ? formatINR(Number(r.creditAmount)) : "—"}</td>
                     <td className="num text-[12px]">{formatINR(Number(r.balanceAfter))}</td>
                   </tr>
@@ -538,7 +538,7 @@ function B2CTab() {
           <SearchInput value={query} onChange={setQuery} placeholder="Search buyers by name or phone…" className="pl-9" />
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
         </div>
-        <Button size="sm" className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90" onClick={() => setAddOpen(true)}>
+        <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setAddOpen(true)}>
           <Plus className="h-4 w-4" /> New Buyer
         </Button>
       </div>
@@ -642,7 +642,7 @@ function NewBuyerDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />} Add buyer
           </Button>
         </DialogFooter>

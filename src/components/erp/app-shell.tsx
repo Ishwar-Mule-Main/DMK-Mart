@@ -12,6 +12,8 @@ import { useErpStore, type ViewId } from "@/store/erp-store";
 import { apiGet, apiPost } from "@/lib/api-client";
 import type { Firm } from "@/types/erp";
 import { cn } from "@/lib/utils";
+import { LoginGate } from "@/components/auth/login-gate";
+import { VerificationPortal } from "@/components/verify/verification-portal";
 
 import DashboardView from "./views/dashboard";
 import ProductsView from "./views/products";
@@ -42,6 +44,7 @@ import Gstr2bView from "./views/gstr2b";
 import ReportsView from "./views/reports";
 import AiCopilotView from "./views/ai-copilot";
 import SettingsView from "./views/settings";
+import PurchaseVerificationView from "./views/verification";
 
 const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   dashboard: DashboardView,
@@ -61,6 +64,7 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   "docs/notes": CreditDebitNotesView,
   "purchase/vendors": VendorsView,
   "purchase/orders": PurchaseOrdersView,
+  "purchase/verification": PurchaseVerificationView,
   "purchase/returns": PurchaseReturnsView,
   "purchase/payments": VendorPaymentsView,
   "finance/journals": JournalsView,
@@ -76,9 +80,15 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
 };
 
 export function AppShell() {
-  const { view, firms, activeFirmId, setFirms } = useErpStore();
+  const { view, firms, activeFirmId, setFirms, session } = useErpStore();
+  const sidebarOpen = useErpStore((s) => s.sidebarOpen);
+  const [mounted, setMounted] = React.useState(false);
   const [booting, setBooting] = React.useState(true);
   const [bootError, setBootError] = React.useState<string | null>(null);
+
+  // Persisted session (zustand) only exists client-side — render nothing
+  // brand-specific until mounted to keep SSR hydration exact.
+  React.useEffect(() => setMounted(true), []);
 
   // Boot sequence: ensure seed exists → load firms
   React.useEffect(() => {
@@ -98,15 +108,29 @@ export function AppShell() {
     })();
   }, []);
 
+  // Portal gate (after all hooks): team members live in the
+  // verification portal, unsigned-in visitors see the login doors.
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-dmk-bg-primary">
+        <img src="/dmk-logo.png" alt="DMK Mart logo" width={56} height={56} className="rounded-full animate-pulse" />
+        <p className="text-[12px] text-dmk-text-muted">Loading workspace…</p>
+      </div>
+    );
+  }
+  if (!session) {
+    return <LoginGate />;
+  }
+  if (session.role === "TEAM") {
+    return <VerificationPortal />;
+  }
+
   const ActiveView = VIEW_MAP[view] ?? DashboardView;
-  const sidebarOpen = useErpStore((s) => s.sidebarOpen);
 
   if (booting) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-dmk-bg-primary">
-        <div className="h-14 w-14 rounded-2xl bg-dmk-gold flex items-center justify-center animate-pulse">
-          <span className="text-2xl font-black text-[#0A0F1D]">D</span>
-        </div>
+        <img src="/dmk-logo.png" alt="DMK Mart logo" width={56} height={56} className="rounded-full animate-pulse" />
         <div className="text-center">
           <p className="text-[15px] font-bold text-dmk-text-primary">DMK Mart ERP</p>
           <p className="text-[12px] text-dmk-text-muted mt-1">Initializing workspace…</p>

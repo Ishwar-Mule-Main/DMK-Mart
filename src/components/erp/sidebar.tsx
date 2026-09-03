@@ -35,6 +35,7 @@ import {
   Timer,
   FileCheck2,
   FileWarning,
+  ClipboardCheck,
 } from "lucide-react";
 import { useErpStore, type ViewId } from "@/store/erp-store";
 import { cn } from "@/lib/utils";
@@ -71,6 +72,7 @@ const SECTIONS: NavSection[] = [
     label: "Purchase",
     items: [
       { id: "purchase/orders", label: "Purchase Orders", icon: ClipboardList },
+      { id: "purchase/verification", label: "PO Verification", icon: ClipboardCheck },
       { id: "purchase/returns", label: "Purchase Returns", icon: UndoIcon },
       { id: "purchase/payments", label: "Vendor Payments", icon: Banknote },
       { id: "purchase/vendors", label: "Vendors", icon: Truck },
@@ -192,7 +194,7 @@ export function Sidebar() {
                             )}
                           >
                             <Icon
-                              className={cn("h-[18px] w-[18px] shrink-0", active ? "text-dmk-orange" : "text-dmk-text-muted group-hover:text-dmk-text-secondary")}
+                              className={cn("h-[18px] w-[18px] shrink-0", active ? "text-dmk-yellow" : "text-dmk-text-muted group-hover:text-dmk-text-secondary")}
                               strokeWidth={1.75}
                             />
                             <span className={cn("truncate", !sidebarOpen && "lg:hidden")}>{item.label}</span>

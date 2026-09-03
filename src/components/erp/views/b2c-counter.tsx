@@ -495,7 +495,7 @@ export default function B2CCounterView() {
 
                 <div className="border-t border-dmk-border-medium pt-3 flex items-end justify-between">
                   <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">Pay now</span>
-                  <span className="font-money text-[28px] font-bold leading-none text-dmk-orange">{formatINR(totals.grand)}</span>
+                  <span className="font-money text-[28px] font-bold leading-none text-dmk-yellow">{formatINR(totals.grand)}</span>
                 </div>
                 <p className="text-[11.5px] italic text-dmk-text-muted">{amountInWords(totals.grand)}</p>
 
@@ -523,7 +523,7 @@ export default function B2CCounterView() {
                 </div>
 
                 <Button
-                  className="w-full h-11 text-[14px] font-semibold bg-dmk-orange text-white hover:bg-dmk-orange/90"
+                  className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
                   onClick={confirmSale}
                   disabled={lines.length === 0 || submitting}
                 >
@@ -567,12 +567,12 @@ export default function B2CCounterView() {
               </div>
               <div className="flex justify-between border-t border-dmk-border-subtle pt-2">
                 <span className="text-dmk-text-muted">Amount</span>
-                <span className="font-money text-[16px] text-dmk-orange">{formatINR(lastInvoice.grandTotal)}</span>
+                <span className="font-money text-[16px] text-dmk-yellow">{formatINR(lastInvoice.grandTotal)}</span>
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button className="w-full bg-dmk-orange text-white hover:bg-dmk-orange/90" onClick={() => setSuccessOpen(false)}>Next sale</Button>
+            <Button className="w-full bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setSuccessOpen(false)}>Next sale</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -629,7 +629,7 @@ function BuyersDirectory({ onNew }: { onNew: () => void }) {
           <SearchInput value={query} onChange={setQuery} placeholder="Search buyers by name or phone…" className="pl-9" />
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
         </div>
-        <Button size="sm" className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90" onClick={onNew}>
+        <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={onNew}>
           <UserPlus className="h-4 w-4" /> New Buyer
         </Button>
       </div>
@@ -800,7 +800,7 @@ function NewBuyerDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add buyer
           </Button>
         </DialogFooter>

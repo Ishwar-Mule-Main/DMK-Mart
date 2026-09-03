@@ -125,7 +125,7 @@ export default function InvoiceDocsView() {
                   </button>
                 ))}
               </div>
-              <Button size="sm" className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90" onClick={printA4} disabled={!invoice}>
+              <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={printA4} disabled={!invoice}>
                 <Printer className="h-4 w-4" /> Print
               </Button>
             </div>
@@ -159,7 +159,7 @@ export default function InvoiceDocsView() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-money text-[12.5px] text-dmk-text-primary">{i.invoiceNumber}</span>
-                    <span className="font-money text-[12px] text-dmk-orange">{formatINR(Number(i.grandTotal))}</span>
+                    <span className="font-money text-[12px] text-dmk-yellow">{formatINR(Number(i.grandTotal))}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">
                     <span className="text-[11px] text-dmk-text-muted truncate">{i.customer?.partyName || i.walkInName || "Walk-in"}</span>
@@ -238,14 +238,17 @@ function InvoiceSheet({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
   return (
     <>
       <div className="flex items-start justify-between gap-6 border-b-2 border-gray-800 pb-4">
-        <div className="min-w-0">
-          <h2 className="text-[22px] font-bold leading-tight text-gray-900">{firm?.firmName ?? "DMK Mart"}</h2>
-          <p className="text-[11px] text-gray-600 mt-1 whitespace-pre-line leading-snug">{firm?.address ?? ""}</p>
-          <div className="text-[11px] text-gray-700 mt-1.5 space-x-3">
-            <span>GSTIN: <span className="font-semibold" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>{firm?.gstin ?? "—"}</span></span>
-            {firm?.phone && <span>Ph: {firm.phone}</span>}
+        <div className="min-w-0 flex items-start gap-3">
+          <img src={firm?.logoUrl ?? "/dmk-logo.png"} alt={`${firm?.firmName ?? "DMK Mart"} logo`} width={56} height={56} className="rounded-full shrink-0" />
+          <div className="min-w-0">
+            <h2 className="text-[22px] font-bold leading-tight text-gray-900">{firm?.firmName ?? "DMK Mart"}</h2>
+            <p className="text-[11px] text-gray-600 mt-1 whitespace-pre-line leading-snug">{firm?.address ?? ""}</p>
+            <div className="text-[11px] text-gray-700 mt-1.5 space-x-3">
+              <span>GSTIN: <span className="font-semibold" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>{firm?.gstin ?? "—"}</span></span>
+              {firm?.phone && <span>Ph: {firm.phone}</span>}
+            </div>
+            {firm?.email && <p className="text-[11px] text-gray-600">{firm.email}</p>}
           </div>
-          {firm?.email && <p className="text-[11px] text-gray-600">{firm.email}</p>}
         </div>
         <div className="text-right shrink-0">
           <p className="text-[20px] font-extrabold tracking-wide text-gray-900 uppercase">Tax Invoice</p>

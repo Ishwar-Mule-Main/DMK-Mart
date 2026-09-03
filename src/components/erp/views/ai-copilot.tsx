@@ -34,7 +34,7 @@ const SUGGESTION_GROUPS: Array<{
   {
     category: "Sales & profit",
     icon: TrendingUp,
-    iconClass: "text-dmk-orange",
+    iconClass: "text-dmk-yellow",
     questions: [
       "What is my gross profit this month?",
       "Which product makes me the most money?",
@@ -287,7 +287,7 @@ export default function AiCopilotView() {
               type="submit"
               size="icon"
               disabled={!activeFirmId || loading || !input.trim()}
-              className="h-9 w-9 shrink-0 bg-dmk-orange text-white hover:bg-dmk-orange/85 disabled:opacity-40"
+              className="h-9 w-9 shrink-0 bg-dmk-yellow text-white hover:bg-dmk-yellow/85 disabled:opacity-40"
               aria-label="Send message"
             >
               <Send className="h-4 w-4" />

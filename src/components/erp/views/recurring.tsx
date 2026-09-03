@@ -578,9 +578,9 @@ export default function RecurringView() {
         <div className="dmk-kpi p-4 flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Due Value</span>
-            <IndianRupee className="h-3.5 w-3.5 text-dmk-orange/70" />
+            <IndianRupee className="h-3.5 w-3.5 text-dmk-yellow/70" />
           </div>
-          <span className="font-money text-[20px] font-semibold leading-none text-dmk-orange">{formatINR(dueValue)}</span>
+          <span className="font-money text-[20px] font-semibold leading-none text-dmk-yellow">{formatINR(dueValue)}</span>
           <span className="text-[11px] text-dmk-text-muted">est. grand total incl. GST</span>
         </div>
         <div className="dmk-kpi p-4 flex flex-col gap-2">

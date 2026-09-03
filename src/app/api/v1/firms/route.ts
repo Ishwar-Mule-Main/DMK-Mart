@@ -19,7 +19,32 @@ import {
 
 export async function GET() {
   try {
-    const firms = await db.firm.findMany({ orderBy: { createdAt: "asc" } });
+    // ownerPassword never leaves the server
+    const firms = await db.firm.findMany({
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        firmName: true,
+        firmCode: true,
+        gstin: true,
+        state: true,
+        stateCode: true,
+        address: true,
+        phone: true,
+        email: true,
+        bankName: true,
+        bankAccount: true,
+        ifsc: true,
+        financialYear: true,
+        invoicePrefix: true,
+        logoUrl: true,
+        openingCash: true,
+        openingBank: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
     return ok(firms);
   } catch (e) {
     return handleApiError(e);

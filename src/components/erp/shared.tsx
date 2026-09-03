@@ -27,7 +27,7 @@ export function PageHeader({
       <div className="flex items-center gap-3 min-w-0">
         {Icon && (
           <div className="hidden sm:flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-dmk-input-well border border-dmk-border-subtle">
-            <Icon className="h-5 w-5 text-dmk-orange" strokeWidth={1.75} />
+            <Icon className="h-5 w-5 text-dmk-yellow" strokeWidth={1.75} />
           </div>
         )}
         <div className="min-w-0">
@@ -55,7 +55,7 @@ export function KpiCard({
   value: string;
   sub?: string;
   icon?: LucideIcon;
-  tone?: "default" | "orange" | "blue" | "gold" | "success" | "danger" | "info";
+  tone?: "default" | "orange" | "yellow" | "blue" | "gold" | "success" | "danger" | "info";
   onClick?: () => void;
   drillHint?: string;
   /** Optional micro-trend series (numbers) rendered as an SVG sparkline. */
@@ -64,7 +64,8 @@ export function KpiCard({
 }) {
   const toneMap: Record<string, string> = {
     default: "text-dmk-text-primary",
-    orange: "text-dmk-orange",
+    orange: "text-dmk-yellow",
+    yellow: "text-dmk-yellow",
     blue: "text-dmk-blue",
     gold: "text-dmk-gold",
     success: "text-dmk-success",
@@ -314,7 +315,7 @@ export function RegisterCard({
       <div className="px-4 pt-3.5 pb-3 space-y-2.5 border-b border-dmk-border-subtle">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            {Icon && <Icon className="h-4 w-4 text-dmk-orange shrink-0" strokeWidth={1.75} />}
+            {Icon && <Icon className="h-4 w-4 text-dmk-yellow shrink-0" strokeWidth={1.75} />}
             <h2 className="text-[13px] font-bold text-dmk-text-primary truncate">{title}</h2>
           </div>
           {count !== undefined && (
@@ -365,7 +366,7 @@ export function RegisterRow({
       }
       className={cn(
         "group/row px-4 py-2.5 hover:bg-dmk-hover transition-colors min-w-0",
-        clickable && "cursor-pointer focus-visible:outline focus-visible:outline-1 focus-visible:outline-dmk-orange",
+        clickable && "cursor-pointer focus-visible:outline focus-visible:outline-1 focus-visible:outline-dmk-yellow",
         className
       )}
     >
@@ -409,7 +410,7 @@ export function MixBar({
   label,
   value,
   pct,
-  barClass = "bg-dmk-orange",
+  barClass = "bg-dmk-yellow",
 }: {
   label: React.ReactNode;
   value: React.ReactNode;

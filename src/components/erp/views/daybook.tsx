@@ -322,7 +322,7 @@ export default function DaybookView() {
                                     {j.narration || "—"}
                                   </span>
                                 </td>
-                                <td className="num text-right text-dmk-orange">{formatINR(j.totalDebit)}</td>
+                                <td className="num text-right text-dmk-yellow">{formatINR(j.totalDebit)}</td>
                                 <td className="num text-right text-dmk-info">{formatINR(j.totalCredit)}</td>
                               </tr>
                               {isOpen && (
@@ -349,7 +349,7 @@ export default function DaybookView() {
                                                     <span className="text-[12.5px]">{l.accountName}</span>
                                                   </span>
                                                 </td>
-                                                <td className="num text-right text-dmk-orange">
+                                                <td className="num text-right text-dmk-yellow">
                                                   {l.debitAmount ? formatINR(l.debitAmount) : "—"}
                                                 </td>
                                                 <td className="num text-right text-dmk-info">

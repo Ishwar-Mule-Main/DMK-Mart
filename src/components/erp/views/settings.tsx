@@ -245,7 +245,7 @@ export default function SettingsView() {
             <Button
               size="sm"
               onClick={() => setCreateOpen(true)}
-              className="h-9 gap-2 bg-dmk-orange text-[12.5px] font-semibold text-white hover:bg-dmk-orange/85"
+              className="h-9 gap-2 bg-dmk-yellow text-[12.5px] font-semibold text-white hover:bg-dmk-yellow/85"
             >
               <Plus className="h-4 w-4" /> Create New Firm
             </Button>
@@ -269,7 +269,7 @@ export default function SettingsView() {
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-dmk-input-well border border-dmk-border-subtle">
-                    <Building2 className="h-5 w-5 text-dmk-orange" strokeWidth={1.75} />
+                    <Building2 className="h-5 w-5 text-dmk-yellow" strokeWidth={1.75} />
                   </div>
                   <div className="min-w-0">
                     <h2 className="text-[15px] font-bold text-dmk-text-primary truncate">{f.firmName}</h2>
@@ -1165,7 +1165,7 @@ function FirmDialog({
           <Button
             onClick={() => void save()}
             disabled={saving || (mode === "create" ? !createValid : !editValid)}
-            className="h-9 gap-2 bg-dmk-orange text-white hover:bg-dmk-orange/85 disabled:opacity-40"
+            className="h-9 gap-2 bg-dmk-yellow text-white hover:bg-dmk-yellow/85 disabled:opacity-40"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {mode === "create" ? "Create Firm" : "Save Changes"}

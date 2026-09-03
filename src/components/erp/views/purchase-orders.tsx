@@ -16,6 +16,7 @@ import {
   IndianRupee,
   Layers,
   PackageCheck,
+  PackageSearch,
   Pencil,
   Plus,
   Search,
@@ -171,7 +172,6 @@ export default function PurchaseOrdersView() {
 
   const [newOpen, setNewOpen] = React.useState(false);
   const [editOf, setEditOf] = React.useState<PoRow | null>(null);
-  const [grnOf, setGrnOf] = React.useState<PoRow | null>(null);
   const [viewOf, setViewOf] = React.useState<PoRow | null>(null);
   const [cancelOf, setCancelOf] = React.useState<PoRow | null>(null);
   const [cancelling, setCancelling] = React.useState(false);
@@ -259,12 +259,12 @@ export default function PurchaseOrdersView() {
     <div className="space-y-4">
       <PageHeader
         title="Purchase Orders"
-        subtitle="PENDING → Receive (GRN) → CONFIRMED · GRN splits Accepted + Damaged (quarantine)"
+        subtitle="PENDING → team verification → your acceptance → CONFIRMED · damaged units quarantined"
         icon={ClipboardList}
         actions={
           <Button
             size="sm"
-            className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90"
+            className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
             onClick={() => setNewOpen(true)}
           >
             <Plus className="h-4 w-4" /> New PO
@@ -300,11 +300,11 @@ export default function PurchaseOrdersView() {
             }
             footer={
               <>
-                <span><span className="font-money text-dmk-warning">{pendingCount}</span> awaiting receipt</span>
+                <span><span className="font-money text-dmk-warning">{pendingCount}</span> at the verification team</span>
                 {openPayable > 0.009 && (
                   <span><span className="font-money text-dmk-blue">{formatINR(openPayable)}</span> open payable — hover a row to <span className="text-dmk-info font-semibold">Pay</span></span>
                 )}
-                <span className="hidden sm:inline">GRN posts: stock IN · payable Cr · PURCHASE journal</span>
+                <span className="hidden sm:inline">Acceptance posts: stock IN · payable Cr · PURCHASE journal</span>
               </>
             }
           >
@@ -314,7 +314,7 @@ export default function PurchaseOrdersView() {
               <EmptyState
                 icon={ClipboardList}
                 title="No purchase orders"
-                hint="Create a PO to a manufacturer or distributor — receive it via GRN to book stock and payable."
+                hint="Create a PO to a manufacturer or distributor — the verification team counts the delivery, then you accept it to book stock and payable."
               />
             ) : (
               list.map((po) => {
@@ -372,8 +372,15 @@ export default function PurchaseOrdersView() {
                         )}
                         {po.status === "PENDING" && (
                           <>
-                            <Button size="sm" className="h-7 px-2.5 text-[11px] bg-dmk-success text-white hover:bg-dmk-success/90" onClick={() => setGrnOf(po)}>
-                              <PackageCheck className="h-3 w-3" /> Receive (GRN)
+                            <Button
+                              size="sm"
+                              className="h-7 px-2.5 text-[11px] bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-semibold"
+                              onClick={() => {
+                                setView("purchase/verification");
+                                toast({ title: `${po.poNumber} is in verification`, description: "The team portal counts sellable vs damaged — you accept the counts to book stock & payable." });
+                              }}
+                            >
+                              <PackageSearch className="h-3 w-3" /> Verify
                             </Button>
                             <Button size="sm" variant="outline" className="h-7 w-7 p-0 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setEditOf(po)} aria-label={`Edit ${po.poNumber}`}>
                               <Pencil className="h-3 w-3" />
@@ -400,8 +407,8 @@ export default function PurchaseOrdersView() {
           <>
             <div className="grid grid-cols-2 gap-3">
               <KpiCard label="PO value" value={formatINR(totalValue)} sub={`${list.length} orders listed`} icon={IndianRupee} tone="orange" />
-              <KpiCard label="Awaiting receipt" value={String(pendingCount)} sub={`${formatINR(pendingValue)} pending`} icon={Timer} tone={pendingCount > 0 ? "gold" : "success"} />
-              <KpiCard label="Confirmed value" value={formatINR(confirmedValue)} sub="booked via GRN" icon={PackageCheck} tone="success" />
+              <KpiCard label="In verification" value={String(pendingCount)} sub={`${formatINR(pendingValue)} awaiting counts`} icon={Timer} tone={pendingCount > 0 ? "gold" : "success"} />
+              <KpiCard label="Confirmed value" value={formatINR(confirmedValue)} sub="booked on acceptance" icon={PackageCheck} tone="success" />
               <KpiCard label="Open payable" value={formatINR(openPayable)} sub="owed to vendors" icon={Truck} tone="blue" />
             </div>
 
@@ -416,7 +423,7 @@ export default function PurchaseOrdersView() {
                       label={<><StatusBadge status={x.st} /> <span className="text-dmk-text-muted">· {x.count}</span></>}
                       value={formatINR(x.value)}
                       pct={(x.count / denom) * 100}
-                      barClass={statusBar[x.st] ?? "bg-dmk-orange"}
+                      barClass={statusBar[x.st] ?? "bg-dmk-yellow"}
                     />
                   ))
                 )}
@@ -426,7 +433,7 @@ export default function PurchaseOrdersView() {
             <AsideCard
               title="Top vendors"
               icon={Truck}
-              iconClass="text-dmk-orange"
+              iconClass="text-dmk-yellow"
               footnote="Manufacturers are brand-scoped (R10) — their POs only list that brand's products."
             >
               <div className="space-y-2.5">
@@ -439,7 +446,7 @@ export default function PurchaseOrdersView() {
                       label={<>{v.name} <span className="text-dmk-text-muted">· {v.count} PO</span></>}
                       value={formatINR(v.value)}
                       pct={(v.value / topVendorMax) * 100}
-                      barClass="bg-dmk-orange"
+                      barClass="bg-dmk-yellow"
                     />
                   ))
                 )}
@@ -461,7 +468,6 @@ export default function PurchaseOrdersView() {
         onSaved={() => setRefresh((r) => r + 1)}
       />
 
-      <GrnDialog po={grnOf} onClose={() => setGrnOf(null)} onConfirmed={() => setRefresh((r) => r + 1)} />
 
       <ViewPoDialog po={viewOf} onClose={() => setViewOf(null)} />
 
@@ -654,7 +660,7 @@ function PoFormDialog({
           vendorBillDate: vendorBillDate || null,
           items: body.items,
         });
-        toast({ title: `PO ${created.poNumber} created`, description: "Status PENDING — receive it via GRN to book stock." });
+        toast({ title: `PO ${created.poNumber} created`, description: "Sent to the verification team portal — stock & payable book when you accept their counts." });
       }
       onSaved();
       onOpenChange(false);
@@ -684,7 +690,7 @@ function PoFormDialog({
           <DialogDescription className="text-dmk-text-muted">
             {editing
               ? "Only PENDING orders can be edited — items are replaced and totals re-computed."
-              : "Draft a PENDING order — nothing is booked until you receive it via GRN."}
+              : "Draft a PENDING order — it goes to the verification team portal; nothing is booked until you accept their counts."}
           </DialogDescription>
         </DialogHeader>
 
@@ -898,7 +904,7 @@ function PoFormDialog({
               )}
               <div className="flex justify-between text-[13.5px] font-semibold text-dmk-text-primary pt-1 border-t border-dmk-border-subtle">
                 <span>Grand Total</span>
-                <Money value={grand} className="text-dmk-orange text-[15px]" />
+                <Money value={grand} className="text-dmk-yellow text-[15px]" />
               </div>
             </div>
           )}
@@ -912,7 +918,7 @@ function PoFormDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+          <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {editing ? "Save changes" : "Create PO"}
           </Button>
         </DialogFooter>
@@ -922,247 +928,12 @@ function PoFormDialog({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// GRN (Receive) dialog — the money moment
+// GRN receive moved to the PO VERIFICATION flow (owner portal →
+// Purchase → PO Verification): the team counts sellable vs damaged
+// on their portal; the owner's acceptance runs the same GRN
+// pipeline (stock IN + damaged quarantine + payable + PURCHASE
+// journal). PENDING rows here link straight to that cockpit.
 // ═══════════════════════════════════════════════════════════════
-interface GrnLine {
-  itemId: string;
-  sku: string;
-  name: string;
-  ordered: number;
-  received: number;
-  accepted: number;
-  damaged: number;
-}
-
-function GrnDialog({
-  po,
-  onClose,
-  onConfirmed,
-}: {
-  po: PoRow | null;
-  onClose: () => void;
-  onConfirmed: () => void;
-}) {
-  const { toast } = useToast();
-  const [lines, setLines] = React.useState<GrnLine[]>([]);
-  const [receivedDate, setReceivedDate] = React.useState(toISODate(new Date()));
-  const [billNo, setBillNo] = React.useState("");
-  const [billDate, setBillDate] = React.useState("");
-  const [note, setNote] = React.useState("");
-  const [saving, setSaving] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!po) return;
-    setLines(
-      po.items.map((it) => ({
-        itemId: it.id,
-        sku: it.sku,
-        name: it.productName,
-        ordered: it.quantity,
-        received: it.quantity,
-        accepted: it.quantity,
-        damaged: 0,
-      }))
-    );
-    setReceivedDate(toISODate(new Date()));
-    setBillNo(po.vendorBillNo ?? "");
-    setBillDate(po.vendorBillDate ? toISODate(po.vendorBillDate) : "");
-    setNote("");
-  }, [po]);
-
-  function setReceived(i: number, v: number) {
-    setLines((ls) =>
-      ls.map((l, idx) => {
-        if (idx !== i) return l;
-        const received = Math.max(0, round2(v));
-        const accepted = Math.min(l.accepted, received);
-        return { ...l, received, accepted, damaged: round2(received - accepted) };
-      })
-    );
-  }
-
-  function setAccepted(i: number, v: number) {
-    setLines((ls) =>
-      ls.map((l, idx) => {
-        if (idx !== i) return l;
-        const accepted = Math.min(Math.max(0, round2(v)), l.received);
-        return { ...l, accepted, damaged: round2(l.received - accepted) };
-      })
-    );
-  }
-
-  function setDamaged(i: number, v: number) {
-    setLines((ls) =>
-      ls.map((l, idx) => {
-        if (idx !== i) return l;
-        const damaged = Math.min(Math.max(0, round2(v)), round2(l.received - l.accepted));
-        return { ...l, damaged };
-      })
-    );
-  }
-
-  const totalAccepted = round2(lines.reduce((s, l) => s + l.accepted, 0));
-  const totalDamaged = round2(lines.reduce((s, l) => s + l.damaged, 0));
-  const anyShort = lines.some((l) => l.received < l.ordered);
-  const allValid = lines.every(
-    (l) => l.accepted >= 0 && l.damaged >= 0 && l.damaged <= round2(l.received - l.accepted) + 0.001
-  );
-
-  async function confirm() {
-    if (!po || !allValid) return;
-    setSaving(true);
-    try {
-      await apiPost<{ po: PoRow; journal: unknown }>(`/api/v1/purchase-orders/${po.id}/confirm`, {
-        received: lines.map((l) => ({ itemId: l.itemId, acceptedQty: l.accepted, damagedQty: l.damaged })),
-        receivedDate,
-        note: note.trim(),
-        vendorBillNo: billNo.trim(),
-        vendorBillDate: billDate || null,
-      });
-      toast({
-        title: `GRN confirmed — ${po.poNumber}`,
-        description: billNo.trim()
-          ? `Stock updated · Vendor payable increased · Journal posted · Bill ${billNo.trim()} recorded`
-          : "Stock updated · Vendor payable increased · Journal posted",
-      });
-      onConfirmed();
-      onClose();
-    } catch (e) {
-      toast({
-        variant: "destructive",
-        title: "GRN failed",
-        description: e instanceof ApiError ? e.message : "Could not confirm receipt.",
-      });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Dialog open={!!po} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto sm:w-[820px]">
-        <DialogHeader>
-          <DialogTitle className="text-dmk-text-primary flex items-center gap-2">
-            <PackageCheck className="h-5 w-5 text-dmk-success" /> Goods Receipt Note — {po?.poNumber}
-          </DialogTitle>
-          <DialogDescription className="text-dmk-text-muted">
-            {po?.vendor?.vendorName} · Order value <span className="font-money">{formatINR(po?.grandTotal ?? 0)}</span> —
-            Accepted qty → sellable stock · Damaged qty → quarantine pool
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="dmk-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="dmk-table min-w-[780px]">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th className="text-right">Ordered</th>
-                  <th className="text-right w-[104px]">Received</th>
-                  <th className="text-right w-[104px]">Accepted</th>
-                  <th className="text-right w-[104px]">Damaged</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((l, i) => {
-                  const short = l.received < l.ordered;
-                  return (
-                    <tr key={l.itemId}>
-                      <td className="max-w-[240px]">
-                        <span className="font-money text-[10.5px] text-dmk-text-muted mr-1.5">{l.sku}</span>
-                        <span className="text-[12.5px]">{l.name}</span>
-                        {short && (
-                          <span className="ml-2 text-[10.5px] text-dmk-warning">short by {round2(l.ordered - l.received)}</span>
-                        )}
-                      </td>
-                      <td className="num text-[12.5px] text-dmk-text-secondary">{l.ordered}</td>
-                      <td>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={l.received}
-                          onChange={(e) => setReceived(i, num(e.target.value))}
-                          className={cn(inputCls, "h-8 text-right font-money")}
-                          aria-label={`Received quantity for ${l.name}`}
-                        />
-                      </td>
-                      <td>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={l.accepted}
-                          onChange={(e) => setAccepted(i, num(e.target.value))}
-                          className={cn(inputCls, "h-8 text-right font-money")}
-                          aria-label={`Accepted quantity for ${l.name}`}
-                        />
-                      </td>
-                      <td>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={l.damaged}
-                          onChange={(e) => setDamaged(i, num(e.target.value))}
-                          className={cn(
-                            inputCls,
-                            "h-8 text-right font-money",
-                            l.damaged > 0 && "border-dmk-warning/50"
-                          )}
-                          aria-label={`Damaged quantity for ${l.name}`}
-                        />
-                      </td>
-                      <td className="text-[10.5px] text-dmk-text-muted whitespace-nowrap">auto = recv − acc</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Received date">
-            <Input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)} className={inputCls} />
-          </Field>
-          <Field label="GRN note">
-            <Input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls} placeholder="Optional — vehicle no., remarks…" />
-          </Field>
-          <Field label="Vendor bill no." hint="From the supplier's invoice — powers GSTR-2B bill matching">
-            <Input value={billNo} onChange={(e) => setBillNo(e.target.value)} className={inputCls} placeholder="e.g. SB/26-27/4512" />
-          </Field>
-          <Field label="Vendor bill date">
-            <Input type="date" value={billDate} onChange={(e) => setBillDate(e.target.value)} className={inputCls} />
-          </Field>
-        </div>
-
-        <div className="dmk-well px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-[12px]">
-          <span className="text-dmk-text-muted">
-            Accepted <span className="font-money text-dmk-success">{totalAccepted}</span> · Damaged{" "}
-            <span className="font-money text-dmk-warning">{totalDamaged}</span>
-            {anyShort && <span className="text-dmk-warning"> · short receipt — balance stays open on the PO record</span>}
-          </span>
-          <span className="text-dmk-text-muted">
-            Vendor payable will increase by{" "}
-            <span className="font-money font-semibold text-dmk-info">{formatINR(po?.grandTotal ?? 0)}</span>
-          </span>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={saving || !allValid} className="bg-dmk-success text-white hover:bg-dmk-success/90">
-            {saving && <PackageCheck className="h-4 w-4 animate-pulse" />}
-            Confirm GRN & Post
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // ═══════════════════════════════════════════════════════════════
 // View PO detail dialog (CONFIRMED / CANCELLED)
@@ -1281,7 +1052,7 @@ function ViewPoDialog({ po, onClose }: { po: PoRow | null; onClose: () => void }
             </div>
             <div className="flex justify-between text-[13.5px] font-semibold text-dmk-text-primary pt-1 border-t border-dmk-border-subtle">
               <span>Grand Total</span>
-              <Money value={d?.grandTotal ?? 0} className="text-dmk-orange text-[15px]" />
+              <Money value={d?.grandTotal ?? 0} className="text-dmk-yellow text-[15px]" />
             </div>
           </div>
         </div>

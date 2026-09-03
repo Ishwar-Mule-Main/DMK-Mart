@@ -439,7 +439,7 @@ export default function ReportsView() {
               size="sm"
               onClick={exportCsv}
               disabled={!data || loading}
-              className="h-9 gap-2 bg-dmk-orange text-[12.5px] font-semibold text-white hover:bg-dmk-orange/85"
+              className="h-9 gap-2 bg-dmk-yellow text-[12.5px] font-semibold text-white hover:bg-dmk-yellow/85"
             >
               <Download className="h-3.5 w-3.5" /> Export CSV
             </Button>
@@ -460,7 +460,7 @@ export default function ReportsView() {
               className={cn(
                 "text-left rounded-[10px] border px-4 py-3.5 transition-all",
                 selected
-                  ? "border-dmk-orange/60 bg-dmk-hover shadow-[0_0_0_1px_rgba(255,107,0,0.35)]"
+                  ? "border-dmk-yellow/60 bg-dmk-hover shadow-[0_0_0_1px_rgba(255,107,0,0.35)]"
                   : "border-dmk-border-subtle bg-dmk-bg-secondary hover:bg-dmk-hover/60"
               )}
             >
@@ -468,10 +468,10 @@ export default function ReportsView() {
                 <span
                   className={cn(
                     "flex h-8 w-8 items-center justify-center rounded-lg border",
-                    selected ? "border-dmk-orange/40 bg-dmk-input-well" : "border-dmk-border-subtle bg-dmk-input-well"
+                    selected ? "border-dmk-yellow/40 bg-dmk-input-well" : "border-dmk-border-subtle bg-dmk-input-well"
                   )}
                 >
-                  <Icon className={cn("h-4 w-4", selected ? "text-dmk-orange" : "text-dmk-text-muted")} />
+                  <Icon className={cn("h-4 w-4", selected ? "text-dmk-yellow" : "text-dmk-text-muted")} />
                 </span>
                 <div className="min-w-0">
                   <p className={cn("text-[13px] font-semibold truncate", selected ? "text-dmk-text-primary" : "text-dmk-text-secondary")}>
@@ -969,9 +969,9 @@ function GstReport({ output, input, net }: { output: GstSide; input: GstSide; ne
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
             <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net GST Payable</span>
-            <Percent className="h-4 w-4 text-dmk-orange" />
+            <Percent className="h-4 w-4 text-dmk-yellow" />
           </div>
-          <span className={cn("font-money text-[20px] font-semibold block mt-2", netTotal >= 0 ? "text-dmk-orange" : "text-dmk-success")}>
+          <span className={cn("font-money text-[20px] font-semibold block mt-2", netTotal >= 0 ? "text-dmk-yellow" : "text-dmk-success")}>
             {formatINR(netTotal)}
           </span>
           <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
@@ -1001,7 +1001,7 @@ function GstReport({ output, input, net }: { output: GstSide; input: GstSide; ne
                   <td><Badge tone="neutral">{c.name}</Badge></td>
                   <td className="num text-right text-dmk-success">{formatINR(c.out)}</td>
                   <td className="num text-right text-dmk-info">{formatINR(c.in)}</td>
-                  <td className={cn("num text-right font-money font-semibold", c.net >= 0 ? "text-dmk-orange" : "text-dmk-success")}>
+                  <td className={cn("num text-right font-money font-semibold", c.net >= 0 ? "text-dmk-yellow" : "text-dmk-success")}>
                     {formatINR(c.net)}
                   </td>
                 </tr>
@@ -1014,7 +1014,7 @@ function GstReport({ output, input, net }: { output: GstSide; input: GstSide; ne
                 <td className="num text-right font-money font-bold text-dmk-info">
                   {formatINR(input.cgst + input.sgst + input.igst)}
                 </td>
-                <td className={cn("num text-right font-money font-bold", netTotal >= 0 ? "text-dmk-orange" : "text-dmk-success")}>
+                <td className={cn("num text-right font-money font-bold", netTotal >= 0 ? "text-dmk-yellow" : "text-dmk-success")}>
                   {formatINR(netTotal)}
                 </td>
               </tr>
@@ -1111,9 +1111,9 @@ function Gstr1Report({
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
             <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Total Output Tax</span>
-            <Percent className="h-4 w-4 text-dmk-orange" />
+            <Percent className="h-4 w-4 text-dmk-yellow" />
           </div>
-          <span className="font-money text-[20px] font-semibold text-dmk-orange block mt-2">{formatINR(totals.totalTax)}</span>
+          <span className="font-money text-[20px] font-semibold text-dmk-yellow block mt-2">{formatINR(totals.totalTax)}</span>
           <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
             CGST {formatINR(totals.totalCgst)} · SGST {formatINR(totals.totalSgst)} · IGST {formatINR(totals.totalIgst)}
           </span>
@@ -1202,7 +1202,7 @@ function Gstr1Report({
                     <td className="num text-right text-dmk-text-secondary">{r.cgst ? formatINR(r.cgst) : "—"}</td>
                     <td className="num text-right text-dmk-text-secondary">{r.sgst ? formatINR(r.sgst) : "—"}</td>
                     <td className="num text-right text-dmk-text-secondary">{r.igst ? formatINR(r.igst) : "—"}</td>
-                    <td className="num text-right font-money font-semibold text-dmk-orange">
+                    <td className="num text-right font-money font-semibold text-dmk-yellow">
                       {formatINR(r.cgst + r.sgst + r.igst)}
                     </td>
                   </tr>
@@ -1216,7 +1216,7 @@ function Gstr1Report({
                   <td className="num text-right font-money font-bold">{formatINR(totals.totalCgst)}</td>
                   <td className="num text-right font-money font-bold">{formatINR(totals.totalSgst)}</td>
                   <td className="num text-right font-money font-bold">{formatINR(totals.totalIgst)}</td>
-                  <td className="num text-right font-money font-bold text-dmk-orange">{formatINR(totals.totalTax)}</td>
+                  <td className="num text-right font-money font-bold text-dmk-yellow">{formatINR(totals.totalTax)}</td>
                 </tr>
               </tfoot>
             </table>

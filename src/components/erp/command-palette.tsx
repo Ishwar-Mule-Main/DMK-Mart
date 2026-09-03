@@ -174,7 +174,7 @@ export function CommandPalette() {
               const Icon = a.icon;
               return (
                 <CommandItem key={a.id} value={`action-${a.label}`} onSelect={() => go(a.view)} className="gap-2.5">
-                  <Icon className="h-4 w-4 text-dmk-orange" strokeWidth={1.75} />
+                  <Icon className="h-4 w-4 text-dmk-yellow" strokeWidth={1.75} />
                   <span className="text-[13px] font-medium">{a.label}</span>
                   <span className="ml-auto text-[10.5px] text-dmk-text-muted">{a.hint}</span>
                 </CommandItem>
@@ -220,7 +220,7 @@ export function CommandPalette() {
                 <span className="text-[12.5px] truncate text-dmk-text-secondary">
                   {inv.isCounterSale ? inv.walkInName || "Counter" : inv.customer?.partyName || "—"}
                 </span>
-                <span className="ml-auto font-money text-[11.5px] text-dmk-orange">{formatINR(inv.grandTotal)}</span>
+                <span className="ml-auto font-money text-[11.5px] text-dmk-yellow">{formatINR(inv.grandTotal)}</span>
               </CommandItem>
             ))}
           </CommandGroup>

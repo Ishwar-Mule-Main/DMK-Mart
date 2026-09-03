@@ -210,7 +210,7 @@ function CreditNotesTab() {
               </div>
               <div className="flex justify-between items-center dmk-well px-3 py-2.5">
                 <span className="text-[12px] text-dmk-text-muted">Taxable {formatINR(Number(view.subtotal))} + Tax {formatINR(Number(view.totalTax))}</span>
-                <span className="font-money text-[16px] text-dmk-orange">{formatINR(Number(view.grandTotal))}</span>
+                <span className="font-money text-[16px] text-dmk-yellow">{formatINR(Number(view.grandTotal))}</span>
               </div>
               {view.notes && <p className="text-[12px] text-dmk-text-muted px-1">{view.notes}</p>}
             </div>

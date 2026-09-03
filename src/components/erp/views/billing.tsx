@@ -349,7 +349,7 @@ export default function BillingView() {
                   </div>
                   <div>
                     <p className="text-[10px] uppercase tracking-wider text-dmk-text-muted">Outstanding</p>
-                    <p className={cn("font-money text-[13px]", Number(customer.closingBalance) > 0.005 ? "text-dmk-orange" : "text-dmk-success")}>
+                    <p className={cn("font-money text-[13px]", Number(customer.closingBalance) > 0.005 ? "text-dmk-yellow" : "text-dmk-success")}>
                       {Number(customer.closingBalance) > 0.005 ? `Dr ${formatINR(Number(customer.closingBalance))}` : "Clear"}
                     </p>
                   </div>
@@ -591,7 +591,7 @@ export default function BillingView() {
 
             <div className="border-t border-dmk-border-medium pt-3 flex items-end justify-between">
               <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">Grand Total</span>
-              <span className="font-money text-[28px] font-bold leading-none text-dmk-orange">{formatINR(totals.grand)}</span>
+              <span className="font-money text-[28px] font-bold leading-none text-dmk-yellow">{formatINR(totals.grand)}</span>
             </div>
             <p className="text-[11.5px] italic text-dmk-text-muted">{amountInWords(totals.grand)}</p>
 
@@ -621,7 +621,7 @@ export default function BillingView() {
             )}
 
             <Button
-              className="w-full h-11 text-[14px] font-semibold bg-dmk-orange text-white hover:bg-dmk-orange/90"
+              className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
               onClick={confirmSale}
               disabled={!customer || lines.length === 0 || submitting}
             >
@@ -665,7 +665,7 @@ export default function BillingView() {
               </div>
               <div className="flex justify-between border-t border-dmk-border-subtle pt-2">
                 <span className="text-dmk-text-muted">Grand total</span>
-                <span className="font-money text-[16px] text-dmk-orange">{formatINR(lastInvoice.grandTotal)}</span>
+                <span className="font-money text-[16px] text-dmk-yellow">{formatINR(lastInvoice.grandTotal)}</span>
               </div>
             </div>
           )}
@@ -680,7 +680,7 @@ export default function BillingView() {
             >
               <FileText className="h-4 w-4" /> View A4 document
             </Button>
-            <Button className="bg-dmk-orange text-white hover:bg-dmk-orange/90" onClick={() => setSuccessOpen(false)}>
+            <Button className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setSuccessOpen(false)}>
               New sale
             </Button>
           </DialogFooter>
@@ -814,7 +814,7 @@ function NewCustomerDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create customer
           </Button>
         </DialogFooter>

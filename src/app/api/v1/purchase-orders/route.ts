@@ -18,6 +18,7 @@ import {
 } from "@/app/api/v1/_lib/api";
 import { createPurchaseOrder } from "@/app/api/v1/_lib/po";
 import { settledTotalsByPo } from "@/app/api/v1/_lib/settlement-ap";
+import { createVerificationForPo, notifyRealtime } from "@/app/api/v1/_lib/verification";
 
 export async function GET(request: NextRequest) {
   try {
@@ -102,6 +103,15 @@ export async function POST(request: NextRequest) {
       items,
       invoicePrefix: firm.invoicePrefix,
       financialYear: firm.financialYear,
+    });
+
+    // Verification workflow: every raised PO lands on the verification
+    // team portal immediately (product names + ordered qty only).
+    await createVerificationForPo(po.id, firm.id);
+    await notifyRealtime(firm.id, "verify:update", {
+      kind: "po:created",
+      poNumber: po.poNumber,
+      verificationId: (await db.poVerification.findUnique({ where: { poId: po.id } }))?.id,
     });
 
     return ok(po, 201);

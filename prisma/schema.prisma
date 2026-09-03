@@ -32,9 +32,12 @@ model Firm {
   logoUrl        String?
   openingCash    Float    @default(0)
   openingBank    Float    @default(0)
+  ownerPassword  String   @default("1234") // owner portal login (hashed at register)
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  verificationStaff VerificationStaff[]
 
   products          Product[]
   customers         Customer[]
@@ -188,6 +191,7 @@ model PurchaseOrder {
   items           PurchaseOrderItem[]
   purchaseReturns PurchaseReturn[]
   paymentAllocations PaymentAllocation[]
+  verification    PoVerification?
 
   @@unique([firmId, poNumber])
   @@index([firmId, status])
@@ -600,4 +604,74 @@ model RecurringTemplateItem {
   manualDiscountPct Float? // null = auto (bulk tiers decide)
 
   @@index([templateId])
+}
+
+// ─── PO VERIFICATION SYSTEM (owner ↔ verification-team portal) ────
+// Flow: owner raises PO → verification request is auto-created for the
+// team portal → vendor delivers goods → team counts actual SELLABLE and
+// DAMAGED qty per line (product name + ordered qty only — no money) →
+// owner reviews the submission → owner accepts → the GRN pipeline books
+// stock + vendor payable + PURCHASE journal (Finance & Accounting).
+
+model VerificationStaff {
+  id           String   @id @default(cuid())
+  firmId       String
+  firm         Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  name         String
+  username     String
+  passwordHash String // sha256 hex — created & managed from the owner portal
+  phone        String   @default("")
+  role         String   @default("VERIFIER") // VERIFIER | SUPERVISOR
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  verifications PoVerification[]
+
+  submissions   PoVerification[] @relation("SubmittedBy")
+
+  @@unique([firmId, username])
+  @@index([firmId, isActive])
+}
+
+model PoVerification {
+  id            String   @id @default(cuid())
+  firmId        String
+  poId          String   @unique
+  po            PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  status        String   @default("AWAITING_VERIFICATION")
+  // AWAITING_VERIFICATION → SUBMITTED → OWNER_ACCEPTED | back to AWAITING_VERIFICATION (owner sends back)
+  assignedToId  String?
+  assignedTo    VerificationStaff? @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+  submittedById String?
+  submittedBy   VerificationStaff? @relation("SubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+  submittedAt   DateTime?
+  submittedNote String   @default("")
+  acceptedAt    DateTime?
+  acceptedNote  String   @default("")
+  acceptedValue Float    @default(0) // PO value booked to Finance at acceptance
+  returnReason  String   @default("") // owner sends-back reason (visible to team)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  items PoVerificationItem[]
+
+  @@index([firmId, status])
+}
+
+model PoVerificationItem {
+  id             String  @id @default(cuid())
+  verificationId String
+  verification   PoVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  poItemId       String
+  productId      String
+  sku            String  @default("")
+  productName    String  @default("")
+  unit           String  @default("Pcs")
+  orderedQty     Float
+  sellableQty    Float? // team input: actual sellable products
+  damagedQty     Float? // team input: damaged products
+  remark         String  @default("")
+
+  @@index([verificationId])
 }

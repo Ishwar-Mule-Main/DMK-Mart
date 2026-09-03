@@ -52,7 +52,10 @@
   --color-dmk-border-medium: var(--border-medium);
   --color-dmk-blue: var(--accent-blue);
   --color-dmk-gold: var(--accent-gold);
-  --color-dmk-orange: var(--accent-orange);
+  /* Brand yellow replaced orange everywhere; dmk-orange kept as a
+     legacy alias so no usage can ever render orange again. */
+  --color-dmk-yellow: var(--accent-yellow);
+  --color-dmk-orange: var(--accent-yellow);
   --color-dmk-text-primary: var(--text-primary);
   --color-dmk-text-secondary: var(--text-secondary);
   --color-dmk-text-muted: var(--text-muted);
@@ -79,7 +82,7 @@
   /* Brand & Action Accents */
   --accent-blue: #2563eb;
   --accent-gold: #ffcc00;
-  --accent-orange: #ff6b00;
+  --accent-yellow: #ffc300; /* DMK brand yellow — replaces orange */
   /* Text */
   --text-primary: #e8eef9;
   --text-secondary: #a7b4cc;
@@ -87,12 +90,12 @@
   --text-disabled: #45516b;
   /* Semantic Status */
   --dmk-success: #22c55e;
-  --dmk-warning: #f59e0b;
+  --dmk-warning: #eab308;
   --dmk-danger: #ef4444;
   --dmk-info: #38bdf8;
   /* Chart palette */
   --chart-1: #2563eb;
-  --chart-2: #ff6b00;
+  --chart-2: #fbbf24;
   --chart-3: #ffcc00;
   --chart-4: #22c55e;
   --chart-5: #38bdf8;
@@ -228,10 +231,10 @@ body {
   white-space: nowrap;
 }
 .dmk-badge-success { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
-.dmk-badge-warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.dmk-badge-warning { background: rgba(234, 179, 8, 0.15); color: #eab308; }
 .dmk-badge-danger  { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
 .dmk-badge-info    { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
-.dmk-badge-dr      { background: rgba(255, 107, 0, 0.15); color: #ff6b00; }
+.dmk-badge-dr      { background: rgba(255, 195, 0, 0.15); color: #ffc300; }
 .dmk-badge-cr      { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
 .dmk-badge-neutral { background: rgba(107, 122, 153, 0.15); color: #a7b4cc; }
 .dmk-badge-gold    { background: rgba(255, 204, 0, 0.14); color: #ffcc00; }
@@ -266,7 +269,7 @@ body {
 /* Sidebar active rail */
 .dmk-nav-active {
   background: var(--bg-surface-hover);
-  box-shadow: inset 3px 0 0 var(--accent-orange);
+  box-shadow: inset 3px 0 0 var(--accent-yellow);
 }
 
 /* Print styles — A4 documents */
@@ -389,7 +392,7 @@ body {
 .dmk-kpi-clickable:hover::after {
   opacity: 1;
   transform: translateX(0);
-  color: var(--accent-orange);
+  color: var(--accent-yellow);
 }
 .dmk-kpi-clickable:focus-visible {
   outline: none;

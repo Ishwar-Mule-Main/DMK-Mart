@@ -203,7 +203,7 @@ export default function ChartOfAccountsView() {
                     </span>
                     <span className="flex items-center gap-3 text-[11.5px] shrink-0">
                       <span className="text-dmk-text-muted">{rows.length} accts</span>
-                      <span className="font-money text-dmk-orange hidden md:inline">Dr {formatINR(classDr)}</span>
+                      <span className="font-money text-dmk-yellow hidden md:inline">Dr {formatINR(classDr)}</span>
                       <span className="font-money text-dmk-info hidden md:inline">Cr {formatINR(classCr)}</span>
                     </span>
                   </button>
@@ -235,7 +235,7 @@ export default function ChartOfAccountsView() {
                                   </td>
                                   <td className="num text-right">
                                     {hasDr ? (
-                                      <span className="font-money text-dmk-orange">{formatINR(r.debit)} Dr</span>
+                                      <span className="font-money text-dmk-yellow">{formatINR(r.debit)} Dr</span>
                                     ) : hasCr ? (
                                       <span className="font-money text-dmk-info">{formatINR(r.credit)} Cr</span>
                                     ) : (

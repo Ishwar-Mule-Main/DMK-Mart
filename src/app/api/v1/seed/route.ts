@@ -103,8 +103,23 @@ export async function POST(_request: NextRequest) {
         ifsc: "HDFC0001234",
         financialYear: "2025-26",
         invoicePrefix: "DMK",
+        logoUrl: "/dmk-logo.png",
         openingCash: 150000,
         openingBank: 850000,
+      },
+    });
+
+    // Verification team — one demo account so the team portal is
+    // reachable immediately (owner manages/creates the rest from the
+    // owner portal → Purchase → PO Verification → Team).
+    await db.verificationStaff.create({
+      data: {
+        firmId: firm.id,
+        name: "Ravi Kulkarni",
+        username: "ravi",
+        passwordHash: "1234", // plain seed credential — verified by legacy path
+        phone: "+91 98220 55501",
+        role: "VERIFIER",
       },
     });
 
@@ -436,6 +451,7 @@ export async function POST(_request: NextRequest) {
       vendors: vendorSeed.length,
       invoices: 5,
       purchaseOrders: 2,
+      verificationStaff: 1,
     });
   } catch (e) {
     return handleApiError(e);

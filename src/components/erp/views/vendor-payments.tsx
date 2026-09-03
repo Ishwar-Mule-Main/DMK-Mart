@@ -251,7 +251,7 @@ export default function VendorPaymentsView() {
         actions={
           <Button
             size="sm"
-            className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90"
+            className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
             onClick={() => setPayOpen(true)}
           >
             <Plus className="h-4 w-4" /> Record Payment
@@ -800,7 +800,7 @@ function RecordPaymentDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!canSave || saving || overAllocated} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+          <Button onClick={submit} disabled={!canSave || saving || overAllocated} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             Record payment
           </Button>

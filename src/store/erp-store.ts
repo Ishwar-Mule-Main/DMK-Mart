@@ -19,6 +19,7 @@ export type ViewId =
   | "sales/receipts"
   | "sales/recurring"
   | "purchase/orders"
+  | "purchase/verification"
   | "purchase/returns"
   | "purchase/vendors"
   | "purchase/payments"
@@ -40,6 +41,16 @@ export type ViewId =
   | "ai"
   | "settings";
 
+// Signed-in persona. OWNER → full ERP shell; TEAM → verification portal.
+export interface ErpSession {
+  role: "OWNER" | "TEAM";
+  firmId: string;
+  firmName: string;
+  staffId?: string;
+  staffName?: string;
+  staffUsername?: string;
+}
+
 interface ErpState {
   firms: Firm[];
   activeFirmId: string | null;
@@ -47,12 +58,15 @@ interface ErpState {
   view: ViewId;
   sidebarOpen: boolean;
   notifications: number;
+  session: ErpSession | null;
   setFirms: (firms: Firm[]) => void;
   setActiveFirm: (id: string) => void;
   setFinancialYear: (fy: string) => void;
   setView: (v: ViewId) => void;
   setSidebarOpen: (open: boolean) => void;
   setNotifications: (n: number) => void;
+  setSession: (s: ErpSession | null) => void;
+  logout: () => void;
 }
 
 export const useErpStore = create<ErpState>()(
@@ -64,6 +78,9 @@ export const useErpStore = create<ErpState>()(
       view: "dashboard",
       sidebarOpen: true,
       notifications: 0,
+      session: null,
+      setSession: (session) => set({ session }),
+      logout: () => set({ session: null, view: "dashboard" }),
       setFirms: (firms) => {
         set({ firms });
         const current = get().activeFirmId;
@@ -90,6 +107,7 @@ export const useErpStore = create<ErpState>()(
         financialYear: s.financialYear,
         view: s.view,
         sidebarOpen: s.sidebarOpen,
+        session: s.session,
       }),
     }
   )

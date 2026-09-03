@@ -231,7 +231,7 @@ export default function JournalsView() {
               size="sm"
               onClick={() => setDialogOpen(true)}
               disabled={!activeFirmId}
-              className="h-9 gap-2 bg-dmk-orange text-[12.5px] font-semibold text-white hover:bg-dmk-orange/85"
+              className="h-9 gap-2 bg-dmk-yellow text-[12.5px] font-semibold text-white hover:bg-dmk-yellow/85"
             >
               <Plus className="h-4 w-4" /> New Journal
             </Button>
@@ -294,7 +294,7 @@ export default function JournalsView() {
             <Button
               size="sm"
               onClick={() => setDialogOpen(true)}
-              className="h-9 gap-2 bg-dmk-orange text-white hover:bg-dmk-orange/85"
+              className="h-9 gap-2 bg-dmk-yellow text-white hover:bg-dmk-yellow/85"
             >
               <Plus className="h-4 w-4" /> New Journal
             </Button>
@@ -341,7 +341,7 @@ export default function JournalsView() {
                         {j.narration || "—"}
                       </span>
                     </td>
-                    <td className="num text-right text-dmk-orange font-semibold">
+                    <td className="num text-right text-dmk-yellow font-semibold">
                       {formatINR(j.totalDebit)}
                     </td>
                     <td className="num text-right text-dmk-info font-semibold">
@@ -376,7 +376,7 @@ export default function JournalsView() {
                                     <td className="text-dmk-text-muted text-[12px] max-w-[260px]">
                                       <span className="block truncate">{l.narration || "—"}</span>
                                     </td>
-                                    <td className="num text-right text-dmk-orange">
+                                    <td className="num text-right text-dmk-yellow">
                                       {l.debitAmount ? formatINR(l.debitAmount) : "—"}
                                     </td>
                                     <td className="num text-right text-dmk-info">
@@ -388,7 +388,7 @@ export default function JournalsView() {
                                   <td colSpan={2} className="text-right font-semibold text-dmk-text-secondary">
                                     Voucher Total
                                   </td>
-                                  <td className="num text-right text-dmk-orange font-bold">
+                                  <td className="num text-right text-dmk-yellow font-bold">
                                     {formatINR(j.totalDebit)}
                                   </td>
                                   <td className="num text-right text-dmk-info font-bold">
@@ -543,7 +543,7 @@ function NewJournalDialog({
       <DialogContent className="bg-dmk-bg-secondary border-dmk-border-medium max-h-[90vh] overflow-y-auto sm:w-[680px]">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary flex items-center gap-2">
-            <Scale className="h-4 w-4 text-dmk-orange" /> New Manual Voucher
+            <Scale className="h-4 w-4 text-dmk-yellow" /> New Manual Voucher
           </DialogTitle>
           <DialogDescription className="text-dmk-text-muted text-[12px]">
             Manual entries accept JOURNAL (adjustments) and CONTRA (cash ⇄ bank) only.
@@ -618,7 +618,7 @@ function NewJournalDialog({
               >
                 <div className="flex items-center gap-1.5">
                   <RadioGroupItem value="DEBIT" id={`side-${idx}-dr`} className="border-dmk-border-medium" />
-                  <Label htmlFor={`side-${idx}-dr`} className="text-[12px] text-dmk-orange cursor-pointer font-medium">Dr</Label>
+                  <Label htmlFor={`side-${idx}-dr`} className="text-[12px] text-dmk-yellow cursor-pointer font-medium">Dr</Label>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <RadioGroupItem value="CREDIT" id={`side-${idx}-cr`} className="border-dmk-border-medium" />
@@ -661,7 +661,7 @@ function NewJournalDialog({
         <div className="dmk-well p-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-4 text-[12.5px]">
             <span className="text-dmk-text-secondary">
-              Σ Dr <span className="font-money font-semibold text-dmk-orange">{formatINR(totalDebit)}</span>
+              Σ Dr <span className="font-money font-semibold text-dmk-yellow">{formatINR(totalDebit)}</span>
             </span>
             <span className="text-dmk-text-secondary">
               Σ Cr <span className="font-money font-semibold text-dmk-info">{formatINR(totalCredit)}</span>
@@ -689,7 +689,7 @@ function NewJournalDialog({
           <Button
             onClick={save}
             disabled={!balanced || saving}
-            className="h-9 gap-2 bg-dmk-orange text-white hover:bg-dmk-orange/85 disabled:opacity-40"
+            className="h-9 gap-2 bg-dmk-yellow text-white hover:bg-dmk-yellow/85 disabled:opacity-40"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Post Voucher

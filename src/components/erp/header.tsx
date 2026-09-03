@@ -25,6 +25,8 @@ import {
   FileWarning,
   CheckCircle2,
   PackageX,
+  ClipboardCheck,
+  LogOut,
 } from "lucide-react";
 import { useErpStore, type ViewId } from "@/store/erp-store";
 import { apiGet, apiPost } from "@/lib/api-client";
@@ -37,7 +39,7 @@ const FYS = ["2025-26", "2026-27", "2027-28"];
 
 interface NotificationItem {
   id: string;
-  kind: "stock" | "receivable" | "gst";
+  kind: "stock" | "receivable" | "gst" | "verification";
   title: string;
   detail: string;
   view: ViewId;
@@ -53,13 +55,14 @@ export function Header() {
   const [alerts, setAlerts] = React.useState<LowStockItem[]>([]);
   const [overdue, setOverdue] = React.useState<{ count: number; amount: number } | null>(null);
   const [gstRisk, setGstRisk] = React.useState<{ missingInBooks: number; netItcRisk: number } | null>(null);
+  const [verifyWaiting, setVerifyWaiting] = React.useState(0);
   const [bellOpen, setBellOpen] = React.useState(false);
 
   const refreshAlerts = React.useCallback(async () => {
     if (!activeFirmId) return;
-    // Cycle 17: the bell is now a real triage feed — stock + overdue
-    // receivables + GSTR-2B exceptions, fetched in parallel.
-    const [stockRes, agingRes, gstRes] = await Promise.allSettled([
+    // Cycle 23: the bell is a four-way triage feed — stock + overdue
+    // receivables + GSTR-2B exceptions + verification submissions.
+    const [stockRes, agingRes, gstRes, verifyRes] = await Promise.allSettled([
       apiGet<LowStockItem[]>("/api/v1/inventory/low-stock", { firmId: activeFirmId }),
       apiGet<{ totals?: { overdueInvoices?: number; overdue?: number } }>("/api/v1/ledger/aging-invoices", {
         firmId: activeFirmId,
@@ -68,12 +71,14 @@ export function Header() {
         firmId: activeFirmId,
         period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`,
       }),
+      apiGet<unknown[]>("/api/v1/verification", { firmId: activeFirmId, status: "SUBMITTED" }),
     ]);
     setAlerts(stockRes.status === "fulfilled" ? stockRes.value ?? [] : []);
     const t = agingRes.status === "fulfilled" ? agingRes.value?.totals : undefined;
     setOverdue({ count: t?.overdueInvoices ?? 0, amount: t?.overdue ?? 0 });
     const s = gstRes.status === "fulfilled" ? gstRes.value?.summary : undefined;
     setGstRisk({ missingInBooks: s?.missingInBooks ?? 0, netItcRisk: s?.netItcRisk ?? 0 });
+    setVerifyWaiting(verifyRes.status === "fulfilled" ? (verifyRes.value ?? []).length : 0);
   }, [activeFirmId]);
 
   React.useEffect(() => {
@@ -90,11 +95,22 @@ export function Header() {
   const openPalette = () => window.dispatchEvent(new Event("dmk:open-palette"));
 
   const gstExceptions = (gstRisk?.missingInBooks ?? 0) + ((gstRisk?.netItcRisk ?? 0) > 0.009 ? 1 : 0);
-  const notifCount = alerts.length + (overdue && overdue.count > 0 ? 1 : 0) + gstExceptions;
+  const notifCount =
+    alerts.length + (overdue && overdue.count > 0 ? 1 : 0) + gstExceptions + (verifyWaiting > 0 ? 1 : 0);
   const urgent = (overdue?.amount ?? 0) > 0.009 || (gstRisk?.netItcRisk ?? 0) > 0.009;
 
   const notifications = React.useMemo<NotificationItem[]>(() => {
     const items: NotificationItem[] = [];
+    if (verifyWaiting > 0) {
+      items.push({
+        id: "verify-submitted",
+        kind: "verification",
+        title: `${verifyWaiting} PO verification${verifyWaiting !== 1 ? "s" : ""} waiting on you`,
+        detail: "Team counted sellable vs damaged — accept to book stock & payable",
+        view: "purchase/verification",
+        severity: "info",
+      });
+    }
     if (overdue && overdue.count > 0) {
       items.push({
         id: "overdue-ar",
@@ -140,7 +156,7 @@ export function Header() {
       });
     }
     return items;
-  }, [alerts, overdue, gstRisk]);
+  }, [alerts, overdue, gstRisk, verifyWaiting]);
 
   function openNotification(n: NotificationItem) {
     if (n.agingTab) requestAgingTab(n.agingTab);
@@ -161,12 +177,10 @@ export function Header() {
 
         {/* Brand */}
         <div className="hidden md:flex items-center gap-2 pr-2">
-          <div className="h-8 w-8 rounded-lg bg-dmk-gold flex items-center justify-center">
-            <span className="text-[13px] font-black text-[#0A0F1D]">D</span>
-          </div>
+          <img src="/dmk-logo.png" alt="DMK Mart logo" width={32} height={32} className="rounded-full" />
           <div className="leading-tight">
             <p className="text-[13px] font-bold text-dmk-text-primary">DMK Mart</p>
-            <p className="text-[9.5px] uppercase tracking-widest text-dmk-text-muted">ERP Platform</p>
+            <p className="text-[9.5px] uppercase tracking-widest text-dmk-yellow">ERP Platform</p>
           </div>
         </div>
 
@@ -270,7 +284,7 @@ export function Header() {
             >
               <Bell className="h-[18px] w-[18px]" strokeWidth={1.75} />
               {notifCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 rounded-full bg-dmk-orange text-[9.5px] font-bold text-white flex items-center justify-center">
+                <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 rounded-full bg-dmk-yellow text-[9.5px] font-bold text-white flex items-center justify-center">
                   {notifCount > 9 ? "9+" : notifCount}
                 </span>
               )}
@@ -288,7 +302,7 @@ export function Header() {
                 <ShieldCheck className="h-3.5 w-3.5 text-dmk-warning" /> Action Center
               </p>
               {notifCount > 0 ? (
-                <span className="dmk-badge bg-dmk-orange/15 text-dmk-orange text-[9.5px] px-1.5 py-0.5">{notifCount}</span>
+                <span className="dmk-badge bg-dmk-yellow/15 text-dmk-yellow text-[9.5px] px-1.5 py-0.5">{notifCount}</span>
               ) : (
                 <span className="dmk-badge bg-dmk-success/15 text-dmk-success text-[9.5px] px-1.5 py-0.5">ALL CLEAR</span>
               )}
@@ -302,7 +316,14 @@ export function Header() {
             ) : (
               <div className="max-h-[320px] overflow-y-auto py-1">
                 {notifications.map((n) => {
-                  const Icon = n.kind === "stock" ? PackageX : n.kind === "receivable" ? Timer : FileWarning;
+                  const Icon =
+                    n.kind === "stock"
+                      ? PackageX
+                      : n.kind === "receivable"
+                        ? Timer
+                        : n.kind === "verification"
+                          ? ClipboardCheck
+                          : FileWarning;
                   const tone =
                     n.severity === "danger"
                       ? "text-dmk-danger"
@@ -344,10 +365,28 @@ export function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Owner */}
-        <div className="h-9 w-9 rounded-full bg-dmk-blue/20 border border-dmk-blue/40 flex items-center justify-center">
-          <CircleUser className="h-5 w-5 text-dmk-blue" strokeWidth={1.75} />
-        </div>
+        {/* Owner session */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="h-9 w-9 rounded-full bg-dmk-blue/20 border border-dmk-blue/40 flex items-center justify-center hover:bg-dmk-blue/30 transition-colors"
+              aria-label="Owner session menu"
+            >
+              <CircleUser className="h-5 w-5 text-dmk-blue" strokeWidth={1.75} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56 bg-dmk-bg-tertiary border-dmk-border-medium">
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-dmk-text-muted">
+              {firm?.firmName ?? "Owner"} · signed in
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onClick={() => useErpStore.getState().logout()}
+              className="gap-2 text-[13px] cursor-pointer text-dmk-danger"
+            >
+              <LogOut className="h-4 w-4" /> Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

@@ -182,7 +182,7 @@ export default function ReceiptsView() {
         subtitle="Collections against receivables — allocate to invoices for precise aging (R7)"
         icon={HandCoins}
         actions={
-          <Button size="sm" className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90" onClick={() => setNewOpen(true)}>
+          <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setNewOpen(true)}>
             <Plus className="h-4 w-4" /> Record Receipt
           </Button>
         }
@@ -572,7 +572,7 @@ function NewReceiptDialog({
           {selected && (
             <div className="dmk-well px-3 py-2.5 flex items-center justify-between text-[12.5px]">
               <span className="text-dmk-text-muted">Current outstanding</span>
-              <span className={cn("font-money font-semibold", outstanding > 0.005 ? "text-dmk-orange" : "text-dmk-success")}>
+              <span className={cn("font-money font-semibold", outstanding > 0.005 ? "text-dmk-yellow" : "text-dmk-success")}>
                 {outstanding > 0.005 ? `Dr ${formatINR(outstanding)}` : "Clear"}
               </span>
             </div>
@@ -698,7 +698,7 @@ function NewReceiptDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
-          <Button onClick={submit} disabled={saving || !customerId || overAllocated} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+          <Button onClick={submit} disabled={saving || !customerId || overAllocated} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Record receipt
           </Button>
         </DialogFooter>

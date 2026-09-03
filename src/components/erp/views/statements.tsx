@@ -188,7 +188,7 @@ function TrialBalanceTab() {
         {data && (
           <div className="flex items-center gap-4 text-[12.5px] pb-0.5">
             <span className="text-dmk-text-secondary">
-              Σ Dr <span className="font-money font-semibold text-dmk-orange">{formatINR(data.totalDebit)}</span>
+              Σ Dr <span className="font-money font-semibold text-dmk-yellow">{formatINR(data.totalDebit)}</span>
             </span>
             <span className="text-dmk-text-secondary">
               Σ Cr <span className="font-money font-semibold text-dmk-info">{formatINR(data.totalCredit)}</span>
@@ -235,13 +235,13 @@ function TrialBalanceTab() {
                       <td className="hidden sm:table-cell">
                         <Badge tone={CLASS_TONE[r.accountClass] ?? "neutral"}>{r.accountClass}</Badge>
                       </td>
-                      <td className="num text-right text-dmk-orange">{r.debit ? formatINR(r.debit) : "—"}</td>
+                      <td className="num text-right text-dmk-yellow">{r.debit ? formatINR(r.debit) : "—"}</td>
                       <td className="num text-right text-dmk-info">{r.credit ? formatINR(r.credit) : "—"}</td>
                     </tr>
                   ))}
                   <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
                     <td colSpan={3} className="font-bold text-dmk-text-primary">TOTAL</td>
-                    <td className="num text-right font-money font-bold text-dmk-orange">{formatINR(data.totalDebit)}</td>
+                    <td className="num text-right font-money font-bold text-dmk-yellow">{formatINR(data.totalDebit)}</td>
                     <td className="num text-right font-money font-bold text-dmk-info">{formatINR(data.totalCredit)}</td>
                   </tr>
                 </tbody>
@@ -298,7 +298,7 @@ function PnlRow({
       <span
         className={cn(
           "font-money tabular-nums text-[13px]",
-          tone === "orange" && "text-dmk-orange",
+          tone === "orange" && "text-dmk-yellow",
           tone === "info" && "text-dmk-info",
           tone === "success" && "text-dmk-success",
           tone === "danger" && "text-dmk-danger",
@@ -586,7 +586,7 @@ function BalanceSheetTab() {
         <>
           {/* Two-column responsive: stacks on mobile */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-            <BsSection title="Assets" rows={data.assets} total={data.totals.assets} tone="text-dmk-orange" />
+            <BsSection title="Assets" rows={data.assets} total={data.totals.assets} tone="text-dmk-yellow" />
             <div className="space-y-4">
               <BsSection title="Liabilities" rows={data.liabilities} total={data.totals.liabilities} tone="text-dmk-info" />
               <BsSection title="Equity" rows={data.equity} total={data.totals.equity} tone="text-dmk-success" />
@@ -595,7 +595,7 @@ function BalanceSheetTab() {
 
           <div className="dmk-well p-3 flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
             <span className="text-dmk-text-secondary">
-              Assets <span className="font-money font-semibold text-dmk-orange">{formatINR(data.totals.assets)}</span>
+              Assets <span className="font-money font-semibold text-dmk-yellow">{formatINR(data.totals.assets)}</span>
               <span className="mx-2 text-dmk-text-muted">=</span>
               Liabilities + Equity{" "}
               <span className="font-money font-semibold text-dmk-info">{formatINR(data.totals.equityPlusProfit)}</span>

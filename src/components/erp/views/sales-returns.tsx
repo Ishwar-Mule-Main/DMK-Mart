@@ -164,7 +164,7 @@ export default function SalesReturnsView() {
         subtitle="Customer returns → credit notes · goods quarantined to Damaged Stock (R4)"
         icon={RotateCcw}
         actions={
-          <Button size="sm" className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90" onClick={() => setNewOpen(true)}>
+          <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setNewOpen(true)}>
             <Plus className="h-4 w-4" /> New Return
           </Button>
         }
@@ -248,7 +248,7 @@ export default function SalesReturnsView() {
                       label={<Badge tone={defectTone(d)}>{d}</Badge>}
                       value={`${v.count} qty · ${formatINR(v.value)}`}
                       pct={(v.value / defectTotal) * 100}
-                      barClass={defectToneBar[d] ?? "bg-dmk-orange"}
+                      barClass={defectToneBar[d] ?? "bg-dmk-yellow"}
                     />
                   ))
                 )}
@@ -321,7 +321,7 @@ export default function SalesReturnsView() {
               </div>
               <div className="flex justify-between items-center dmk-well px-3 py-2.5">
                 <span className="text-[12px] text-dmk-text-muted">Subtotal {formatINR(Number(view.subtotal))} + Tax {formatINR(Number(view.totalTax))} =</span>
-                <span className="font-money text-[16px] text-dmk-orange">{formatINR(Number(view.grandTotal))}</span>
+                <span className="font-money text-[16px] text-dmk-yellow">{formatINR(Number(view.grandTotal))}</span>
               </div>
             </div>
           )}
@@ -610,13 +610,13 @@ function NewReturnDialog({
           </div>
           <div className="text-right">
             <span className="text-[11px] text-dmk-text-muted block">Preview total (taxable {formatINR(draftTotals.taxable)} + tax {formatINR(draftTotals.tax)})</span>
-            <span className="font-money text-[16px] text-dmk-orange">{formatINR(draftTotals.grand)}</span>
+            <span className="font-money text-[16px] text-dmk-yellow">{formatINR(draftTotals.grand)}</span>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
-          <Button onClick={submit} disabled={saving || items.length === 0} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+          <Button onClick={submit} disabled={saving || items.length === 0} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving ? "Posting…" : "Create credit note"}
           </Button>
         </DialogFooter>

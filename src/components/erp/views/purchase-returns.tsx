@@ -158,7 +158,7 @@ export default function PurchaseReturnsView() {
     Defective: "bg-dmk-danger",
     "Wrong Item": "bg-dmk-info",
     Expired: "bg-dmk-gold",
-    Other: "bg-dmk-orange",
+    Other: "bg-dmk-yellow",
   };
   const vendorAgg = new Map<string, { name: string; count: number; value: number }>();
   for (const r of list) {
@@ -179,7 +179,7 @@ export default function PurchaseReturnsView() {
         actions={
           <Button
             size="sm"
-            className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90"
+            className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
             onClick={() => setNewOpen(true)}
           >
             <Plus className="h-4 w-4" /> New Debit Note
@@ -269,7 +269,7 @@ export default function PurchaseReturnsView() {
                       label={<>{reason} <span className="text-dmk-text-muted">· {v.count} qty</span></>}
                       value={formatINR(v.value)}
                       pct={(v.value / reasonTotal) * 100}
-                      barClass={reasonBar[reason] ?? "bg-dmk-orange"}
+                      barClass={reasonBar[reason] ?? "bg-dmk-yellow"}
                     />
                   ))
                 )}
@@ -707,7 +707,7 @@ function NewDebitNoteDialog({
             )}
             <div className="flex justify-between text-[13.5px] font-semibold text-dmk-text-primary pt-1 border-t border-dmk-border-subtle">
               <span>Debit note total</span>
-              <Money value={grand} className="text-dmk-orange text-[15px]" />
+              <Money value={grand} className="text-dmk-yellow text-[15px]" />
             </div>
           </div>
         )}
@@ -716,7 +716,7 @@ function NewDebitNoteDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+          <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             Create debit note
           </Button>
@@ -791,7 +791,7 @@ function ViewReturnDialog({ row, onClose }: { row: PrRow | null; onClose: () => 
             </div>
             <div className="flex justify-between text-[13.5px] font-semibold text-dmk-text-primary pt-1 border-t border-dmk-border-subtle">
               <span>Debit note total</span>
-              <Money value={row?.grandTotal ?? 0} className="text-dmk-orange text-[15px]" />
+              <Money value={row?.grandTotal ?? 0} className="text-dmk-yellow text-[15px]" />
             </div>
           </div>
         </div>

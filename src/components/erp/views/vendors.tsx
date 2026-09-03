@@ -129,7 +129,7 @@ export default function VendorsView() {
         actions={
           <Button
             size="sm"
-            className="h-9 bg-dmk-orange text-white hover:bg-dmk-orange/90"
+            className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
             onClick={() => {
               setEditing(null);
               setFormOpen(true);
@@ -510,7 +510,7 @@ function VendorFormDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving} className="bg-dmk-orange text-white hover:bg-dmk-orange/90">
+          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             {editing ? "Save changes" : "Create vendor"}
           </Button>
@@ -588,7 +588,7 @@ function VendorLedgerDialog({ vendor, onClose }: { vendor: Vendor | null; onClos
                     <td><StatusBadge status={r.voucherType} /></td>
                     <td className="font-money text-[11px] text-dmk-text-secondary">{r.voucherNo || "—"}</td>
                     <td className="max-w-[220px] truncate text-[11.5px] text-dmk-text-secondary">{r.particulars || "—"}</td>
-                    <td className="num text-[12px] text-dmk-orange">{Number(r.debitAmount) > 0 ? formatINR(Number(r.debitAmount)) : "—"}</td>
+                    <td className="num text-[12px] text-dmk-yellow">{Number(r.debitAmount) > 0 ? formatINR(Number(r.debitAmount)) : "—"}</td>
                     <td className="num text-[12px] text-dmk-info">{Number(r.creditAmount) > 0 ? formatINR(Number(r.creditAmount)) : "—"}</td>
                     <td className="num text-[12px]">{formatINR(Number(r.balanceAfter))}</td>
                   </tr>

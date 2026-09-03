@@ -20,6 +20,11 @@ export const metadata: Metadata = {
   description:
     "AI-native ERP for Indian wholesale distribution: dual-stock inventory, real-time double-entry bookkeeping, GST-compliant invoicing, B2B credit control and B2C counter sales.",
   keywords: ["DMK Mart", "ERP", "GST", "Inventory", "Accounting", "Wholesale"],
+  icons: {
+    icon: "/dmk-logo.png",
+    shortcut: "/dmk-logo.png",
+    apple: "/dmk-logo.png",
+  },
 };
 
 export default function RootLayout({

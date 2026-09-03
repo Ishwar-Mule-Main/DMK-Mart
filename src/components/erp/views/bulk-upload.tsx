@@ -269,7 +269,7 @@ export default function BulkUploadView() {
           <div className="dmk-card p-5 space-y-3">
             <div className="flex items-center gap-2.5">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-dmk-input-well border border-dmk-border-subtle">
-                <Download className="h-4 w-4 text-dmk-orange" />
+                <Download className="h-4 w-4 text-dmk-yellow" />
               </div>
               <div>
                 <h2 className="text-[14px] font-semibold text-dmk-text-primary">1 · Get the template</h2>
