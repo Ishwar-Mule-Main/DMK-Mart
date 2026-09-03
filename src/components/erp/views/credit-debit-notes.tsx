@@ -168,7 +168,7 @@ function CreditNotesTab() {
       </div>
 
       <Dialog open={!!view} onOpenChange={(o) => !o && setView(null)}>
-        <DialogContent className="sm:max-w-xl dmk-elevated border-dmk-border-medium">
+        <DialogContent className="dmk-elevated border-dmk-border-medium">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-dmk-text-primary">
               <span className="font-money">{view?.creditNoteNo}</span>
@@ -301,7 +301,7 @@ function DebitNotesTab() {
       </div>
 
       <Dialog open={!!view} onOpenChange={(o) => !o && setView(null)}>
-        <DialogContent className="sm:max-w-xl dmk-elevated border-dmk-border-medium">
+        <DialogContent className="dmk-elevated border-dmk-border-medium">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-dmk-text-primary">
               <span className="font-money">{view?.debitNoteNo}</span>

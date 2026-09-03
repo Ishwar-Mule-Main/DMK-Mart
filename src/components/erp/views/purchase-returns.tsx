@@ -7,7 +7,18 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { AlertTriangle, FileWarning, Loader2, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import {
+  AlertTriangle,
+  FileWarning,
+  IndianRupee,
+  Loader2,
+  PackageX,
+  Plus,
+  RotateCcw,
+  Trash2,
+  Truck,
+  Undo2,
+} from "lucide-react";
 import { useErpStore, useActiveFirm } from "@/store/erp-store";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { formatINR, formatDate, toISODate } from "@/lib/format";
@@ -21,6 +32,12 @@ import {
   inputCls,
   ErrorText,
   Money,
+  SectionGrid,
+  RegisterCard,
+  RegisterRow,
+  AsideCard,
+  MixBar,
+  KpiCard,
 } from "@/components/erp/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,6 +136,40 @@ export default function PurchaseReturnsView() {
     };
   }, [activeFirmId, refresh, toast]);
 
+  // ── Masonry summary stats ───────────────────────────────────────
+  const list = rows ?? [];
+  const totalValue = list.reduce((s, r) => s + Number(r.grandTotal), 0);
+  const totalTax = list.reduce((s, r) => s + Number(r.totalTax), 0);
+  const totalItems = list.reduce((s, r) => s + r.items.length, 0);
+  const now = new Date();
+  const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const monthValue = list.filter((r) => r.returnDate.slice(0, 7) === monthPrefix).reduce((s, r) => s + Number(r.grandTotal), 0);
+  const reasonCounts = new Map<string, { count: number; value: number }>();
+  for (const r of list) {
+    for (const it of r.items) {
+      const cur = reasonCounts.get(it.reason) ?? { count: 0, value: 0 };
+      reasonCounts.set(it.reason, { count: cur.count + it.damagedQty, value: cur.value + Number(it.totalAmount) });
+    }
+  }
+  const reasonRows = [...reasonCounts.entries()].sort((a, b) => b[1].value - a[1].value);
+  const reasonTotal = Math.max(1, reasonRows.reduce((s, [, v]) => s + v.value, 0));
+  const reasonBar: Record<string, string> = {
+    "Transit Damage": "bg-dmk-warning",
+    Defective: "bg-dmk-danger",
+    "Wrong Item": "bg-dmk-info",
+    Expired: "bg-dmk-gold",
+    Other: "bg-dmk-orange",
+  };
+  const vendorAgg = new Map<string, { name: string; count: number; value: number }>();
+  for (const r of list) {
+    const name = r.vendor?.vendorName ?? "No vendor on file";
+    const key = r.vendorId ?? "NONE";
+    const cur = vendorAgg.get(key) ?? { name, count: 0, value: 0 };
+    vendorAgg.set(key, { name, count: cur.count + 1, value: cur.value + Number(r.grandTotal) });
+  }
+  const topVendors = [...vendorAgg.entries()].sort((a, b) => b[1].value - a[1].value).slice(0, 4);
+  const topVendorMax = Math.max(1, topVendors[0]?.[1].value ?? 1);
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -136,68 +187,120 @@ export default function PurchaseReturnsView() {
         }
       />
 
-      <div className="dmk-well px-4 py-3 flex items-start gap-2.5 text-[12px] text-dmk-text-secondary">
-        <AlertTriangle className="h-4 w-4 text-dmk-warning shrink-0 mt-0.5" />
-        <span>
-          Purchase returns reduce <span className="font-semibold text-dmk-warning">Damaged (quarantine) stock</span> and{" "}
-          <span className="font-semibold text-dmk-info">vendor payable</span>, and reverse Input Tax Credit. Sellable stock
-          is never touched (R3/R5).
-        </span>
-      </div>
+      <SectionGrid
+        list={
+          <RegisterCard
+            title="Debit notes"
+            icon={Undo2}
+            count={list.length}
+            countLabel="returns"
+            footer={
+              <>
+                <span><span className="font-money text-dmk-text-secondary">{formatINR(totalValue)}</span> returned value</span>
+                <span><span className="font-money text-dmk-info">{formatINR(totalTax)}</span> ITC reversed</span>
+                <span className="hidden sm:inline">damaged pool ↓ · payable ↓ · sellable untouched (R3/R5)</span>
+              </>
+            }
+          >
+            {rows === null ? (
+              <LoadingRows rows={6} />
+            ) : list.length === 0 ? (
+              <EmptyState
+                icon={RotateCcw}
+                title="No debit notes yet"
+                hint="Return damaged goods to a vendor — damaged stock and payable reduce together."
+              />
+            ) : (
+              list.map((r) => (
+                <RegisterRow key={r.id} onClick={() => setViewOf(r)}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-money text-[12px] text-dmk-text-primary shrink-0">{r.debitNoteNo}</span>
+                      <span className="text-[11px] text-dmk-text-muted shrink-0">{formatDate(r.returnDate)}</span>
+                      {r.poRef && <span className="font-money text-[10.5px] text-dmk-text-muted truncate" title={`Against PO ${r.poRef}`}>ref {r.poRef}</span>}
+                    </div>
+                    <Badge tone="dr">DEBIT NOTE</Badge>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="text-[12px] text-dmk-text-secondary truncate">
+                      {r.vendor?.vendorName ?? <span className="text-dmk-text-muted">No vendor on file</span>}
+                      <span className="text-dmk-text-muted"> · {r.items.length} item{r.items.length === 1 ? "" : "s"}</span>
+                    </span>
+                    <span className="flex items-baseline gap-2 shrink-0">
+                      <span className="text-[10.5px] text-dmk-text-muted hidden sm:inline">sub {formatINR(r.subtotal)} · tax {formatINR(r.totalTax)}</span>
+                      <span className="font-money text-[13px] font-semibold text-dmk-info">{formatINR(r.grandTotal)}</span>
+                    </span>
+                  </div>
+                </RegisterRow>
+              ))
+            )}
+          </RegisterCard>
+        }
+        aside={
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <KpiCard label="Debit notes" value={String(list.length)} sub={`${totalItems} line items`} icon={Undo2} />
+              <KpiCard label="Returned value" value={formatINR(totalValue)} sub={`${formatINR(monthValue)} this month`} icon={IndianRupee} tone="blue" />
+              <KpiCard label="ITC reversed" value={formatINR(totalTax)} sub="input tax credit adjusted" icon={FileWarning} tone="gold" />
+              <KpiCard label="This month" value={formatINR(monthValue)} sub="debit notes issued" icon={AlertTriangle} tone={monthValue > 0 ? "orange" : "default"} />
+            </div>
 
-      <div className="dmk-card overflow-hidden">
-        <div className="overflow-x-auto">
-          {rows === null ? (
-            <LoadingRows rows={6} />
-          ) : rows.length === 0 ? (
-            <EmptyState
-              icon={RotateCcw}
-              title="No debit notes yet"
-              hint="Return damaged goods to a vendor — damaged stock and payable reduce together."
-            />
-          ) : (
-            <table className="dmk-table min-w-[980px]">
-              <thead>
-                <tr>
-                  <th>Debit Note #</th>
-                  <th>Date</th>
-                  <th>Vendor</th>
-                  <th>Ref PO</th>
-                  <th className="text-right">Items</th>
-                  <th className="text-right">Subtotal</th>
-                  <th className="text-right">Tax</th>
-                  <th className="text-right">Total</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id}>
-                    <td className="font-money text-[12px] text-dmk-text-primary">{r.debitNoteNo}</td>
-                    <td className="text-[12.5px] text-dmk-text-secondary whitespace-nowrap">{formatDate(r.returnDate)}</td>
-                    <td className="text-[12.5px] max-w-[200px] truncate">{r.vendor?.vendorName ?? <span className="text-dmk-text-muted">—</span>}</td>
-                    <td className="font-money text-[11.5px] text-dmk-text-secondary">{r.poRef || "—"}</td>
-                    <td className="num text-[12.5px]">{r.items.length}</td>
-                    <td className="num text-[12.5px]">{formatINR(r.subtotal)}</td>
-                    <td className="num text-[12.5px] text-dmk-text-secondary">{formatINR(r.totalTax)}</td>
-                    <td className="num text-[13px] font-semibold">{formatINR(r.grandTotal)}</td>
-                    <td className="text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
-                        onClick={() => setViewOf(r)}
-                      >
-                        View
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
+            <AsideCard
+              title="Return policy"
+              icon={AlertTriangle}
+              iconClass="text-dmk-warning"
+              footnote="Quantities are drawn from the Damaged pool only — the server rejects returns larger than the available damaged stock."
+            >
+              <p className="text-[12px] text-dmk-text-secondary leading-relaxed">
+                A debit note reduces <span className="font-semibold text-dmk-warning">Damaged (quarantine) stock</span> and{' '}
+                <span className="font-semibold text-dmk-info">vendor payable</span>, and reverses Input Tax Credit. Sellable
+                stock is never touched (R3/R5).
+              </p>
+            </AsideCard>
+
+            <AsideCard title="Reason mix" icon={PackageX} iconClass="text-dmk-danger" footnote="Grouped by the reason recorded on each returned line.">
+              <div className="space-y-2.5">
+                {reasonRows.length === 0 ? (
+                  <p className="text-[12px] text-dmk-text-muted">No returns recorded yet.</p>
+                ) : (
+                  reasonRows.map(([reason, v]) => (
+                    <MixBar
+                      key={reason}
+                      label={<>{reason} <span className="text-dmk-text-muted">· {v.count} qty</span></>}
+                      value={formatINR(v.value)}
+                      pct={(v.value / reasonTotal) * 100}
+                      barClass={reasonBar[reason] ?? "bg-dmk-orange"}
+                    />
+                  ))
+                )}
+              </div>
+            </AsideCard>
+
+            <AsideCard
+              title="Vendor recovery"
+              icon={Truck}
+              iconClass="text-dmk-info"
+              footnote="Returned value by vendor — each debit note also reduces that vendor's payable balance."
+            >
+              <div className="space-y-2.5">
+                {topVendors.length === 0 ? (
+                  <p className="text-[12px] text-dmk-text-muted">No vendors yet.</p>
+                ) : (
+                  topVendors.map(([key, v]) => (
+                    <MixBar
+                      key={key}
+                      label={<>{v.name} <span className="text-dmk-text-muted">· {v.count} DN</span></>}
+                      value={formatINR(v.value)}
+                      pct={(v.value / topVendorMax) * 100}
+                      barClass="bg-dmk-blue"
+                    />
+                  ))
+                )}
+              </div>
+            </AsideCard>
+          </>
+        }
+      />
 
       <NewDebitNoteDialog
         open={newOpen}
@@ -381,7 +484,7 @@ function NewDebitNoteDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto">
+      <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">New debit note — purchase return</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
@@ -638,7 +741,7 @@ function reasonTone(reason: string): "warning" | "danger" | "info" | "neutral" {
 function ViewReturnDialog({ row, onClose }: { row: PrRow | null; onClose: () => void }) {
   return (
     <Dialog open={!!row} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-2xl dmk-elevated border-dmk-border-medium">
+      <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary flex items-center gap-2.5">
             <FileWarning className="h-5 w-5 text-dmk-warning" /> {row?.debitNoteNo}

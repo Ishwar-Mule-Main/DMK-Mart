@@ -543,7 +543,7 @@ export default function B2CCounterView() {
 
       {/* Success dialog */}
       <Dialog open={successOpen} onOpenChange={setSuccessOpen}>
-        <DialogContent className="sm:max-w-md dmk-elevated border-dmk-border-medium">
+        <DialogContent className="dmk-elevated border-dmk-border-medium">
           <DialogHeader>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-dmk-success" />
@@ -691,7 +691,7 @@ function BuyerHistoryDialog({ buyer, onClose }: { buyer: Customer | null; onClos
 
   return (
     <Dialog open={!!buyer} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg dmk-elevated border-dmk-border-medium">
+      <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">{buyer?.partyName}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted font-money">{buyer?.phone || "—"} · {buyer?.visitCount ?? 0} visits · lifetime {formatINR(Number(buyer?.lifetimeSpend ?? 0))}</DialogDescription>
@@ -785,7 +785,7 @@ function NewBuyerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm dmk-elevated border-dmk-border-medium">
+      <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">New counter buyer</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">Name + phone only — no credit, instant payment (R14).</DialogDescription>

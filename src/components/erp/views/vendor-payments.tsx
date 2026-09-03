@@ -575,7 +575,7 @@ function RecordPaymentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl dmk-elevated border-dmk-border-medium max-h-[92vh] overflow-y-auto">
+      <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">Record vendor payment</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">

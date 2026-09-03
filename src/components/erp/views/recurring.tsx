@@ -784,7 +784,7 @@ export default function RecurringView() {
 
       {/* New / Edit template dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[680px]">
+        <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[88vh] overflow-y-auto sm:w-[760px]">
           <DialogHeader>
             <DialogTitle className="text-[16px] text-dmk-text-primary">
               {editOf ? "Edit Recurring Template" : "New Recurring Template"}
@@ -1022,7 +1022,7 @@ export default function RecurringView() {
 
       {/* generate result dialog */}
       <Dialog open={!!genResult} onOpenChange={(o) => !o && setGenResult(null)}>
-        <DialogContent className="sm:max-w-[520px]">
+        <DialogContent className="dmk-elevated border-dmk-border-medium">
           <DialogHeader>
             <DialogTitle className="text-[16px] text-dmk-text-primary">Generation Report</DialogTitle>
             <DialogDescription className="text-[12px] text-dmk-text-muted">
@@ -1091,7 +1091,7 @@ export default function RecurringView() {
 
       {/* run history (subscription ledger) dialog */}
       <Dialog open={!!runsOf} onOpenChange={(o) => !o && setRunsOf(null)}>
-        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[760px]">
+        <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-[16px] text-dmk-text-primary">
               <History className="h-4 w-4 text-dmk-info" />

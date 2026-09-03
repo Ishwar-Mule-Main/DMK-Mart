@@ -8,7 +8,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { Bot, Info, Send, Sparkles, User } from "lucide-react";
+import { Bot, Info, Send, Sparkles, User, TrendingUp, PackageSearch, Wallet, Landmark } from "lucide-react";
 
 import { PageHeader, inputCls } from "../shared";
 import { Button } from "@/components/ui/button";
@@ -24,12 +24,56 @@ interface ChatMessage {
   text: string;
 }
 
-const SUGGESTIONS = [
-  "What is my gross profit this month?",
-  "Which products are low on stock?",
-  "Who owes me the most?",
-  "Show damaged stock summary",
+/** Categorized prompt suggestions — the "suggested questions" list. */
+const SUGGESTION_GROUPS: Array<{
+  category: string;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  iconClass: string;
+  questions: string[];
+}> = [
+  {
+    category: "Sales & profit",
+    icon: TrendingUp,
+    iconClass: "text-dmk-orange",
+    questions: [
+      "What is my gross profit this month?",
+      "Which product makes me the most money?",
+      "How were sales in the last 7 days?",
+    ],
+  },
+  {
+    category: "Cash & receivables",
+    icon: Wallet,
+    iconClass: "text-dmk-success",
+    questions: [
+      "Who owes me the most?",
+      "How much cash do I have right now?",
+      "Which invoices are overdue?",
+    ],
+  },
+  {
+    category: "Stock & purchases",
+    icon: PackageSearch,
+    iconClass: "text-dmk-gold",
+    questions: [
+      "Which products are low on stock?",
+      "Show damaged stock summary",
+      "What did I buy from Sri Balaji?",
+    ],
+  },
+  {
+    category: "Books & GST",
+    icon: Landmark,
+    iconClass: "text-dmk-info",
+    questions: [
+      "How much GST do I owe this month?",
+      "What are my total expenses?",
+      "Summarize my payables",
+    ],
+  },
 ];
+
+const ALL_SUGGESTIONS = SUGGESTION_GROUPS.flatMap((g) => g.questions);
 
 let msgSeq = 0;
 function nextMsgId(): string {
@@ -46,6 +90,20 @@ export default function AiCopilotView() {
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  // Rotating follow-up suggestions while a conversation is active
+  const [followUps, setFollowUps] = React.useState<string[]>(() => ALL_SUGGESTIONS.slice(0, 3));
+  React.useEffect(() => {
+    if (messages.length === 0) return;
+    const pool = ALL_SUGGESTIONS.filter((q) => !messages.some((m) => m.role === "user" && m.text === q));
+    const picked: string[] = [];
+    let i = Math.floor(Date.now() / 60000);
+    while (picked.length < 3 && pool.length > 0) {
+      i += 1;
+      picked.push(pool.splice(i % pool.length, 1)[0]);
+    }
+    setFollowUps(picked);
+  }, [messages]);
 
   // Reset session when the active firm changes
   React.useEffect(() => {
@@ -115,20 +173,34 @@ export default function AiCopilotView() {
               <div>
                 <p className="text-[15px] font-semibold text-dmk-text-secondary">Ask your copilot anything</p>
                 <p className="text-[12px] text-dmk-text-muted mt-1 max-w-sm">
-                  Instant answers from live books, stock and receivables — try one of these:
+                  Instant answers from live books, stock and receivables — start with a suggested question:
                 </p>
               </div>
-              <div className="flex flex-wrap justify-center gap-2 max-w-lg">
-                {SUGGESTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => void send(s)}
-                    className="dmk-well px-3 py-2 text-[12px] text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary transition-colors rounded-lg"
-                  >
-                    {s}
-                  </button>
-                ))}
+              {/* Suggested questions — categorized */}
+              <div className="w-full max-w-2xl grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+                {SUGGESTION_GROUPS.map((g) => {
+                  const GIcon = g.icon;
+                  return (
+                    <div key={g.category} className="dmk-well p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <GIcon className={cn("h-3.5 w-3.5", g.iconClass)} strokeWidth={1.75} />
+                        <span className="text-[10.5px] uppercase tracking-wider font-bold text-dmk-text-muted">{g.category}</span>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        {g.questions.map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => void send(s)}
+                            className="text-left text-[12px] text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary transition-colors rounded-md px-2 py-1.5 -mx-2"
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ) : (
@@ -180,6 +252,22 @@ export default function AiCopilotView() {
 
         {/* Input row */}
         <div className="border-t border-dmk-border-subtle bg-dmk-input-well/40 p-3">
+          {/* Follow-up suggestions while chatting */}
+          {messages.length > 0 && followUps.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2.5">
+              {followUps.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => void send(s)}
+                  disabled={loading}
+                  className="dmk-well px-2.5 py-1 text-[11px] text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary transition-colors rounded-full disabled:opacity-50"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
           <form
             className="flex items-center gap-2"
             onSubmit={(e) => {

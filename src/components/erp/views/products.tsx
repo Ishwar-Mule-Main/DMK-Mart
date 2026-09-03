@@ -466,7 +466,7 @@ export default function ProductsView() {
 
       {/* ── Add / Edit dialog ─────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="dmk-card border-dmk-border-medium max-w-2xl max-h-[88vh] overflow-y-auto">
+        <DialogContent className="dmk-card border-dmk-border-medium max-h-[88vh] overflow-y-auto sm:w-[760px]">
           <DialogHeader>
             <DialogTitle className="text-dmk-text-primary text-[16px]">
               {editing ? `Edit ${editing.sku}` : "Add Product"}

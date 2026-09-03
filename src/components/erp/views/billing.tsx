@@ -635,7 +635,7 @@ export default function BillingView() {
 
       {/* Success dialog */}
       <Dialog open={successOpen} onOpenChange={setSuccessOpen}>
-        <DialogContent className="sm:max-w-md dmk-elevated border-dmk-border-medium">
+        <DialogContent className="dmk-elevated border-dmk-border-medium">
           <DialogHeader>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-dmk-success" />
@@ -765,7 +765,7 @@ function NewCustomerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg dmk-elevated border-dmk-border-medium">
+      <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">New B2B customer</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">Location-first naming — party name becomes “City FirmName”.</DialogDescription>

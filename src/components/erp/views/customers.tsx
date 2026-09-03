@@ -341,7 +341,7 @@ function B2BFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl dmk-elevated border-dmk-border-medium max-h-[90vh] overflow-y-auto">
+      <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">{editing ? "Edit B2B customer" : "New B2B customer"}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">Location-first naming (R8) — party name is composed as “City FirmName”.</DialogDescription>
@@ -439,7 +439,7 @@ function LedgerDialog({ customer, onClose }: { customer: Customer | null; onClos
 
   return (
     <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-2xl dmk-elevated border-dmk-border-medium">
+      <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">Party ledger — {customer?.partyName}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
@@ -627,7 +627,7 @@ function NewBuyerDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm dmk-elevated border-dmk-border-medium">
+      <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">New counter buyer</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">No credit — instant payment only (R14).</DialogDescription>
@@ -669,7 +669,7 @@ function BuyerHistoryDialog({ buyer, onClose }: { buyer: Customer | null; onClos
 
   return (
     <Dialog open={!!buyer} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg dmk-elevated border-dmk-border-medium">
+      <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">{buyer?.partyName}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted font-money">

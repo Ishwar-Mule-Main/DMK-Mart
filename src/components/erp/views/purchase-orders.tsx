@@ -13,11 +13,15 @@ import {
   ClipboardList,
   Eye,
   HandCoins,
+  IndianRupee,
+  Layers,
   PackageCheck,
   Pencil,
   Plus,
   Search,
+  Timer,
   Trash2,
+  Truck,
   X,
 } from "lucide-react";
 import { useErpStore, useActiveFirm } from "@/store/erp-store";
@@ -34,6 +38,12 @@ import {
   inputCls,
   StatusBadge,
   Money,
+  SectionGrid,
+  RegisterCard,
+  RegisterRow,
+  AsideCard,
+  MixBar,
+  KpiCard,
 } from "@/components/erp/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -149,18 +159,6 @@ function normalizeProducts(res: unknown): Product[] {
   return obj?.products ?? [];
 }
 
-function vendorBadge(v?: PoVendor | Vendor) {
-  if (!v) return null;
-  if (v.vendorType === "MANUFACTURER") {
-    return (
-      <span className="dmk-badge bg-dmk-gold/15 text-dmk-gold" title="Manufacturer">
-        Mfr{v.brand ? ` · ${v.brand}` : ""}
-      </span>
-    );
-  }
-  return <Badge tone="info">Distributor</Badge>;
-}
-
 export default function PurchaseOrdersView() {
   const { toast } = useToast();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
@@ -238,6 +236,25 @@ export default function PurchaseOrdersView() {
     .filter((r) => r.status === "CONFIRMED" && (r.outstanding ?? 0) > 0.009)
     .reduce((s, r) => s + (r.outstanding ?? 0), 0);
 
+  // ── Masonry summary stats ───────────────────────────────────────
+  const list = rows ?? [];
+  const totalValue = list.reduce((s, r) => s + Number(r.grandTotal), 0);
+  const confirmedValue = list.filter((r) => r.status === "CONFIRMED").reduce((s, r) => s + Number(r.grandTotal), 0);
+  const pendingValue = list.filter((r) => r.status === "PENDING").reduce((s, r) => s + Number(r.grandTotal), 0);
+  const denom = Math.max(1, list.length);
+  const statusRows = (["PENDING", "CONFIRMED", "CANCELLED"] as const)
+    .map((st) => ({ st, count: list.filter((r) => r.status === st).length, value: list.filter((r) => r.status === st).reduce((s, r) => s + Number(r.grandTotal), 0) }))
+    .filter((x) => x.count > 0);
+  const statusBar: Record<string, string> = { PENDING: "bg-dmk-warning", CONFIRMED: "bg-dmk-success", CANCELLED: "bg-dmk-danger" };
+  const vendorAgg = new Map<string, { name: string; count: number; value: number }>();
+  for (const r of list) {
+    const name = r.vendor?.vendorName ?? "—";
+    const cur = vendorAgg.get(r.vendorId) ?? { name, count: 0, value: 0 };
+    vendorAgg.set(r.vendorId, { name, count: cur.count + 1, value: cur.value + Number(r.grandTotal) });
+  }
+  const topVendors = [...vendorAgg.entries()].sort((a, b) => b[1].value - a[1].value).slice(0, 4);
+  const topVendorMax = Math.max(1, topVendors[0]?.[1].value ?? 1);
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -255,158 +272,182 @@ export default function PurchaseOrdersView() {
         }
       />
 
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="relative flex-1">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search PO number or vendor…" className="pl-9" />
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
-        </div>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className={cn(inputCls, "w-full sm:w-[190px]")}>
-            <SelectValue placeholder="All statuses" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All statuses</SelectItem>
-            <SelectItem value="PENDING">Pending</SelectItem>
-            <SelectItem value="CONFIRMED">Confirmed</SelectItem>
-            <SelectItem value="CANCELLED">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="dmk-card overflow-hidden">
-        <div className="overflow-x-auto">
-          {rows === null ? (
-            <LoadingRows rows={7} />
-          ) : rows.length === 0 ? (
-            <EmptyState
-              icon={ClipboardList}
-              title="No purchase orders"
-              hint="Create a PO to a manufacturer or distributor — receive it via GRN to book stock and payable."
-            />
-          ) : (
-            <table className="dmk-table min-w-[1210px]">
-              <thead>
-                <tr>
-                  <th>PO #</th>
-                  <th>Date</th>
-                  <th>Vendor</th>
-                  <th className="text-right">Items</th>
-                  <th className="text-right">Taxable</th>
-                  <th className="text-right">Tax</th>
-                  <th className="text-right">Grand Total</th>
-                  <th className="text-right">Balance</th>
-                  <th>Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((po) => {
-                  const tax = po.totalCgst + po.totalSgst + po.totalIgst;
-                  const osd = po.outstanding;
-                  const settled = po.status === "CONFIRMED" && osd !== undefined && osd <= 0.009;
-                  const payable = po.status === "CONFIRMED" && osd !== undefined && osd > 0.009;
-                  return (
-                    <tr key={po.id} className="group/row">
-                      <td className="font-money text-[12px] text-dmk-text-primary">
-                        {po.poNumber}
-                        {po.vendorBillNo && (
-                          <span className="block text-[10px] text-dmk-text-muted" title="Vendor bill no.">
-                            Bill {po.vendorBillNo}
-                          </span>
-                        )}
-                      </td>
-                      <td className="text-[12.5px] text-dmk-text-secondary whitespace-nowrap">{formatDate(po.poDate)}</td>
-                      <td className="max-w-[200px] truncate text-[12.5px]">
-                        <span className="font-medium">{po.vendor?.vendorName ?? "—"}</span>{" "}
-                        {vendorBadge(po.vendor)}
-                      </td>
-                      <td className="num text-[12.5px]">{po.items.length}</td>
-                      <td className="num text-[12.5px]">{formatINR(po.subtotal)}</td>
-                      <td className="num text-[12.5px] text-dmk-text-secondary">{formatINR(tax)}</td>
-                      <td className="num text-[13px] font-semibold text-dmk-text-primary">{formatINR(po.grandTotal)}</td>
-                      <td className="num text-right whitespace-nowrap">
+      <SectionGrid
+        list={
+          <RegisterCard
+            title="Purchase orders"
+            icon={ClipboardList}
+            count={list.length}
+            countLabel="orders"
+            filters={
+              <>
+                <div className="relative flex-1 min-w-0">
+                  <SearchInput value={query} onChange={setQuery} placeholder="Search PO number or vendor…" className="pl-9" />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
+                </div>
+                <Select value={status} onValueChange={setStatus}>
+                  <SelectTrigger className={cn(inputCls, "w-full sm:w-[170px] shrink-0")}>
+                    <SelectValue placeholder="All statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All statuses</SelectItem>
+                    <SelectItem value="PENDING">Pending</SelectItem>
+                    <SelectItem value="CONFIRMED">Confirmed</SelectItem>
+                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            }
+            footer={
+              <>
+                <span><span className="font-money text-dmk-warning">{pendingCount}</span> awaiting receipt</span>
+                {openPayable > 0.009 && (
+                  <span><span className="font-money text-dmk-blue">{formatINR(openPayable)}</span> open payable — hover a row to <span className="text-dmk-info font-semibold">Pay</span></span>
+                )}
+                <span className="hidden sm:inline">GRN posts: stock IN · payable Cr · PURCHASE journal</span>
+              </>
+            }
+          >
+            {rows === null ? (
+              <LoadingRows rows={7} />
+            ) : list.length === 0 ? (
+              <EmptyState
+                icon={ClipboardList}
+                title="No purchase orders"
+                hint="Create a PO to a manufacturer or distributor — receive it via GRN to book stock and payable."
+              />
+            ) : (
+              list.map((po) => {
+                const tax = po.totalCgst + po.totalSgst + po.totalIgst;
+                const osd = po.outstanding;
+                const settled = po.status === "CONFIRMED" && osd !== undefined && osd <= 0.009;
+                const payable = po.status === "CONFIRMED" && osd !== undefined && osd > 0.009;
+                return (
+                  <RegisterRow key={po.id} className={po.status === "PENDING" ? "bg-[rgba(245,158,11,0.04)]" : undefined}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-money text-[12px] text-dmk-text-primary shrink-0">
+                          {po.poNumber}
+                          {po.vendorBillNo && (
+                            <span className="block text-[10px] text-dmk-text-muted" title="Vendor bill no.">
+                              Bill {po.vendorBillNo}
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-[11px] text-dmk-text-muted shrink-0">{formatDate(po.poDate)}</span>
+                      </div>
+                      <StatusBadge status={po.status} />
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span className="text-[12px] text-dmk-text-secondary truncate">
+                        <span className="font-medium">{po.vendor?.vendorName ?? "—"}</span>
+                        <span className="text-dmk-text-muted"> · {po.items.length} item{po.items.length === 1 ? "" : "s"} · tax {formatINR(tax)}</span>
+                      </span>
+                      <span className="flex items-baseline gap-2 shrink-0">
+                        <span className="font-money text-[13px] font-semibold text-dmk-text-primary">{formatINR(po.grandTotal)}</span>
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] shrink-0">
                         {po.status !== "CONFIRMED" ? (
-                          <span className="text-[11px] text-dmk-text-muted">—</span>
-                        ) : osd === undefined ? (
-                          <span className="text-[11px] text-dmk-text-muted">…</span>
+                          <span className="text-dmk-text-muted">balance —</span>
                         ) : settled ? (
                           <Badge tone="success">SETTLED</Badge>
+                        ) : osd !== undefined ? (
+                          <span className="font-money font-semibold text-dmk-blue">balance {formatINR(osd)}</span>
                         ) : (
-                          <span className="font-money text-[12.5px] font-semibold text-dmk-blue">{formatINR(osd)}</span>
+                          <span className="text-dmk-text-muted">balance …</span>
                         )}
-                      </td>
-                      <td><StatusBadge status={po.status} /></td>
-                      <td className="text-right whitespace-nowrap">
-                        {po.status === "PENDING" && (
-                          <>
-                            <Button
-                              size="sm"
-                              className="h-8 bg-dmk-success text-white hover:bg-dmk-success/90"
-                              onClick={() => setGrnOf(po)}
-                            >
-                              <PackageCheck className="h-3.5 w-3.5" /> Receive (GRN)
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 ml-1.5 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
-                              onClick={() => setEditOf(po)}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 ml-1.5 border-dmk-border-subtle text-dmk-danger hover:bg-dmk-hover"
-                              onClick={() => setCancelOf(po)}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </>
-                        )}
+                      </span>
+                      <span className="flex items-center gap-1.5 shrink-0">
                         {payable && (
                           <button
                             type="button"
                             onClick={() => payFromRow(po)}
                             title={`Record a payment against ${po.poNumber} (${formatINR(osd ?? 0)})`}
-                            className={cn(
-                              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide mr-1.5",
-                              "opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all",
-                              "border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover text-dmk-info hover:border-dmk-info/40"
-                            )}
+                            className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover text-dmk-info hover:border-dmk-info/40"
                           >
                             <HandCoins className="h-3 w-3" /> Pay
                           </button>
                         )}
+                        {po.status === "PENDING" && (
+                          <>
+                            <Button size="sm" className="h-7 px-2.5 text-[11px] bg-dmk-success text-white hover:bg-dmk-success/90" onClick={() => setGrnOf(po)}>
+                              <PackageCheck className="h-3 w-3" /> Receive (GRN)
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 w-7 p-0 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setEditOf(po)} aria-label={`Edit ${po.poNumber}`}>
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 w-7 p-0 border-dmk-border-subtle text-dmk-danger hover:bg-dmk-hover" onClick={() => setCancelOf(po)} aria-label={`Cancel ${po.poNumber}`}>
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </>
+                        )}
                         {po.status !== "PENDING" && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
-                            onClick={() => setViewOf(po)}
-                          >
-                            <Eye className="h-3.5 w-3.5" /> View
+                          <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px] border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setViewOf(po)}>
+                            <Eye className="h-3 w-3" /> View
                           </Button>
                         )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-        {rows !== null && rows.length > 0 && (
-          <div className="dmk-well px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11.5px] text-dmk-text-muted">
-            <span><span className="font-money text-dmk-text-secondary">{rows.length}</span> orders</span>
-            <span><span className="font-money text-dmk-warning">{pendingCount}</span> awaiting receipt</span>
-            {openPayable > 0.009 && (
-              <span><span className="font-money text-dmk-blue">{formatINR(openPayable)}</span> open payable — hover a row to <span className="text-dmk-info font-semibold">Pay</span></span>
+                      </span>
+                    </div>
+                  </RegisterRow>
+                );
+              })
             )}
-            <span className="hidden sm:inline">GRN posts: stock IN · vendor payable Cr · PURCHASE journal</span>
-          </div>
-        )}
-      </div>
+          </RegisterCard>
+        }
+        aside={
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <KpiCard label="PO value" value={formatINR(totalValue)} sub={`${list.length} orders listed`} icon={IndianRupee} tone="orange" />
+              <KpiCard label="Awaiting receipt" value={String(pendingCount)} sub={`${formatINR(pendingValue)} pending`} icon={Timer} tone={pendingCount > 0 ? "gold" : "success"} />
+              <KpiCard label="Confirmed value" value={formatINR(confirmedValue)} sub="booked via GRN" icon={PackageCheck} tone="success" />
+              <KpiCard label="Open payable" value={formatINR(openPayable)} sub="owed to vendors" icon={Truck} tone="blue" />
+            </div>
+
+            <AsideCard title="Status mix" icon={Layers} iconClass="text-dmk-info" footnote="Only PENDING orders can be edited or cancelled — CONFIRMED orders change via Purchase Returns.">
+              <div className="space-y-2.5">
+                {statusRows.length === 0 ? (
+                  <p className="text-[12px] text-dmk-text-muted">No orders in the current filter.</p>
+                ) : (
+                  statusRows.map((x) => (
+                    <MixBar
+                      key={x.st}
+                      label={<><StatusBadge status={x.st} /> <span className="text-dmk-text-muted">· {x.count}</span></>}
+                      value={formatINR(x.value)}
+                      pct={(x.count / denom) * 100}
+                      barClass={statusBar[x.st] ?? "bg-dmk-orange"}
+                    />
+                  ))
+                )}
+              </div>
+            </AsideCard>
+
+            <AsideCard
+              title="Top vendors"
+              icon={Truck}
+              iconClass="text-dmk-orange"
+              footnote="Manufacturers are brand-scoped (R10) — their POs only list that brand's products."
+            >
+              <div className="space-y-2.5">
+                {topVendors.length === 0 ? (
+                  <p className="text-[12px] text-dmk-text-muted">No vendors yet.</p>
+                ) : (
+                  topVendors.map(([, v]) => (
+                    <MixBar
+                      key={v.name}
+                      label={<>{v.name} <span className="text-dmk-text-muted">· {v.count} PO</span></>}
+                      value={formatINR(v.value)}
+                      pct={(v.value / topVendorMax) * 100}
+                      barClass="bg-dmk-orange"
+                    />
+                  ))
+                )}
+              </div>
+            </AsideCard>
+          </>
+        }
+      />
 
       <PoFormDialog
         open={newOpen || !!editOf}
@@ -635,7 +676,7 @@ function PoFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto">
+      <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto sm:w-[880px]">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">
             {editing ? `Edit PO ${editing.poNumber}` : "New purchase order"}
@@ -999,7 +1040,7 @@ function GrnDialog({
 
   return (
     <Dialog open={!!po} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-3xl dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto">
+      <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto sm:w-[820px]">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary flex items-center gap-2">
             <PackageCheck className="h-5 w-5 text-dmk-success" /> Goods Receipt Note — {po?.poNumber}
@@ -1155,7 +1196,7 @@ function ViewPoDialog({ po, onClose }: { po: PoRow | null; onClose: () => void }
 
   return (
     <Dialog open={!!po} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-3xl dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto">
+      <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto sm:w-[800px]">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary flex items-center gap-2.5">
             {d?.poNumber} <StatusBadge status={d?.status ?? "PENDING"} />

@@ -6,12 +6,25 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { Download, Eye, FileText, HandCoins, ReceiptText, Search, Zap } from "lucide-react";
+import { Download, FileText, HandCoins, ReceiptText, Search, Zap, IndianRupee, Clock3, CheckCircle2, Layers } from "lucide-react";
 import { useErpStore } from "@/store/erp-store";
 import { apiGet, ApiError } from "@/lib/api-client";
 import { formatINR, formatDate, downloadCSV, amountInWords } from "@/lib/format";
 import type { Invoice } from "@/types/erp";
-import { PageHeader, Badge, EmptyState, LoadingRows, SearchInput, inputCls } from "@/components/erp/shared";
+import {
+  PageHeader,
+  Badge,
+  EmptyState,
+  LoadingRows,
+  SearchInput,
+  inputCls,
+  SectionGrid,
+  RegisterCard,
+  RegisterRow,
+  AsideCard,
+  MixBar,
+  KpiCard,
+} from "@/components/erp/shared";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -126,6 +139,28 @@ export default function InvoiceRegisterView() {
     ]);
   }
 
+  /** Cycle 17+: derived stats for the masonry summary column. */
+  const list = rows ?? [];
+  const totalValue = list.reduce((s, i) => s + Number(i.grandTotal), 0);
+  const now = new Date();
+  const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const monthValue = list.filter((i) => i.invoiceDate.slice(0, 7) === monthPrefix).reduce((s, i) => s + Number(i.grandTotal), 0);
+  const openCredit = list.filter((i) => i.paymentMode === "CREDIT" && i.status === "POSTED" && (i.outstanding ?? 0) > 0.009);
+  const openCreditValue = openCredit.reduce((s, i) => s + (i.outstanding ?? 0), 0);
+  const settledCount = list.filter((i) => i.paymentMode === "CREDIT" && i.status === "POSTED" && i.outstanding !== undefined && i.outstanding <= 0.009).length;
+  const creditCount = list.filter((i) => i.paymentMode === "CREDIT").length;
+  const denom = Math.max(1, list.length);
+  const payMix = ("UPI,CASH,CREDIT,BT" as const)
+    .split(",")
+    .map((m) => ({
+      mode: m,
+      count: list.filter((i) => i.paymentMode === m).length,
+      value: list.filter((i) => i.paymentMode === m).reduce((s, i) => s + Number(i.grandTotal), 0),
+    }))
+    .filter((x) => x.count > 0);
+  const mixBar: Record<string, string> = { UPI: "bg-dmk-info", CASH: "bg-dmk-success", CREDIT: "bg-dmk-gold", BT: "bg-dmk-blue" };
+  const b2bCount = list.filter((i) => !i.isCounterSale).length;
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -139,116 +174,175 @@ export default function InvoiceRegisterView() {
         }
       />
 
-      <div className="dmk-card p-3 flex flex-col sm:flex-row gap-2">
-        <div className="relative flex-1">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search invoice #, customer or walk-in name / phone…" className="pl-9" />
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
-        </div>
-        <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
-          <SelectTrigger className={cn(inputCls, "sm:w-48")}>
-            <SelectValue placeholder="Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All invoices</SelectItem>
-            <SelectItem value="b2b">B2B only</SelectItem>
-            <SelectItem value="counter">B2C counter only</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="dmk-card overflow-hidden">
-        <div className="overflow-x-auto">
-          {rows === null ? (
-            <LoadingRows rows={8} />
-          ) : rows.length === 0 ? (
-            <EmptyState icon={ReceiptText} title="No invoices found" hint="Create one from B2B Fast Billing or the Counter POS." />
-          ) : (
-            <table className="dmk-table min-w-[1020px]">
-              <thead>
-                <tr>
-                  <th>Invoice #</th>
-                  <th>Date</th>
-                  <th>Customer / Walk-in</th>
-                  <th>Type</th>
-                  <th>Payment</th>
-                  <th className="text-right">Taxable</th>
-                  <th className="text-right">Tax</th>
-                  <th className="text-right">Grand Total</th>
-                  <th className="text-right">Outstanding</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((i) => {
-                  const tax = Number(i.totalCgst) + Number(i.totalSgst) + Number(i.totalIgst);
-                  const isCredit = i.paymentMode === "CREDIT" && i.status === "POSTED";
-                  const osd = i.outstanding;
-                  const settled = isCredit && osd !== undefined && osd <= 0.009;
-                  const settleable = isCredit && !!i.customer?.id && osd !== undefined && osd > 0.009;
-                  return (
-                    <tr key={i.id} className="group/row">
-                      <td className="font-money text-[12.5px] text-dmk-text-primary">{i.invoiceNumber}</td>
-                      <td className="text-[12.5px] text-dmk-text-secondary whitespace-nowrap">{formatDate(i.invoiceDate)}</td>
-                      <td className="max-w-[240px] truncate text-[13px]" title={i.customer?.partyName || i.walkInName || "Walk-in"}>{i.customer?.partyName || i.walkInName || "Walk-in"}</td>
-                      <td>
-                        {i.isCounterSale ? <Badge tone="dr">COUNTER</Badge> : <Badge tone="info">B2B</Badge>}
+      <SectionGrid
+        list={
+          <RegisterCard
+            title="Sales orders"
+            icon={ReceiptText}
+            count={list.length}
+            countLabel="invoices"
+            filters={
+              <>
+                <div className="relative flex-1 min-w-0">
+                  <SearchInput value={query} onChange={setQuery} placeholder="Search invoice #, customer or walk-in name / phone…" className="pl-9" />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
+                </div>
+                <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
+                  <SelectTrigger className={cn(inputCls, "sm:w-44 shrink-0")}>
+                    <SelectValue placeholder="Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All invoices</SelectItem>
+                    <SelectItem value="b2b">B2B only</SelectItem>
+                    <SelectItem value="counter">B2C counter only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            }
+            footer={
+              <>
+                <span><span className="font-money text-dmk-text-secondary">{formatINR(totalValue)}</span> listed value</span>
+                <span><span className="font-money text-dmk-warning">{openCredit.length}</span> open credit</span>
+                <span className="hidden sm:inline">hover a credit row to <span className="text-dmk-success font-semibold">Settle</span></span>
+              </>
+            }
+          >
+            {rows === null ? (
+              <LoadingRows rows={8} />
+            ) : list.length === 0 ? (
+              <EmptyState icon={ReceiptText} title="No invoices found" hint="Create one from B2B Fast Billing or the Counter POS." />
+            ) : (
+              list.map((i) => {
+                const tax = Number(i.totalCgst) + Number(i.totalSgst) + Number(i.totalIgst);
+                const isCredit = i.paymentMode === "CREDIT" && i.status === "POSTED";
+                const osd = i.outstanding;
+                const settled = isCredit && osd !== undefined && osd <= 0.009;
+                const settleable = isCredit && !!i.customer?.id && osd !== undefined && osd > 0.009;
+                return (
+                  <RegisterRow key={i.id} onClick={() => openDetail(i.id)}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-money text-[12px] text-dmk-text-primary shrink-0">{i.invoiceNumber}</span>
+                        <span className="text-[11px] text-dmk-text-muted shrink-0">{formatDate(i.invoiceDate)}</span>
                         {i.templateId && (
                           <span
                             title="Auto-posted from a recurring billing template — see Recurring Billing → run history"
-                            className="ml-1 inline-flex items-center gap-0.5 rounded-md bg-dmk-success/10 px-1.5 py-0.5 text-[9.5px] font-bold tracking-wide text-dmk-success align-middle"
+                            className="inline-flex items-center gap-0.5 rounded-md bg-dmk-success/10 px-1.5 py-0.5 text-[9.5px] font-bold tracking-wide text-dmk-success shrink-0"
                           >
                             <Zap className="h-2.5 w-2.5" /> AUTO
                           </span>
                         )}
-                      </td>
-                      <td><Badge tone={paymentBadge(i.paymentMode)}>{i.paymentMode}</Badge></td>
-                      <td className="num text-[12.5px] text-dmk-text-secondary">{formatINR(Number(i.subtotal))}</td>
-                      <td className="num text-[12.5px] text-dmk-text-secondary">{formatINR(tax)}</td>
-                      <td className="num text-[13px] font-semibold text-dmk-text-primary">{formatINR(Number(i.grandTotal))}</td>
-                      <td className="num text-right whitespace-nowrap">
-                        {i.isCounterSale || i.paymentMode !== "CREDIT" ? (
-                          <span className="text-[11px] text-dmk-text-muted">—</span>
-                        ) : osd === undefined ? (
-                          <span className="text-[11px] text-dmk-text-muted">…</span>
-                        ) : settled ? (
-                          <Badge tone="success">SETTLED</Badge>
-                        ) : (
-                          <span className={cn("font-money text-[12.5px] font-semibold", osd > 0.009 ? "text-dmk-orange" : "text-dmk-text-muted")}>
-                            {formatINR(osd)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="text-right whitespace-nowrap">
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {i.isCounterSale ? <Badge tone="dr">COUNTER</Badge> : <Badge tone="info">B2B</Badge>}
+                        <Badge tone={paymentBadge(i.paymentMode)}>{i.paymentMode}</Badge>
+                      </div>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span className="text-[12px] text-dmk-text-secondary truncate" title={i.customer?.partyName || i.walkInName || "Walk-in"}>
+                        {i.customer?.partyName || i.walkInName || "Walk-in"}
+                      </span>
+                      <span className="flex items-baseline gap-2 shrink-0">
+                        <span className="text-[10.5px] text-dmk-text-muted hidden sm:inline">taxable {formatINR(Number(i.subtotal))} · tax {formatINR(tax)}</span>
+                        <span className="font-money text-[13px] font-semibold text-dmk-text-primary">{formatINR(Number(i.grandTotal))}</span>
+                      </span>
+                    </div>
+                    {isCredit && (
+                      <div className="mt-1 flex items-center justify-end gap-2">
                         {settleable && (
                           <button
                             type="button"
-                            onClick={() => settleFromRow(i)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              settleFromRow(i);
+                            }}
                             title={`Record a receipt settling ${i.invoiceNumber} (${formatINR(osd ?? 0)})`}
-                            className={cn(
-                              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide mr-1.5",
-                              "opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all",
-                              "border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover text-dmk-success hover:border-dmk-success/40"
-                            )}
+                            className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover text-dmk-success hover:border-dmk-success/40"
                           >
                             <HandCoins className="h-3 w-3" /> Settle
                           </button>
                         )}
-                        <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => openDetail(i.id)}>
-                          <Eye className="h-3.5 w-3.5" /> View
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
+                        {settled ? (
+                          <Badge tone="success">SETTLED</Badge>
+                        ) : osd !== undefined ? (
+                          <span className="font-money text-[11.5px] font-semibold text-dmk-orange">outstanding {formatINR(osd)}</span>
+                        ) : (
+                          <span className="text-[10.5px] text-dmk-text-muted">outstanding …</span>
+                        )}
+                      </div>
+                    )}
+                  </RegisterRow>
+                );
+              })
+            )}
+          </RegisterCard>
+        }
+        aside={
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <KpiCard label="Invoices" value={String(list.length)} sub={`${creditCount} on credit`} icon={Layers} />
+              <KpiCard label="Sales value" value={formatINR(totalValue)} sub={`${formatINR(monthValue)} this month`} icon={IndianRupee} tone="orange" />
+              <KpiCard
+                label="Outstanding"
+                value={formatINR(openCreditValue)}
+                sub={`${openCredit.length} unsettled credit invoice${openCredit.length === 1 ? "" : "s"}`}
+                icon={Clock3}
+                tone={openCreditValue > 0.009 ? "gold" : "success"}
+              />
+              <KpiCard label="Settled" value={String(settledCount)} sub="credit invoices fully paid" icon={CheckCircle2} tone="success" />
+            </div>
+
+            <AsideCard
+              title="Payment mix"
+              icon={Layers}
+              iconClass="text-dmk-info"
+              footnote="Share of listed invoices by payment mode — credit sales sit in Receivables until settled."
+            >
+              <div className="space-y-2.5">
+                {payMix.length === 0 ? (
+                  <p className="text-[12px] text-dmk-text-muted">No invoices in the current filter.</p>
+                ) : (
+                  payMix.map((x) => (
+                    <MixBar
+                      key={x.mode}
+                      label={<>{x.mode} <span className="text-dmk-text-muted">· {x.count} inv</span></>}
+                      value={formatINR(x.value)}
+                      pct={(x.count / denom) * 100}
+                      barClass={mixBar[x.mode] ?? "bg-dmk-orange"}
+                    />
+                  ))
+                )}
+              </div>
+            </AsideCard>
+
+            <AsideCard
+              title="Sales channel"
+              icon={ReceiptText}
+              iconClass="text-dmk-orange"
+              footnote="B2B invoices can carry credit terms; counter sales are settled on the spot."
+            >
+              <div className="space-y-2.5">
+                <MixBar
+                  label={<><span className="dmk-badge dmk-badge-info">B2B</span> <span className="text-dmk-text-muted">· {b2bCount} inv</span></>}
+                  value={formatINR(list.filter((i) => !i.isCounterSale).reduce((s, i) => s + Number(i.grandTotal), 0))}
+                  pct={(b2bCount / denom) * 100}
+                  barClass="bg-dmk-blue"
+                />
+                <MixBar
+                  label={<><span className="dmk-badge dmk-badge-dr">COUNTER</span> <span className="text-dmk-text-muted">· {list.length - b2bCount} inv</span></>}
+                  value={formatINR(list.filter((i) => i.isCounterSale).reduce((s, i) => s + Number(i.grandTotal), 0))}
+                  pct={((list.length - b2bCount) / denom) * 100}
+                  barClass="bg-dmk-orange"
+                />
+              </div>
+            </AsideCard>
+          </>
+        }
+      />
 
       {/* Detail dialog */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="sm:max-w-2xl dmk-elevated border-dmk-border-medium">
+        <DialogContent className="dmk-elevated border-dmk-border-medium">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-dmk-text-primary">
               <span className="font-money">{detail?.invoiceNumber ?? "…"}</span>
@@ -289,7 +383,7 @@ export default function InvoiceRegisterView() {
                     <tbody>
                       {detail.lineItems.map((li) => (
                         <tr key={li.id ?? li.productId}>
-                          <td className="font-money text-[11.5px] text-dmk-text-secondary">{li.sku}</td>
+                          <td className="font-money text-[11.5px] text-dmk-text-secondary whitespace-nowrap">{li.sku}</td>
                           <td className="max-w-[200px] truncate text-[12.5px]">{li.productName}</td>
                           <td className="num text-[12px]">{li.quantity}</td>
                           <td className="num text-[12px]">{formatINR(Number(li.unitPrice))}</td>

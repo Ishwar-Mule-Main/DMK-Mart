@@ -540,7 +540,7 @@ function NewJournalDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetForm(); onOpenChange(v); }}>
-      <DialogContent className="max-w-2xl bg-dmk-bg-secondary border-dmk-border-medium max-h-[90vh] overflow-y-auto">
+      <DialogContent className="bg-dmk-bg-secondary border-dmk-border-medium max-h-[90vh] overflow-y-auto sm:w-[680px]">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary flex items-center gap-2">
             <Scale className="h-4 w-4 text-dmk-orange" /> New Manual Voucher

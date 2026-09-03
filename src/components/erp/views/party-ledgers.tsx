@@ -800,7 +800,7 @@ function SettlementDialog({
   const docLabel = isReceipt ? "Invoice" : "PO";
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="dmk-card max-h-[85vh] overflow-y-auto sm:max-w-[560px] [&>*]:min-w-0">
+      <DialogContent className="dmk-card max-h-[85vh] overflow-y-auto [&>*]:min-w-0">
         {settlement && (
           <>
             <DialogHeader>
@@ -1108,7 +1108,7 @@ function StatementPrintDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="no-print sm:max-w-3xl max-h-[92vh] overflow-hidden flex flex-col border-dmk-border-medium dmk-elevated">
+        <DialogContent className="no-print max-h-[92vh] overflow-hidden flex flex-col border-dmk-border-medium dmk-elevated">
           <DialogHeader>
             <DialogTitle className="text-dmk-text-primary">Statement of account — A4 preview</DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
@@ -1186,7 +1186,7 @@ function BatchPrintDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="no-print sm:max-w-lg max-h-[86vh] overflow-hidden flex flex-col border-dmk-border-medium dmk-elevated">
+        <DialogContent className="no-print max-h-[86vh] overflow-hidden flex flex-col border-dmk-border-medium dmk-elevated">
           <DialogHeader>
             <DialogTitle className="text-dmk-text-primary flex items-center gap-2">
               <Layers className="h-4 w-4 text-dmk-gold" />

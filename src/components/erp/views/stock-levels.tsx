@@ -361,7 +361,7 @@ export default function StockLevelsView() {
 
       {/* ── Adjustment dialog ─────────────────────────── */}
       <Dialog open={adjusting !== null} onOpenChange={(open) => !open && setAdjusting(null)}>
-        <DialogContent className="dmk-card border-dmk-border-medium max-w-md">
+        <DialogContent className="dmk-card border-dmk-border-medium">
           <DialogHeader>
             <DialogTitle className="text-dmk-text-primary text-[16px]">Adjust Stock</DialogTitle>
             <DialogDescription className="text-dmk-text-muted text-[12px]">
@@ -654,7 +654,7 @@ function ReorderAssistDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="dmk-card border-dmk-border-medium sm:max-w-4xl max-h-[92vh] overflow-y-auto [&>*]:min-w-0">
+      <DialogContent className="dmk-card border-dmk-border-medium max-h-[92vh] overflow-y-auto [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-[16px] text-dmk-text-primary">
             <ClipboardList className="h-4 w-4 text-dmk-gold" />

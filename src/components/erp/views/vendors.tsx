@@ -394,7 +394,7 @@ function VendorFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl dmk-elevated border-dmk-border-medium max-h-[92vh] overflow-y-auto">
+      <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">{editing ? "Edit vendor" : "Add vendor"}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
@@ -542,7 +542,7 @@ function VendorLedgerDialog({ vendor, onClose }: { vendor: Vendor | null; onClos
 
   return (
     <Dialog open={!!vendor} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-2xl dmk-elevated border-dmk-border-medium">
+      <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">Vendor ledger — {vendor?.vendorName}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">

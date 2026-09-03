@@ -521,7 +521,7 @@ function NewReceiptDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl dmk-elevated border-dmk-border-medium">
+      <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">Record customer receipt</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">

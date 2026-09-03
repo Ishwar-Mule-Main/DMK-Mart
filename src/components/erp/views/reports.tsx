@@ -623,7 +623,7 @@ function SalesReport({ rows }: { rows: SalesRow[] }) {
       </div>
 
       <div className="dmk-card overflow-hidden">
-        <div className="overflow-x-auto max-h-[calc(100vh-560px)] overflow-y-auto">
+        <div className="overflow-x-auto max-h-[max(420px,calc(100vh-560px))] overflow-y-auto">
           <table className="dmk-table">
             <thead>
               <tr>
@@ -687,7 +687,7 @@ function PurchasesReport({ rows }: { rows: PurchaseRow[] }) {
         <EmptyState icon={ShoppingCart} title="No purchases in this window" hint="Confirmed POs will appear here." />
       ) : (
         <div className="dmk-card overflow-hidden">
-          <div className="overflow-x-auto max-h-[calc(100vh-480px)] overflow-y-auto">
+          <div className="overflow-x-auto max-h-[max(420px,calc(100vh-480px))] overflow-y-auto">
             <table className="dmk-table">
               <thead>
                 <tr>
@@ -758,7 +758,7 @@ function StockReport({ rows, totals }: { rows: StockRow[]; totals?: { stockValue
       </div>
 
       <div className="dmk-card overflow-hidden">
-        <div className="overflow-x-auto max-h-[calc(100vh-480px)] overflow-y-auto">
+        <div className="overflow-x-auto max-h-[max(420px,calc(100vh-480px))] overflow-y-auto">
           <table className="dmk-table">
             <thead>
               <tr>
@@ -855,7 +855,7 @@ function ValuationReport({
       </div>
 
       <div className="dmk-card overflow-hidden">
-        <div className="overflow-x-auto max-h-[calc(100vh-500px)] overflow-y-auto">
+        <div className="overflow-x-auto max-h-[max(420px,calc(100vh-500px))] overflow-y-auto">
           <table className="dmk-table">
             <thead>
               <tr>
@@ -1494,7 +1494,7 @@ function ProfitabilityReport({
         {rows.length === 0 ? (
           <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No sales in this window.</p>
         ) : (
-          <div className="overflow-x-auto max-h-[calc(100vh-560px)] overflow-y-auto">
+          <div className="overflow-x-auto max-h-[max(420px,calc(100vh-560px))] overflow-y-auto">
             <table className="dmk-table">
               <thead>
                 <tr>
@@ -1713,7 +1713,7 @@ function SkuDrillDialog({
 
   return (
     <Dialog open={row !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="dmk-card border-dmk-border-medium sm:max-w-4xl max-h-[92vh] overflow-y-auto [&>*]:min-w-0">
+      <DialogContent className="dmk-card border-dmk-border-medium max-h-[92vh] overflow-y-auto [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2 pr-6 text-[16px] text-dmk-text-primary">
             <span className="font-money text-dmk-gold">{row?.sku}</span>
