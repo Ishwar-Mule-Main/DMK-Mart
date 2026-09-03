@@ -2,7 +2,10 @@
   "name": "dmk-verification-realtime",
   "version": "1.1.0",
   "private": true,
+  "devDependencies": {
+    "@types/bun": "^1.2.0"
+  },
   "scripts": {
-    "dev": "bun index.ts"
+    "dev": "bun --hot index.ts"
   }
 }

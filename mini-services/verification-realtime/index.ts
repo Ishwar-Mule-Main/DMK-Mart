@@ -14,11 +14,14 @@
 const SOCKET_PORT = 3010;
 const EMIT_PORT = 3011;
 
+/** Socket context attached at upgrade time. */
+type BusSocketData = { firmId: string };
+
 /** Every connected socket — used for firm-less broadcasts. */
 const allSockets = new Set<{ send: (data: string) => void }>();
 
 // ─── Browser-facing WebSocket server ─────────────────────────────
-Bun.serve({
+const socketServer = Bun.serve<BusSocketData>({
   port: SOCKET_PORT,
   fetch(req, server) {
     const url = new URL(req.url);
@@ -33,8 +36,8 @@ Bun.serve({
   },
   websocket: {
     open(ws) {
-      allSockets.add(ws as unknown as { send: (data: string) => void });
-      const firmId = (ws.data as { firmId?: string }).firmId ?? "";
+      allSockets.add(ws);
+      const firmId = ws.data.firmId;
       if (firmId) ws.subscribe(`firm:${firmId}`);
       ws.send(JSON.stringify({ event: "bus:hello", data: { at: new Date().toISOString() } }));
     },
@@ -43,12 +46,14 @@ Bun.serve({
       ws.send(JSON.stringify({ event: "bus:pong", data: { at: new Date().toISOString() } }));
     },
     close(ws) {
-      allSockets.delete(ws as unknown as { send: (data: string) => void });
+      allSockets.delete(ws);
     },
   },
 });
 
 // ─── Internal emit endpoint (Next.js APIs → bus) ─────────────────
+type EmitBody = { firmId?: string; event?: string; data?: unknown };
+
 Bun.serve({
   port: EMIT_PORT,
   fetch(req) {
@@ -57,11 +62,11 @@ Bun.serve({
     }
     return req
       .json()
-      .then((body: { firmId?: string; event?: string; data?: unknown }) => {
-        const { firmId, event, data } = body ?? {};
+      .then((raw) => {
+        const { firmId, event, data } = (raw ?? {}) as EmitBody;
         if (!event) return Response.json({ error: "event required" }, { status: 400 });
         const payload = JSON.stringify({ event, data, at: new Date().toISOString() });
-        if (firmId) Bun.publish(`firm:${firmId}`, payload);
+        if (firmId) socketServer.publish(`firm:${firmId}`, payload);
         else for (const s of allSockets) s.send(payload);
         return Response.json({ ok: true });
       })

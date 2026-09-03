@@ -1,138 +1,126 @@
-import { createServer } from 'http'
-import { Server } from 'socket.io'
-
-const httpServer = createServer()
-const io = new Server(httpServer, {
-  // DO NOT change the path, it is used by Caddy to forward the request to the correct port
-  path: '/',
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  },
-  pingTimeout: 60000,
-  pingInterval: 25000,
-})
+/**
+ * Native WebSocket chat demo server (Bun runtime).
+ *
+ * Mirrors the production verification bus pattern in
+ * mini-services/verification-realtime: Bun.serve with WebSocket upgrade,
+ * JSON frames, and an in-memory presence map.
+ *
+ * Run: bun run examples/websocket/server.ts
+ * Frontend connects via the gateway: new WebSocket("ws://<host>/?XTransformPort=3003")
+ */
 
 interface User {
-  id: string
-  username: string
+  id: string;
+  username: string;
 }
 
 interface Message {
-  id: string
-  username: string
-  content: string
-  timestamp: Date
-  type: 'user' | 'system'
+  id: string;
+  username: string;
+  content: string;
+  timestamp: string;
+  type: 'user' | 'system';
 }
 
-const users = new Map<string, User>()
+type ClientFrame =
+  | { type: 'join'; username: string }
+  | { type: 'message'; content: string; username: string };
 
-const generateMessageId = () => Math.random().toString(36).substr(2, 9)
+const users = new Map<string, User>();
+
+const generateMessageId = () => Math.random().toString(36).slice(2, 11);
 
 const createSystemMessage = (content: string): Message => ({
   id: generateMessageId(),
   username: 'System',
   content,
-  timestamp: new Date(),
-  type: 'system'
-})
+  timestamp: new Date().toISOString(),
+  type: 'system',
+});
 
 const createUserMessage = (username: string, content: string): Message => ({
   id: generateMessageId(),
   username,
   content,
-  timestamp: new Date(),
-  type: 'user'
-})
+  timestamp: new Date().toISOString(),
+  type: 'user',
+});
 
-io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`)
+type ClientData = { clientId: string };
 
-  // Add test event handler
-  socket.on('test', (data) => {
-    console.log('Received test message:', data)
-    socket.emit('test-response', { 
-      message: 'Server received test message', 
-      data: data,
-      timestamp: new Date().toISOString()
-    })
-  })
-
-  socket.on('join', (data: { username: string }) => {
-    const { username } = data
-    
-    // Create user object
-    const user: User = {
-      id: socket.id,
-      username
+const server = Bun.serve<ClientData>({
+  port: 3003,
+  fetch(req, server) {
+    const url = new URL(req.url);
+    // WebSocket upgrade on the root path (Caddy forwards via XTransformPort)
+    if (url.pathname === '/' && server.upgrade(req, { data: { clientId: crypto.randomUUID() } })) {
+      return; // upgraded
     }
-    
-    // Add to user list
-    users.set(socket.id, user)
-    
-    // Send join message to all users
-    const joinMessage = createSystemMessage(`${username} joined the chat room`)
-    io.emit('user-joined', { user, message: joinMessage })
-    
-    // Send current user list to new user
-    const usersList = Array.from(users.values())
-    socket.emit('users-list', { users: usersList })
-    
-    console.log(`${username} joined the chat room, current online users: ${users.size}`)
-  })
+    return new Response('WebSocket chat demo — connect with ws upgrade on /', {
+      status: 200,
+      headers: { 'content-type': 'text/plain' },
+    });
+  },
+  websocket: {
+    open(ws) {
+      ws.send(JSON.stringify({ type: 'hello', clientId: ws.data.clientId }));
+      console.log(`Client connected: ${ws.data.clientId}`);
+    },
+    message(ws, raw) {
+      const client = ws.data.clientId;
+      let frame: ClientFrame;
+      try {
+        frame = JSON.parse(String(raw)) as ClientFrame;
+      } catch {
+        return;
+      }
 
-  socket.on('message', (data: { content: string; username: string }) => {
-    const { content, username } = data
-    const user = users.get(socket.id)
-    
-    if (user && user.username === username) {
-      const message = createUserMessage(username, content)
-      io.emit('message', message)
-      console.log(`${username}: ${content}`)
-    }
-  })
+      if (frame.type === 'join' && frame.username?.trim()) {
+        const user: User = { id: client, username: frame.username.trim() };
+        users.set(client, user);
+        ws.send(JSON.stringify({ type: 'users-list', users: [...users.values()] }));
+        server.publish('chat', JSON.stringify({
+          type: 'user-joined',
+          user,
+          message: createSystemMessage(`${user.username} joined the chat room`),
+        }));
+        console.log(`${user.username} joined — online: ${users.size}`);
+        return;
+      }
 
-  socket.on('disconnect', () => {
-    const user = users.get(socket.id)
-    
-    if (user) {
-      // Remove from user list
-      users.delete(socket.id)
-      
-      // Send leave message to all users
-      const leaveMessage = createSystemMessage(`${user.username} left the chat room`)
-      io.emit('user-left', { user: { id: socket.id, username: user.username }, message: leaveMessage })
-      
-      console.log(`${user.username} left the chat room, current online users: ${users.size}`)
-    } else {
-      console.log(`User disconnected: ${socket.id}`)
-    }
-  })
+      if (frame.type === 'message' && frame.content?.trim()) {
+        const user = users.get(client);
+        if (!user || user.username !== frame.username) return;
+        server.publish('chat', JSON.stringify({
+          type: 'message',
+          message: createUserMessage(user.username, frame.content.trim()),
+        }));
+        console.log(`${user.username}: ${frame.content.trim()}`);
+      }
+    },
+    close(ws) {
+      const client = ws.data.clientId;
+      const user = users.get(client);
+      if (user) {
+        users.delete(client);
+        server.publish('chat', JSON.stringify({
+          type: 'user-left',
+          user,
+          message: createSystemMessage(`${user.username} left the chat room`),
+        }));
+        console.log(`${user.username} left — online: ${users.size}`);
+      }
+    },
+  },
+});
 
-  socket.on('error', (error) => {
-    console.error(`Socket error (${socket.id}):`, error)
-  })
-})
+console.log(`WebSocket chat demo running on port ${server.port}`);
 
-const PORT = 3003
-httpServer.listen(PORT, () => {
-  console.log(`WebSocket server running on port ${PORT}`)
-})
+const shutdown = (signal: string) => {
+  console.log(`${signal} received — shutting down`);
+  server.stop(true);
+  process.exit(0);
+};
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('Received SIGTERM signal, shutting down server...')
-  httpServer.close(() => {
-    console.log('WebSocket server closed')
-    process.exit(0)
-  })
-})
-
-process.on('SIGINT', () => {
-  console.log('Received SIGINT signal, shutting down server...')
-  httpServer.close(() => {
-    console.log('WebSocket server closed')
-    process.exit(0)
-  })
-})
+(process as unknown as { on: (s: string, cb: () => void) => void }).on('SIGTERM', () => shutdown('SIGTERM'));
+(process as unknown as { on: (s: string, cb: () => void) => void }).on('SIGINT', () => shutdown('SIGINT'));
