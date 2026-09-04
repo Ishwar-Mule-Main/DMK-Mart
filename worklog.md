@@ -749,3 +749,20 @@ Work Log:
 Stage Summary:
 - The Dashboard Copilot is now a true two-pane analyst: the left pane chats with horizontally scrolling suggested questions, the right pane automatically draws the matching graph for each answer (sales trend area, comparison bars, aging/cash donuts) straight from the firm's grounded books — defaulting to a live 7-day sales trend before the first question.
 - Suggested next cycle: verification request assignment (assignedToId), team-portal toast/sound on new PO, GRN print at acceptance, verification history export, refund/settlement mode on CN/DN print documents.
+
+---
+Task ID: 34
+Agent: ATLAS (main session — user: "chat input area is in middle we need to set that to bottom of this container and in right graph remove and add there inventory stocks alert there")
+Task: Dashboard Copilot hero — (1) pin the chat composer to the BOTTOM of the container · (2) replace the right-column auto-graph with a live Inventory Stock Alerts panel
+
+Work Log:
+- COMPOSER PINNED TO BOTTOM (dashboard-ai-chat.tsx rewritten): body grid is now `lg:h-[450px]` so both columns share one fixed row; LEFT column is `flex flex-col min-h-0` with the messages area as `flex-1 min-h-[150px] max-h-[280px] lg:max-h-none overflow-y-auto` — it absorbs all slack, so the horizontal suggestion strip now sits directly above the input and the INPUT is the last element = bottom of the container (desktop measured: input bottom 668 == aside bottom 668, only the card's 20px padding below). Mobile keeps natural stacking (messages cap 280px) so nothing overflows.
+- RIGHT COLUMN = INVENTORY STOCK ALERTS: recharts + CopilotChart + buildCopilotChart consumption + the resting trend-chart bootstrap all REMOVED from the hero (API route untouched — still returns { reply, chart } for any future consumer). New StockAlertsPanel fetches GET /api/v1/inventory/low-stock on mount and auto-re-syncs every 60s (pulsing sync dot + "Auto-syncs with live stock" footer): header "INVENTORY STOCK ALERTS" + count badge (danger when any OUT, warning otherwise); 3 stat tiles — OUT OF STOCK n / LOW STOCK n / RESTOCK EST. ₹ (Σ shortfall × purchaseCost); scrollable alert rows with severity badge (OUT=red / LOW=amber), name + SKU·category, a stock-vs-threshold meter bar (progressbar aria attrs), "6 Pcs / thr 20" + "short 14" (+ "dmg n" when damagedStock > 0); healthy empty state (green check "All stock levels are healthy"); footer link "Open inventory →" routes to view inventory/low-stock (fixed an invalid setView("inventory") caught pre-QA).
+- Greeting bubble text updated ("stock alerts on the right stay live" instead of the chart reference); apiPost typed { reply } only.
+- GATES: bun run lint 0/0 · bunx tsc --noEmit 0 · zero browser console errors · dev.log clean (Fast Refresh only).
+- BROWSER QA (agent-browser via :81, owner session): grid renders 778px + 340px columns at h=450 ✓; composer pinned (gap card-bottom→input-bottom = 21px = padding, aligned with aside bottom) ✓; right panel shows 2 ALERTS — 0 OUT / 2 LOW / ₹25,100 restock est., rows DMK-CH-003 (6/20, short 14) + DMK-CR-303 (14/20, short 6) with meters ✓ (qa-copilot-input-bottom.png); suggestion chip "Which products are low on stock?" → user + copilot bubbles render with bullet markdown, composer stays pinned ✓; mobile 390px → single 332px column, alerts stacked below chat, no body overflow, 2 rows visible ✓ (qa-copilot-mobile.png).
+- TOOLING NOTE: `agent-browser resize` is gone — use `agent-browser set viewport <w> <h>`.
+
+Stage Summary:
+- The Copilot hero now reads like a real chat app: conversation grows on top, suggested questions + composer anchored at the bottom edge of the container; the right pane is a live operations panel — inventory stock alerts (out/low/restock-cost) that silently re-syncs every minute — replacing the answer-driven chart.
+- Suggested next cycle: verification request assignment (assignedToId), team-portal toast/sound on new PO, GRN print at acceptance, verification history export, refund/settlement mode shown on CN/DN print documents.

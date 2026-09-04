@@ -2,47 +2,50 @@
 
 // ═══════════════════════════════════════════════════════════════
 // DASHBOARD — DMK AI COPILOT (hero container at the top of the app)
-// Two columns: LEFT = chat with horizontally scrolling suggested
-// questions · RIGHT = automated visualization that redraws from the
-// grounded snapshot for every copilot answer (line / bars / donut).
-// POST /api/v1/ai/chat { firmId, message } → { reply, chart }.
+// Two columns: LEFT = chat that fills the column with the input
+// pinned to the BOTTOM of the container (messages grow above it,
+// horizontal suggested-questions strip sits just above the input)
+// · RIGHT = live Inventory Stock Alerts (out-of-stock + low-stock,
+// auto-synced from /inventory/low-stock every 60s).
+// Chat: POST /api/v1/ai/chat { firmId, message } → { reply }.
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  LabelList,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
-  BarChart3,
+  AlertTriangle,
+  ArrowRight,
   Bot,
+  CheckCircle2,
   CornerDownLeft,
   Loader2,
-  ShieldCheck,
+  PackageX,
   Sparkles,
   User,
 } from "lucide-react";
-import { apiPost, ApiError } from "@/lib/api-client";
+import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import type { CopilotChart } from "@/types/erp";
 
 interface Msg {
   id: number;
   role: "user" | "copilot";
   text: string;
+}
+
+/** Slice of GET /inventory/low-stock used by the right-column alerts panel. */
+interface StockAlert {
+  id: string;
+  sku: string;
+  name: string;
+  category: string | null;
+  unit: string;
+  stockQuantity: number;
+  damagedStock: number;
+  purchaseCost: number;
+  lowStockThreshold: number;
+  shortfall: number;
+  stockValue: number;
 }
 
 /** Suggested questions — one horizontally scrollable strip on every breakpoint. */
@@ -55,30 +58,8 @@ const SUGGESTIONS: Array<{ q: string; group: string; dot: string }> = [
   { q: "Top overdue customers this month?", group: "Finance", dot: "#38bdf8" },
 ];
 
-const DONUT_PALETTE = ["#ffc300", "#2563eb", "#22c55e", "#ef4444", "#38bdf8"];
-
-const TOOLTIP_STYLE: React.CSSProperties = {
-  background: "#0D1527",
-  border: "1px solid rgba(255,255,255,0.09)",
-  borderRadius: 10,
-  fontSize: 11,
-  padding: "6px 10px",
-  color: "#e6e9f0",
-  boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-};
-
-const AXIS_TICK = { fill: "#8b93a7", fontSize: 10 };
-
 function fmtMoney(n: number): string {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
-}
-
-function compactMoney(n: number): string {
-  return `₹${Intl.NumberFormat("en-IN", { notation: "compact", maximumFractionDigits: 1 }).format(n)}`;
-}
-
-function compactNum(n: number): string {
-  return Intl.NumberFormat("en-IN", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 
 let seq = 0;
@@ -116,186 +97,191 @@ function CopilotText({ text }: { text: string }) {
   );
 }
 
-// ── Right-column visual renderers ───────────────────────────────
+// ── RIGHT column: live inventory stock alerts ───────────────────
 
-function TrendViz({ chart }: { chart: Extract<CopilotChart, { kind: "line" }> }) {
-  return (
-    <ResponsiveContainer width="100%" height={225}>
-      <AreaChart data={chart.points} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
-        <defs>
-          <linearGradient id="copilotTrendFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#ffc300" stopOpacity={0.32} />
-            <stop offset="100%" stopColor="#ffc300" stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
-        <XAxis dataKey="label" tick={AXIS_TICK} axisLine={false} tickLine={false} dy={4} />
-        <YAxis
-          tickFormatter={(v: number) => compactMoney(v)}
-          tick={AXIS_TICK}
-          axisLine={false}
-          tickLine={false}
-          width={56}
-        />
-        <Tooltip
-          contentStyle={TOOLTIP_STYLE}
-          formatter={(value) => [fmtMoney(Number(value)), "Billed"]}
-          cursor={{ stroke: "rgba(255,195,0,0.35)", strokeDasharray: "4 4" }}
-        />
-        <Area
-          type="monotone"
-          dataKey="value"
-          stroke="#ffc300"
-          strokeWidth={2}
-          fill="url(#copilotTrendFill)"
-          dot={{ r: 2.5, fill: "#ffc300", strokeWidth: 0 }}
-          activeDot={{ r: 4.5, fill: "#ffc300", stroke: "#0A0F1D", strokeWidth: 2 }}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
-  );
-}
+function StockAlertRow({ alert }: { alert: StockAlert }) {
+  const out = alert.stockQuantity <= 0;
+  const low = !out && alert.stockQuantity <= alert.lowStockThreshold;
+  // Fill ratio against the reorder threshold — 0 for out-of-stock.
+  const fillPct =
+    alert.lowStockThreshold > 0
+      ? Math.max(0, Math.min(100, (alert.stockQuantity / alert.lowStockThreshold) * 100))
+      : alert.stockQuantity > 0
+        ? 100
+        : 0;
 
-function HBarViz({ chart }: { chart: Extract<CopilotChart, { kind: "hbar" }> }) {
-  const fmt = (n: number) => (chart.unit === "inr" ? fmtMoney(n) : `${n}`);
   return (
-    <ResponsiveContainer width="100%" height={Math.max(170, chart.items.length * 46 + 24)}>
-      <BarChart data={chart.items} layout="vertical" margin={{ top: 4, right: 52, left: 0, bottom: 0 }}>
-        <CartesianGrid stroke="rgba(255,255,255,0.05)" horizontal={false} />
-        <XAxis
-          type="number"
-          tickFormatter={(v: number) => (chart.unit === "inr" ? compactMoney(v) : compactNum(v))}
-          tick={AXIS_TICK}
-          axisLine={false}
-          tickLine={false}
-        />
-        <YAxis
-          type="category"
-          dataKey="label"
-          width={104}
-          tick={{ fill: "#c3c9d6", fontSize: 10 }}
-          axisLine={false}
-          tickLine={false}
-          tickFormatter={(v: string) => (v.length > 15 ? `${v.slice(0, 14)}…` : v)}
-        />
-        <Tooltip
-          contentStyle={TOOLTIP_STYLE}
-          formatter={(value, _name, item) => {
-            const hint = (item?.payload as { hint?: string } | undefined)?.hint;
-            return [fmt(Number(value)), hint || chart.title];
-          }}
-          cursor={{ fill: "rgba(255,255,255,0.04)" }}
-        />
-        <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={15}>
-          {chart.items.map((it, i) => (
-            <Cell
-              key={i}
-              fill={it.color ?? (chart.unit === "inr" ? "#ffc300" : "#38bdf8")}
-            />
-          ))}
-          <LabelList
-            dataKey="value"
-            position="right"
-            fontSize={9.5}
-            fill="#8b93a7"
-            formatter={(l: React.ReactNode) =>
-              chart.unit === "inr" ? compactMoney(Number(l)) : compactNum(Number(l))
-            }
-          />
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}
-
-function DonutViz({ chart }: { chart: Extract<CopilotChart, { kind: "donut" }> }) {
-  const slices = chart.slices.filter((s) => s.value > 0);
-  return (
-    <div>
-      <div className="relative">
-        <ResponsiveContainer width="100%" height={165}>
-          <PieChart>
-            <Pie
-              data={slices.length > 0 ? slices : [{ label: "None", value: 1, color: "#2a3247" }]}
-              dataKey="value"
-              nameKey="label"
-              innerRadius="64%"
-              outerRadius="90%"
-              paddingAngle={slices.length > 1 ? 3 : 0}
-              stroke="none"
-              startAngle={90}
-              endAngle={-270}
-            >
-              {(slices.length > 0 ? slices : [{ color: "#2a3247" }]).map((s, i) => (
-                <Cell key={i} fill={s.color ?? DONUT_PALETTE[i % DONUT_PALETTE.length]} />
-              ))}
-            </Pie>
-            <Tooltip
-              contentStyle={TOOLTIP_STYLE}
-              formatter={(value, name) => [fmtMoney(Number(value)), String(name)]}
-            />
-          </PieChart>
-        </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <p className="text-[9px] uppercase tracking-wider text-dmk-text-muted">{chart.centerLabel}</p>
-          <p className="text-[15px] font-bold text-dmk-text-primary font-money leading-tight">
-            {fmtMoney(chart.centerValue)}
+    <li className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 p-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[12px] font-semibold text-dmk-text-primary truncate leading-tight">
+            {alert.name}
+          </p>
+          <p className="text-[10px] text-dmk-text-muted truncate mt-0.5">
+            {alert.sku}
+            {alert.category ? ` · ${alert.category}` : ""}
           </p>
         </div>
+        <span
+          className={cn(
+            "dmk-badge h-5 px-1.5 text-[8.5px] shrink-0 font-bold tracking-wide",
+            out
+              ? "bg-dmk-danger/15 text-dmk-danger border border-dmk-danger/30"
+              : "bg-dmk-warning/15 text-dmk-warning border border-dmk-warning/30"
+          )}
+        >
+          {out ? "OUT" : "LOW"}
+        </span>
       </div>
-      {/* Legend with values */}
-      <div className="mt-2 space-y-1">
-        {chart.slices.map((s, i) => (
-          <div key={s.label} className="flex items-center gap-2 text-[11px]">
-            <span
-              className="h-2 w-2 rounded-sm shrink-0"
-              style={{ background: s.color ?? DONUT_PALETTE[i % DONUT_PALETTE.length] }}
-              aria-hidden
-            />
-            <span className="text-dmk-text-secondary truncate flex-1">{s.label}</span>
-            <span className="font-money font-semibold text-dmk-text-primary">{fmtMoney(s.value)}</span>
-          </div>
-        ))}
+
+      {/* Stock vs threshold meter */}
+      <div className="mt-2">
+        <div className="h-1.5 rounded-full bg-dmk-border-subtle/60 overflow-hidden">
+          <div
+            className={cn("h-full rounded-full transition-all", out ? "bg-dmk-danger" : "bg-dmk-warning")}
+            style={{ width: `${Math.max(fillPct, out ? 0 : 6)}%` }}
+            role="progressbar"
+            aria-label={`${alert.name} stock level`}
+            aria-valuenow={alert.stockQuantity}
+            aria-valuemin={0}
+            aria-valuemax={alert.lowStockThreshold}
+          />
+        </div>
+        <div className="mt-1.5 flex items-center justify-between text-[10px]">
+          <span className={cn("font-money font-semibold", out ? "text-dmk-danger" : "text-dmk-warning")}>
+            {alert.stockQuantity} {alert.unit}
+            <span className="text-dmk-text-muted font-normal"> / thr {alert.lowStockThreshold}</span>
+          </span>
+          <span className="text-dmk-text-muted">
+            short <span className="font-money text-dmk-text-secondary">{alert.shortfall}</span>
+            {alert.damagedStock > 0 && (
+              <>
+                {" · "}dmg <span className="text-dmk-text-secondary">{alert.damagedStock}</span>
+              </>
+            )}
+          </span>
+        </div>
       </div>
-    </div>
+    </li>
   );
 }
 
-function VisualAnswer({ chart, updating }: { chart: CopilotChart | null; updating: boolean }) {
-  if (!chart) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-2 py-10 text-center">
-        <Loader2 className="h-5 w-5 animate-spin text-dmk-yellow" />
-        <p className="text-[11.5px] text-dmk-text-muted">Reading the books to draw your first visual…</p>
-      </div>
-    );
-  }
-  const empty =
-    (chart.kind === "line" && chart.points.length === 0) ||
-    (chart.kind === "hbar" && chart.items.length === 0) ||
-    (chart.kind === "donut" && chart.slices.every((s) => s.value <= 0));
+function StockAlertsPanel({ firmId }: { firmId: string | null }) {
+  const setView = useErpStore((s) => s.setView);
+  const [alerts, setAlerts] = React.useState<StockAlert[] | null>(null);
+  const [syncing, setSyncing] = React.useState(false);
+
+  const load = React.useCallback(() => {
+    if (!firmId) return;
+    setSyncing(true);
+    apiGet<StockAlert[]>("/api/v1/inventory/low-stock", { firmId })
+      .then((list) => setAlerts(Array.isArray(list) ? list : []))
+      .catch(() => {
+        /* panel keeps the last snapshot — chat is unaffected */
+      })
+      .finally(() => setSyncing(false));
+  }, [firmId]);
+
+  // Initial load + auto-refresh every 60s (live stock sync).
+  React.useEffect(() => {
+    if (!firmId) return;
+    load();
+    const t = setInterval(load, 60_000);
+    return () => clearInterval(t);
+  }, [firmId, load]);
+
+  const outCount = alerts?.filter((a) => a.stockQuantity <= 0).length ?? 0;
+  const lowCount = (alerts?.length ?? 0) - outCount;
+  const restockCost =
+    alerts?.reduce((sum, a) => sum + Math.max(0, a.shortfall) * a.purchaseCost, 0) ?? 0;
 
   return (
-    <div key={`${chart.topic}-${chart.title}`} className="dmk-enter flex flex-col flex-1 min-h-0">
-      {empty ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-1.5 py-8 text-center">
-          <BarChart3 className="h-6 w-6 text-dmk-text-disabled" />
-          <p className="text-[12px] font-medium text-dmk-text-secondary">Nothing to chart here yet</p>
-          <p className="text-[11px] text-dmk-text-muted">The books show no matching data for this question.</p>
-        </div>
-      ) : chart.kind === "line" ? (
-        <TrendViz chart={chart} />
-      ) : chart.kind === "hbar" ? (
-        <HBarViz chart={chart} />
-      ) : (
-        <DonutViz chart={chart} />
-      )}
-      {updating && (
-        <p className="mt-1 text-[10.5px] text-dmk-text-muted flex items-center gap-1.5">
-          <Loader2 className="h-3 w-3 animate-spin" /> Updating the visual from the latest answer…
+    <aside
+      className="rounded-xl border border-dmk-border-subtle bg-dmk-bg-secondary/60 p-3.5 flex flex-col min-h-[340px] lg:min-h-0 lg:h-full"
+      aria-label="Inventory stock alerts"
+      aria-live="polite"
+    >
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="text-[10.5px] font-semibold uppercase tracking-wider text-dmk-text-muted flex items-center gap-1.5">
+          <PackageX className="h-3.5 w-3.5 text-dmk-warning" />
+          Inventory stock alerts
         </p>
+        {alerts && alerts.length > 0 && (
+          <span
+            className={cn(
+              "dmk-badge h-5 px-2 text-[9px] font-bold",
+              outCount > 0
+                ? "bg-dmk-danger/15 text-dmk-danger"
+                : "bg-dmk-warning/15 text-dmk-warning"
+            )}
+          >
+            {alerts.length} ALERT{alerts.length === 1 ? "" : "S"}
+          </span>
+        )}
+      </div>
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-3 gap-1.5 mb-2.5">
+        <div className="rounded-lg bg-dmk-danger/10 border border-dmk-danger/20 px-2 py-1.5">
+          <p className="text-[14px] font-bold text-dmk-danger font-money leading-none">{outCount}</p>
+          <p className="text-[9px] text-dmk-text-muted mt-1 uppercase tracking-wide">Out of stock</p>
+        </div>
+        <div className="rounded-lg bg-dmk-warning/10 border border-dmk-warning/20 px-2 py-1.5">
+          <p className="text-[14px] font-bold text-dmk-warning font-money leading-none">{lowCount}</p>
+          <p className="text-[9px] text-dmk-text-muted mt-1 uppercase tracking-wide">Low stock</p>
+        </div>
+        <div className="rounded-lg bg-dmk-input-well border border-dmk-border-subtle px-2 py-1.5">
+          <p className="text-[14px] font-bold text-dmk-text-primary font-money leading-none">
+            {fmtMoney(restockCost)}
+          </p>
+          <p className="text-[9px] text-dmk-text-muted mt-1 uppercase tracking-wide">Restock est.</p>
+        </div>
+      </div>
+
+      {/* Alert list (scrollable) */}
+      {alerts === null ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-2 py-8 text-center">
+          <Loader2 className="h-5 w-5 animate-spin text-dmk-warning" />
+          <p className="text-[11.5px] text-dmk-text-muted">Syncing live stock levels…</p>
+        </div>
+      ) : alerts.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-2 py-8 text-center">
+          <CheckCircle2 className="h-6 w-6 text-dmk-success" />
+          <p className="text-[12px] font-medium text-dmk-text-secondary">All stock levels are healthy</p>
+          <p className="text-[11px] text-dmk-text-muted">
+            Nothing is at or below its reorder threshold right now.
+          </p>
+        </div>
+      ) : (
+        <ul
+          className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-0.5 max-h-[320px] lg:max-h-none [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-dmk-border-medium [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent"
+          aria-label="Products at or below reorder threshold"
+        >
+          {alerts.map((a) => (
+            <StockAlertRow key={a.id} alert={a} />
+          ))}
+        </ul>
       )}
-    </div>
+
+      <p className="mt-2.5 pt-2.5 border-t border-dmk-border-subtle text-[10.5px] text-dmk-text-muted flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 leading-snug">
+          <span
+            className={cn(
+              "h-1.5 w-1.5 rounded-full",
+              syncing ? "bg-dmk-yellow animate-pulse" : "bg-dmk-success"
+            )}
+            aria-hidden
+          />
+          {syncing ? "Syncing…" : "Auto-syncs with live stock"}
+        </span>
+        <button
+          onClick={() => setView("inventory/low-stock")}
+          className="text-[10.5px] font-semibold text-dmk-blue hover:underline shrink-0 inline-flex items-center gap-0.5"
+        >
+          Open inventory <ArrowRight className="h-3 w-3" />
+        </button>
+      </p>
+    </aside>
   );
 }
 
@@ -309,24 +295,7 @@ export function DashboardAiChat() {
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
-  const [chart, setChart] = React.useState<CopilotChart | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
-
-  // Resting visual: 7-day sales trend (server answers without an LLM call).
-  React.useEffect(() => {
-    if (!activeFirmId) return;
-    let cancelled = false;
-    apiPost<{ chart?: CopilotChart }>("/api/v1/ai/chat", { firmId: activeFirmId, message: "" })
-      .then((res) => {
-        if (!cancelled && res.chart) setChart(res.chart);
-      })
-      .catch(() => {
-        /* the chat itself still works — visual just stays on the greeting */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeFirmId]);
 
   React.useEffect(() => {
     const el = scrollRef.current;
@@ -340,7 +309,7 @@ export function DashboardAiChat() {
     setInput("");
     setLoading(true);
     try {
-      const res = await apiPost<{ reply: string; chart?: CopilotChart }>("/api/v1/ai/chat", {
+      const res = await apiPost<{ reply: string }>("/api/v1/ai/chat", {
         firmId: activeFirmId,
         message,
       });
@@ -348,7 +317,6 @@ export function DashboardAiChat() {
         ...prev,
         { id: nextId(), role: "copilot", text: res.reply || "I could not generate a response — try again." },
       ]);
-      if (res.chart) setChart(res.chart);
     } catch (e) {
       toast({
         variant: "destructive",
@@ -392,13 +360,14 @@ export function DashboardAiChat() {
           </button>
         </div>
 
-        {/* Body: LEFT chat + horizontal asks · RIGHT live visual */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4">
-          {/* ── LEFT: chat interface ── */}
-          <div className="min-w-0 flex flex-col">
+        {/* Body: LEFT chat (input pinned to the bottom) · RIGHT live stock alerts */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] lg:h-[450px] gap-4">
+          {/* ── LEFT: chat interface, composer anchored at the bottom ── */}
+          <div className="min-w-0 flex flex-col min-h-0">
             <div
               ref={scrollRef}
-              className="min-h-[150px] max-h-[260px] overflow-y-auto space-y-2 pr-1 mb-3"
+              className="flex-1 min-h-[150px] max-h-[280px] lg:max-h-none overflow-y-auto space-y-2 pr-1"
+              aria-label="Copilot conversation"
             >
               {messages.length === 0 && !loading && (
                 <div className="flex items-start gap-2">
@@ -407,8 +376,8 @@ export function DashboardAiChat() {
                   </span>
                   <p className="max-w-[82%] rounded-lg px-3 py-2 text-[12.5px] leading-relaxed bg-dmk-input-well border border-dmk-border-subtle text-dmk-text-secondary">
                     Ask me anything about this firm — sales, receivables, stock, GST or P&amp;L.
-                    I read the live books, so every answer reflects real postings — and the visual
-                    on the right redraws with each answer.
+                    I read the live books, so every answer reflects real postings — and the
+                    stock alerts on the right stay live.
                   </p>
                 </div>
               )}
@@ -443,32 +412,7 @@ export function DashboardAiChat() {
               )}
             </div>
 
-            {/* Input */}
-            <div className="relative">
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-                placeholder="Ask about sales, stock, receivables, P&L…"
-                className="h-11 w-full rounded-lg bg-dmk-input-well border border-dmk-border-subtle pl-3 pr-11 text-[13px] text-dmk-text-primary placeholder:text-dmk-text-disabled focus:outline-none focus:border-dmk-yellow/50"
-                aria-label="Ask AI Copilot"
-              />
-              <button
-                onClick={() => void send()}
-                disabled={loading || !input.trim()}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md bg-dmk-yellow text-[#0A0F1D] flex items-center justify-center disabled:opacity-40 transition-opacity"
-                aria-label="Send question"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CornerDownLeft className="h-4 w-4" />}
-              </button>
-            </div>
-
-            {/* Horizontally scrolling suggested questions (all breakpoints) */}
+            {/* Horizontally scrolling suggested questions (sit just above the composer) */}
             <div className="relative mt-2.5">
               <div
                 className="flex gap-1.5 overflow-x-auto pb-1.5 -mx-1 px-1 scroll-smooth [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:bg-dmk-border-medium [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent"
@@ -500,42 +444,35 @@ export function DashboardAiChat() {
                 aria-hidden="true"
               />
             </div>
+
+            {/* Input — pinned to the bottom of the container */}
+            <div className="relative mt-1.5">
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+                placeholder="Ask about sales, stock, receivables, P&L…"
+                className="h-11 w-full rounded-lg bg-dmk-input-well border border-dmk-border-subtle pl-3 pr-11 text-[13px] text-dmk-text-primary placeholder:text-dmk-text-disabled focus:outline-none focus:border-dmk-yellow/50"
+                aria-label="Ask AI Copilot"
+              />
+              <button
+                onClick={() => void send()}
+                disabled={loading || !input.trim()}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md bg-dmk-yellow text-[#0A0F1D] flex items-center justify-center disabled:opacity-40 transition-opacity"
+                aria-label="Send question"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CornerDownLeft className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
 
-          {/* ── RIGHT: automated visual from the copilot's answer ── */}
-          <aside
-            className="rounded-xl border border-dmk-border-subtle bg-dmk-bg-secondary/60 p-3.5 flex flex-col min-h-[330px]"
-            aria-label="Copilot visual answer"
-            aria-live="polite"
-          >
-            <div className="flex items-center justify-between gap-2 mb-1.5">
-              <p className="text-[10.5px] font-semibold uppercase tracking-wider text-dmk-text-muted flex items-center gap-1.5">
-                <BarChart3 className="h-3.5 w-3.5 text-dmk-yellow" />
-                Visual answer
-              </p>
-              {chart && (
-                <span
-                  className={cn(
-                    "dmk-badge h-5 px-2 text-[9px] bg-dmk-yellow/12 text-dmk-yellow",
-                    loading && "animate-pulse"
-                  )}
-                >
-                  {loading ? "UPDATING…" : chart.topic}
-                </span>
-              )}
-            </div>
-            {chart && (
-              <>
-                <p className="text-[12.5px] font-semibold text-dmk-text-primary leading-tight">{chart.title}</p>
-                <p className="text-[10.5px] text-dmk-text-muted mb-2.5">{chart.subtitle}</p>
-              </>
-            )}
-            <VisualAnswer chart={chart} updating={loading} />
-            <p className="mt-3 pt-2.5 border-t border-dmk-border-subtle text-[10.5px] text-dmk-text-muted flex items-start gap-1.5 leading-snug">
-              <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-dmk-success mt-0.5" />
-              Charted from this firm&apos;s journals only — no data leaves your books.
-            </p>
-          </aside>
+          {/* ── RIGHT: live inventory stock alerts ── */}
+          <StockAlertsPanel firmId={activeFirmId} />
         </div>
       </div>
     </section>
