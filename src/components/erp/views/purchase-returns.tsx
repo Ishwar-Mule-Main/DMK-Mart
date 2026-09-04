@@ -318,17 +318,28 @@ export default function PurchaseReturnsView() {
 // ═══════════════════════════════════════════════════════════════
 interface DnLine {
   productId: string;
-  qty: string;
+  qty: string; // damaged qty to return — 0 means "not returned"
   cost: string;
   reason: string;
+  poQty?: number | null; // set when the row came from a vendor PO
+  fromPo?: boolean;
 }
+
+type SettlementMode = "CREDIT" | "UPI_NEFT" | "CASH";
+
+const SETTLEMENT_MODES: Array<{ value: SettlementMode; short: string; sub: string }> = [
+  { value: "CREDIT", short: "Adjust in credit", sub: "Amount adjusts the vendor's payable (opening balance) — credited against what we owe them" },
+  { value: "UPI_NEFT", short: "UPI / NEFT", sub: "Vendor pays the amount back instantly via bank transfer" },
+  { value: "CASH", short: "Cash", sub: "Vendor pays the amount back instantly in cash" },
+];
 
 interface PoLite {
   id: string;
   poNumber: string;
   poDate: string;
+  grandTotal: number;
   vendorId: string;
-  items: Array<{ productId: string; sku: string; productName: string; quantity: number }>;
+  items: Array<{ productId: string; sku: string; productName: string; quantity: number; unitCost: number }>;
 }
 
 function NewDebitNoteDialog({
@@ -351,6 +362,8 @@ function NewDebitNoteDialog({
   const [vendorId, setVendorId] = React.useState("NONE");
   const [poId, setPoId] = React.useState("NONE");
   const [poOptions, setPoOptions] = React.useState<PoLite[]>([]);
+  const [poSort, setPoSort] = React.useState<"recent" | "oldest">("recent");
+  const [settlementMode, setSettlementMode] = React.useState<SettlementMode>("CREDIT");
   const [returnDate, setReturnDate] = React.useState(toISODate(new Date()));
   const [lines, setLines] = React.useState<DnLine[]>([]);
 
@@ -389,14 +402,45 @@ function NewDebitNoteDialog({
     };
   }, [open, activeFirmId, vendorId]);
 
+  // Recent POs first, flip with the sort toggle
+  const sortedPoOptions = React.useMemo(() => {
+    const arr = [...poOptions];
+    arr.sort((a, b) => {
+      const da = new Date(a.poDate).getTime() || 0;
+      const dbb = new Date(b.poDate).getTime() || 0;
+      return poSort === "recent" ? dbb - da : da - dbb;
+    });
+    return arr;
+  }, [poOptions, poSort]);
+
   React.useEffect(() => {
     if (!open) return;
     setVendorId("NONE");
     setPoId("NONE");
     setPoOptions([]);
+    setPoSort("recent");
+    setSettlementMode("CREDIT");
     setReturnDate(toISODate(new Date()));
     setLines([]);
   }, [open]);
+
+  // Selecting a PO auto-loads its lines at the PO prices — every row
+  // starts with damaged qty 0 (not returned) until typed in.
+  React.useEffect(() => {
+    if (!open || poId === "NONE") return;
+    const po = poOptions.find((p) => p.id === poId);
+    if (!po) return;
+    setLines(
+      po.items.map((it) => ({
+        productId: it.productId,
+        qty: "0",
+        cost: String(it.unitCost ?? 0),
+        reason: "Transit Damage",
+        poQty: Number(it.quantity) || 0,
+        fromPo: true,
+      })),
+    );
+  }, [poId, open]);
 
   const vendor = vendors.find((v) => v.id === vendorId);
   // No vendor → seller state falls back to the firm's own state (intra, per server)
@@ -425,8 +469,10 @@ function NewDebitNoteDialog({
   const grand = round2(totals.taxable + totals.cgst + totals.sgst + totals.igst);
 
   const stockErrors = computed.filter((c) => c.overStock);
-  const linesValid = lines.every((l) => num(l.qty) > 0 && num(l.cost) >= 0);
-  const canSave = lines.length > 0 && linesValid && stockErrors.length === 0;
+  const returnRows = computed.filter((c) => num(c.line.qty) > 0);
+  const overPoRows = returnRows.filter((c) => c.line.poQty != null && num(c.line.qty) > (c.line.poQty ?? 0));
+  const linesValid = returnRows.length > 0 && returnRows.every((c) => num(c.line.qty) > 0 && num(c.line.cost) >= 0);
+  const canSave = linesValid && stockErrors.length === 0 && overPoRows.length === 0;
 
   function addProduct(p: Product) {
     setLines((ls) => {
@@ -452,21 +498,28 @@ function NewDebitNoteDialog({
     if (!activeFirmId || !canSave) return;
     setSaving(true);
     try {
-      const res = await apiPost<{ purchaseReturn: PrRow; journal: unknown }>("/api/v1/purchase-returns", {
+      const res = await apiPost<{ purchaseReturn: PrRow; journal: unknown; settlementMode: SettlementMode }>("/api/v1/purchase-returns", {
         firmId: activeFirmId,
         vendorId: vendorId === "NONE" ? undefined : vendorId,
         poId: poId === "NONE" ? undefined : poId,
         returnDate,
-        items: lines.map((l) => ({
-          productId: l.productId,
-          damagedQty: num(l.qty),
-          unitCost: num(l.cost),
-          reason: l.reason,
+        settlementMode,
+        items: returnRows.map(({ line }) => ({
+          productId: line.productId,
+          damagedQty: num(line.qty),
+          unitCost: num(line.cost),
+          reason: line.reason,
         })),
       });
+      const settleNote =
+        settlementMode === "CREDIT"
+          ? "amount adjusted in vendor credit (payable reduced)"
+          : settlementMode === "UPI_NEFT"
+            ? `${formatINR(res.purchaseReturn?.grandTotal ?? 0)} receivable from vendor via UPI/NEFT`
+            : `${formatINR(res.purchaseReturn?.grandTotal ?? 0)} receivable from vendor in Cash`;
       toast({
         title: `Debit note ${res.purchaseReturn?.debitNoteNo ?? ""} created`,
-        description: "Damaged stock reduced · Vendor payable reduced · ITC reversed · Journal posted",
+        description: `Damaged stock reduced · ITC reversed · ${settleNote}`,
       });
       onSaved();
       onOpenChange(false);
@@ -474,7 +527,7 @@ function NewDebitNoteDialog({
       const msg = e instanceof ApiError ? e.message : "Could not create debit note.";
       toast({
         variant: "destructive",
-        title: e instanceof ApiError && e.code === "ERR_NEGATIVE_STOCK" ? "Not enough damaged stock" : "Save failed",
+        title: e instanceof ApiError && (e.code === "ERR_NEGATIVE_STOCK" || e.code === "ERR_RETURN_EXCEEDS_PO") ? "Invalid return quantity" : "Save failed",
         description: msg,
       });
     } finally {
@@ -488,17 +541,18 @@ function NewDebitNoteDialog({
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">New debit note — purchase return</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
-            Quantities are drawn from the Damaged pool only — the server rejects returns larger than available damaged
-            stock.
+            Pick a vendor PO to auto-load its products at the PO prices, then set the damaged qty per row (0 = not returned).
+            Quantities are drawn from the Damaged pool only — the server rejects returns larger than available damaged stock.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Vendor" hint="Optional — omit for stock-only write-back">
             <Select
               value={vendorId}
               onValueChange={(v) => {
                 setVendorId(v);
+                setPoId("NONE");
                 setLines([]); // scope may change — start clean
               }}
             >
@@ -517,124 +571,168 @@ function NewDebitNoteDialog({
             </Select>
           </Field>
 
-          <Field label="Reference PO" hint={vendorId === "NONE" ? "Pick a vendor first" : "Optional — their confirmed POs"}>
-            <Select value={poId} onValueChange={setPoId} disabled={vendorId === "NONE"}>
-              <SelectTrigger className={cn(inputCls, "w-full")}>
-                <SelectValue placeholder={vendorId === "NONE" ? "—" : "None"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="NONE">— None —</SelectItem>
-                {poOptions.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.poNumber} · {formatDate(p.poDate)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <Field label="Vendor invoices (confirmed POs)">
+            <div className="flex gap-1.5">
+              <Select
+                value={poId}
+                onValueChange={setPoId}
+                disabled={vendorId === "NONE"}
+              >
+                <SelectTrigger className={cn(inputCls, "w-full")}>
+                  <SelectValue placeholder={vendorId === "NONE" ? "Pick a vendor first" : "Pick a PO — loads its products"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NONE">— None —</SelectItem>
+                  {sortedPoOptions.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.poNumber} · {formatDate(p.poDate)} · {formatINR(Number(p.grandTotal))}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-9 shrink-0 border-dmk-border-subtle px-2 text-[11px] text-dmk-text-secondary hover:bg-dmk-hover"
+                onClick={() => setPoSort((s) => (s === "recent" ? "oldest" : "recent"))}
+                disabled={vendorId === "NONE" || sortedPoOptions.length < 2}
+                title="Toggle PO sort order"
+              >
+                {poSort === "recent" ? "Newest ↓" : "Oldest ↑"}
+              </Button>
+            </div>
+            <p className="mt-1 text-[11px] leading-tight text-dmk-text-muted">
+              Recent POs first — picking one loads its products &amp; PO prices below.
+            </p>
           </Field>
 
           <Field label="Return date">
             <Input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
           </Field>
-        </div>
 
-        {/* Quick-add from the referenced PO */}
-        {refPo && (
-          <div className="dmk-well px-3 py-2.5">
-            <p className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted mb-1.5">
-              Quick add from {refPo.poNumber}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {refPo.items.map((it) => (
+          <Field label="Settlement by vendor">
+            <div className="grid grid-cols-3 gap-1.5">
+              {SETTLEMENT_MODES.map((m) => (
                 <button
-                  key={it.productId}
+                  key={m.value}
                   type="button"
-                  onClick={() => {
-                    const p = productMap.get(it.productId);
-                    if (p) addProduct(p);
-                  }}
-                  className="dmk-badge dmk-badge-info hover:bg-dmk-hover cursor-pointer"
+                  onClick={() => setSettlementMode(m.value)}
+                  title={`${m.short} — ${m.sub}`}
+                  aria-pressed={settlementMode === m.value}
+                  className={cn(
+                    "h-9 rounded-md border px-1 text-[11px] font-medium leading-tight transition-colors",
+                    settlementMode === m.value
+                      ? "border-dmk-yellow bg-dmk-yellow text-white shadow-sm"
+                      : "border-dmk-border-medium bg-transparent text-dmk-text-secondary hover:bg-dmk-hover",
+                  )}
                 >
-                  + {it.sku} · {it.productName}
+                  {m.short}
                 </button>
               ))}
             </div>
-          </div>
-        )}
+            <p className="mt-1 text-[11px] leading-tight text-dmk-text-muted">
+              {SETTLEMENT_MODES.find((m) => m.value === settlementMode)?.sub}
+            </p>
+          </Field>
+        </div>
 
-        {/* Item rows */}
+        {/* Item rows — auto-loaded from the PO (damaged qty per row) or manual */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-              Returned items (damaged pool)
+              {refPo ? `Products from ${refPo.poNumber} — PO prices` : "Returned items (damaged pool)"}
             </span>
-            <Select onValueChange={(pid) => {
-              const p = productMap.get(pid);
-              if (p) addProduct(p);
-            }} value="">
-              <SelectTrigger className={cn(inputCls, "w-full sm:w-[320px]")}>
-                <SelectValue placeholder="+ Add product…" />
-              </SelectTrigger>
-              <SelectContent>
-                {products.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.sku} · {p.name}
-                    {p.brand ? ` (${p.brand})` : ""} — damaged {p.damagedStock}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {refPo ? (
+              <span className="text-[11px] text-dmk-text-muted">Set damaged qty — rows left at 0 are not returned</span>
+            ) : (
+              <Select onValueChange={(pid) => {
+                const p = productMap.get(pid);
+                if (p) addProduct(p);
+              }} value="">
+                <SelectTrigger className={cn(inputCls, "w-full sm:w-[320px]")}>
+                  <SelectValue placeholder="+ Add product…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {products.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.sku} · {p.name}
+                      {p.brand ? ` (${p.brand})` : ""} — damaged {p.damagedStock}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           {lines.length === 0 ? (
             <p className="text-[12px] text-dmk-text-muted dmk-well px-3 py-4 text-center">
-              No items yet — add products above or quick-add from the referenced PO.
+              {refPo ? "No product lines on this PO." : vendorId === "NONE" ? "Select a vendor (and optionally their PO) to begin, or add products manually." : "Pick a PO above to auto-load its products, or add products manually."}
             </p>
           ) : (
             <div className="space-y-2">
-              {computed.map(({ line, product, taxable, gst, total, overStock }, i) => (
-                <div key={`${line.productId}-${i}`} className="dmk-card p-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
-                    <div className="sm:col-span-4">
-                      <span className="text-[12.5px] font-medium">
-                        <span className="font-money text-[10.5px] text-dmk-text-muted mr-1.5">{product?.sku ?? "—"}</span>
-                        {product?.name ?? line.productId}
-                      </span>
-                      <p className="text-[10.5px] text-dmk-text-muted mt-0.5">
-                        Damaged in stock:{" "}
-                        <span className={cn("font-money", overStock ? "text-dmk-danger" : "text-dmk-text-secondary")}>
-                          {product?.damagedStock ?? 0}
+              {computed.map(({ line, product, taxable, gst, total, overStock }, i) => {
+                const overPo = line.poQty != null && num(line.qty) > (line.poQty ?? 0);
+                const inactive = !(num(line.qty) > 0);
+                return (
+                  <div key={`${line.productId}-${i}`} className={cn("dmk-card p-3", inactive && "opacity-60")}>
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                      <div className="sm:col-span-4">
+                        <span className="text-[12.5px] font-medium">
+                          <span className="font-money text-[10.5px] text-dmk-text-muted mr-1.5">{product?.sku ?? "—"}</span>
+                          {product?.name ?? line.productId}
                         </span>
-                      </p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <Field label="Qty">
+                        <p className="text-[10.5px] text-dmk-text-muted mt-0.5">
+                          {line.fromPo && (
+                            <span className="mr-2">
+                              PO <span className="font-money">{line.poQty}</span> × <span className="font-money">{formatINR(num(line.cost))}</span> — PO price ·{" "}
+                            </span>
+                          )}
+                          Damaged in stock:{" "}
+                          <span className={cn("font-money", overStock ? "text-dmk-danger" : "text-dmk-text-secondary")}>
+                            {product?.damagedStock ?? 0}
+                          </span>
+                        </p>
+                      </div>
+                      <div className="sm:col-span-2">
+                        {line.fromPo && (
+                          <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">Damaged qty</label>
+                        )}
                         <Input
                           type="number"
-                          min="1"
+                          min={line.fromPo ? 0 : 1}
                           step="1"
                           value={line.qty}
-                          onChange={(e) => updateLine(i, { qty: e.target.value })}
-                          className={cn(inputCls, "h-8 text-right font-money", overStock && "border-dmk-danger/60")}
-                          aria-label="Return quantity"
+                          onChange={(e) => updateLine(i, { qty: line.fromPo ? String(Math.max(0, Math.floor(Number(e.target.value) || 0))) : e.target.value })}
+                          aria-label={line.fromPo ? "Damaged quantity" : "Return quantity"}
+                          className={cn(inputCls, "h-8 text-right font-money", (overStock || overPo) && "border-dmk-danger/60")}
                         />
-                      </Field>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <Field label="Unit cost">
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={line.cost}
-                          onChange={(e) => updateLine(i, { cost: e.target.value })}
-                          className={cn(inputCls, "h-8 text-right font-money")}
-                          aria-label="Unit cost"
-                        />
-                      </Field>
-                    </div>
-                    <div className="sm:col-span-3">
-                      <Field label="Reason">
+                        {overPo && <span className="mt-0.5 block text-[10px] text-dmk-danger">Max {line.poQty}</span>}
+                      </div>
+                      {line.fromPo ? (
+                        <div className="sm:col-span-2 text-right">
+                          <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted sm:text-left">Line total</span>
+                          <span className="font-money text-[12.5px] text-dmk-text-primary">{formatINR(total)}</span>
+                        </div>
+                      ) : (
+                        <div className="sm:col-span-2">
+                          <Field label="Unit cost">
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={line.cost}
+                              onChange={(e) => updateLine(i, { cost: e.target.value })}
+                              className={cn(inputCls, "h-8 text-right font-money")}
+                              aria-label="Unit cost"
+                            />
+                          </Field>
+                        </div>
+                      )}
+                      <div className="sm:col-span-3">
+                        {line.fromPo && (
+                          <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">Reason</label>
+                        )}
                         <Select value={line.reason} onValueChange={(v) => updateLine(i, { reason: v })}>
                           <SelectTrigger className={cn(inputCls, "h-8 w-full")}>
                             <SelectValue />
@@ -645,35 +743,41 @@ function NewDebitNoteDialog({
                             ))}
                           </SelectContent>
                         </Select>
-                      </Field>
+                      </div>
+                      <div className="sm:col-span-1 flex sm:justify-end">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-dmk-text-muted hover:text-dmk-danger hover:bg-dmk-hover"
+                          onClick={() => removeLine(i)}
+                          aria-label="Remove line"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="sm:col-span-1 flex sm:justify-end">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0 text-dmk-text-muted hover:text-dmk-danger hover:bg-dmk-hover"
-                        onClick={() => removeLine(i)}
-                        aria-label="Remove line"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[11.5px] text-dmk-text-muted">
-                    <span>Taxable <span className="num text-dmk-text-secondary">{formatINR(taxable)}</span></span>
-                    <span>
-                      {intra ? "CGST+SGST" : "IGST"}{" "}
-                      <span className="num text-dmk-text-secondary">
-                        {intra ? `${formatINR(gst.cgst)} + ${formatINR(gst.sgst)}` : formatINR(gst.igst)}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[11.5px] text-dmk-text-muted">
+                      <span>Taxable <span className="num text-dmk-text-secondary">{formatINR(taxable)}</span></span>
+                      <span>
+                        {intra ? "CGST+SGST" : "IGST"}{" "}
+                        <span className="num text-dmk-text-secondary">
+                          {intra ? `${formatINR(gst.cgst)} + ${formatINR(gst.sgst)}` : formatINR(gst.igst)}
+                        </span>
                       </span>
-                    </span>
-                    <span>Total <span className="num text-dmk-text-primary font-semibold">{formatINR(total)}</span></span>
+                      <span>Total <span className="num text-dmk-text-primary font-semibold">{formatINR(total)}</span></span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
+
+        {overPoRows.length > 0 && (
+          <ErrorText>
+            {overPoRows.length} row{overPoRows.length === 1 ? "" : "s"} exceed the PO quantity — reduce the damaged qty before posting.
+          </ErrorText>
+        )}
 
         {stockErrors.length > 0 && (
           <ErrorText>
@@ -706,7 +810,12 @@ function NewDebitNoteDialog({
               </div>
             )}
             <div className="flex justify-between text-[13.5px] font-semibold text-dmk-text-primary pt-1 border-t border-dmk-border-subtle">
-              <span>Debit note total</span>
+              <span>
+                Debit note total
+                <span className="ml-2 text-[10.5px] font-normal uppercase tracking-wide text-dmk-text-muted">
+                  {settlementMode === "CREDIT" ? "adjusted in vendor credit" : settlementMode === "UPI_NEFT" ? "vendor pays via UPI/NEFT" : "vendor pays in Cash"}
+                </span>
+              </span>
               <Money value={grand} className="text-dmk-yellow text-[15px]" />
             </div>
           </div>
@@ -718,7 +827,7 @@ function NewDebitNoteDialog({
           </Button>
           <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Create debit note
+            {returnRows.length > 0 ? `Create debit note · ${returnRows.length} item${returnRows.length === 1 ? "" : "s"}` : "Create debit note"}
           </Button>
         </DialogFooter>
       </DialogContent>

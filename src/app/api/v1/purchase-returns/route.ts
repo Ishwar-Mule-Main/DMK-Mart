@@ -25,6 +25,11 @@ import {
   updateVendorBalance,
 } from "@/app/api/v1/_lib/party";
 
+function parseSettlementMode(v: unknown): "CREDIT" | "UPI_NEFT" | "CASH" {
+  const s = getStr(v);
+  return s === "UPI_NEFT" || s === "CASH" ? s : "CREDIT";
+}
+
 export async function GET(request: NextRequest) {
   try {
     const sp = request.nextUrl.searchParams;
@@ -67,8 +72,10 @@ export async function POST(request: NextRequest) {
       throw new BusinessError("ERR_VENDOR_NOT_FOUND", "Vendor not found for this firm", 404);
     }
     const po = poId
-      ? await db.purchaseOrder.findFirst({ where: { id: poId, firmId: firm.id } })
+      ? await db.purchaseOrder.findFirst({ where: { id: poId, firmId: firm.id }, include: { items: true } })
       : null;
+
+    const settlementMode = parseSettlementMode(body.settlementMode);
 
     const productIds = [...new Set(rawItems.map((i) => getStr(i.productId)))];
     const products = await db.product.findMany({
@@ -111,6 +118,19 @@ export async function POST(request: NextRequest) {
         );
       }
       const unitCost = raw.unitCost !== undefined ? round2(getNum(raw.unitCost)) : round2(product.purchaseCost);
+
+      // Never return more than the PO supplied for that product
+      if (po) {
+        const poLine = po.items.find((l) => l.productId === product.id);
+        if (poLine && damagedQty > round2(poLine.quantity) + 0.001) {
+          throw new BusinessError(
+            "ERR_RETURN_EXCEEDS_PO",
+            `Return qty for "${product.sku}" (${damagedQty}) exceeds the PO quantity (${poLine.quantity})`,
+            422,
+          );
+        }
+      }
+
       const taxable = round2(damagedQty * unitCost);
       const gst = calculateGST(taxable, product.gstRate, sellerState, firm.stateCode);
       items.push({
@@ -147,6 +167,7 @@ export async function POST(request: NextRequest) {
           totalTax,
           grandTotal,
           notes: getStr(body.notes),
+          settlementMode,
           items: {
             create: items.map((i) => ({
               productId: i.productId,
@@ -187,6 +208,20 @@ export async function POST(request: NextRequest) {
           debit: grandTotal,
           credit: 0,
         });
+
+        // Vendor settled instantly (paid us via UPI/NEFT or Cash): the
+        // debit is immediately offset by money received → net balance 0.
+        if (settlementMode !== "CREDIT") {
+          await updateVendorBalance(tx, vendor.id, +grandTotal);
+          await addVendorLedger(tx, vendor.id, {
+            entryDate: returnDate,
+            voucherType: "REFUND",
+            voucherNo: debitNoteNo,
+            particulars: `Refund received via ${settlementMode === "UPI_NEFT" ? "UPI/NEFT" : "Cash"} — debit note ${debitNoteNo}`,
+            debit: 0,
+            credit: grandTotal,
+          });
+        }
       }
 
       return created.id;
@@ -207,12 +242,28 @@ export async function POST(request: NextRequest) {
       ],
     });
 
+    // Settlement journal when the vendor pays instantly (money in)
+    let refundJournal: Awaited<ReturnType<typeof postJournal>> | null = null;
+    if (settlementMode !== "CREDIT" && vendor) {
+      refundJournal = await postJournal({
+        firmId: firm.id,
+        voucherType: "RECEIPT",
+        postingDate: returnDate,
+        narration: `Vendor refund received — ${vendor.vendorName} — debit note ${debitNoteNo} via ${settlementMode === "UPI_NEFT" ? "UPI/NEFT" : "Cash"}`,
+        referenceDocId: returnId,
+        lines: [
+          { accountCode: settlementMode === "UPI_NEFT" ? ACC.BANK : ACC.CASH, entrySide: "DEBIT", amount: grandTotal },
+          { accountCode: ACC.AP, entrySide: "CREDIT", amount: grandTotal },
+        ],
+      });
+    }
+
     const created = await db.purchaseReturn.findUnique({
       where: { id: returnId },
       include: { items: true, vendor: { select: { id: true, vendorName: true, closingBalance: true } } },
     });
 
-    return ok({ purchaseReturn: created, journal }, 201);
+    return ok({ purchaseReturn: created, journal, refundJournal, settlementMode }, 201);
   } catch (e) {
     return handleApiError(e);
   }

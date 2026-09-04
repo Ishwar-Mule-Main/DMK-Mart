@@ -23,6 +23,10 @@ export interface CreateSalesReturnInput {
   returnDate: Date;
   notes?: string;
   items: SalesReturnLineInput[];
+  /** How the return value is settled with the customer:
+   *  CREDIT (default) — amount stays as customer credit (receivable ↓)
+   *  UPI_NEFT | CASH  — amount paid out immediately (bank/cash ↓, customer balance net-unchanged) */
+  refundMode?: "CREDIT" | "UPI_NEFT" | "CASH";
 }
 
 type FirmRow = { id: string; stateCode: string; invoicePrefix: string; financialYear: string };
@@ -47,6 +51,8 @@ export async function createSalesReturn(firm: FirmRow, input: CreateSalesReturnI
         include: { lineItems: true },
       })
     : null;
+
+  const refundMode = input.refundMode === "UPI_NEFT" || input.refundMode === "CASH" ? input.refundMode : "CREDIT";
 
   const productIds = [...new Set(rawItems.map((i) => i.productId))];
   const products = await db.product.findMany({
@@ -84,14 +90,27 @@ export async function createSalesReturn(firm: FirmRow, input: CreateSalesReturnI
     // Prefer the price the customer actually paid (invoice line),
     // fall back to supplied unitPrice, else retailer tier.
     let unitPrice: number | null = null;
+    let invoicedQty: number | null = null;
     if (sourceInvoice) {
       const line = sourceInvoice.lineItems.find((l) => l.productId === product.id);
-      if (line) unitPrice = line.unitPrice;
+      if (line) {
+        unitPrice = line.unitPrice;
+        invoicedQty = line.quantity;
+      }
     }
     if (unitPrice === null && raw.unitPrice !== undefined) {
       unitPrice = round2(raw.unitPrice);
     }
     if (unitPrice === null) unitPrice = round2(product.tier4Retailer);
+
+    // Never return more than was invoiced for that product
+    if (invoicedQty !== null && damagedQty > round2(invoicedQty) + 0.001) {
+      throw new BusinessError(
+        "ERR_RETURN_EXCEEDS_INVOICE",
+        `Return qty for "${product.sku}" (${damagedQty}) exceeds the invoiced quantity (${invoicedQty})`,
+        422,
+      );
+    }
 
     const taxable = round2(damagedQty * unitPrice);
     const gst = calculateGST(taxable, product.gstRate, firm.stateCode, buyerState);
@@ -129,6 +148,7 @@ export async function createSalesReturn(firm: FirmRow, input: CreateSalesReturnI
         totalTax,
         grandTotal,
         notes: input.notes ?? "",
+        refundMode,
         items: {
           create: items.map((i) => ({
             productId: i.productId,
@@ -173,6 +193,20 @@ export async function createSalesReturn(firm: FirmRow, input: CreateSalesReturnI
         debit: 0,
         credit: grandTotal,
       });
+
+      // Refund settled instantly (UPI/NEFT or Cash): the credit is
+      // immediately consumed by an outgoing payment → net balance change 0.
+      if (refundMode !== "CREDIT") {
+        await updateCustomerBalance(tx, customer.id, +grandTotal);
+        await addCustomerLedger(tx, customer.id, {
+          entryDate: input.returnDate,
+          voucherType: "REFUND",
+          voucherNo: creditNoteNo,
+          particulars: `Refund paid via ${refundMode === "UPI_NEFT" ? "UPI/NEFT" : "Cash"} — credit note ${creditNoteNo}`,
+          debit: grandTotal,
+          credit: 0,
+        });
+      }
     }
 
     return created.id;
@@ -193,6 +227,22 @@ export async function createSalesReturn(firm: FirmRow, input: CreateSalesReturnI
     ],
   });
 
+  // Settlement journal when the customer is paid instantly (money out)
+  let refundJournal: Awaited<ReturnType<typeof postJournal>> | null = null;
+  if (refundMode !== "CREDIT" && customer) {
+    refundJournal = await postJournal({
+      firmId: firm.id,
+      voucherType: "PAYMENT",
+      postingDate: input.returnDate,
+      narration: `Customer refund — ${customer.partyName} — credit note ${creditNoteNo} via ${refundMode === "UPI_NEFT" ? "UPI/NEFT" : "Cash"}`,
+      referenceDocId: returnId,
+      lines: [
+        { accountCode: ACC.AR, entrySide: "DEBIT", amount: grandTotal },
+        { accountCode: refundMode === "UPI_NEFT" ? ACC.BANK : ACC.CASH, entrySide: "CREDIT", amount: grandTotal },
+      ],
+    });
+  }
+
   const created = await db.salesReturn.findUnique({
     where: { id: returnId },
     include: {
@@ -201,5 +251,5 @@ export async function createSalesReturn(firm: FirmRow, input: CreateSalesReturnI
     },
   });
 
-  return { salesReturn: created, journal };
+  return { salesReturn: created, journal, refundJournal, refundMode };
 }

@@ -299,6 +299,7 @@ model SalesReturn {
   totalTax     Float    @default(0)
   grandTotal   Float    @default(0)
   notes        String   @default("")
+  refundMode   String   @default("CREDIT") // CREDIT | UPI_NEFT | CASH — how the return value is settled with the customer
   createdAt    DateTime @default(now())
 
   items SalesReturnItem[]
@@ -336,6 +337,7 @@ model PurchaseReturn {
   totalTax     Float    @default(0)
   grandTotal   Float    @default(0)
   notes        String   @default("")
+  settlementMode String @default("CREDIT") // CREDIT | UPI_NEFT | CASH — how the vendor settles the debit note value
   createdAt    DateTime @default(now())
 
   items PurchaseReturnItem[]

@@ -111,9 +111,38 @@ function previewGst(taxable: number, rate: number, seller: string, buyer: string
 
 interface DraftItem {
   productId: string;
-  qty: number;
+  qty: number; // damaged qty to return — 0 means "not returned"
   defectType: (typeof DEFECTS)[number];
   unitPrice: number;
+  invoicedQty?: number | null; // set when the row came from a customer invoice
+  fromInvoice?: boolean;
+}
+
+type RefundMode = "CREDIT" | "UPI_NEFT" | "CASH";
+
+const REFUND_MODES: Array<{ value: RefundMode; label: string; sub: string }> = [
+  { value: "CREDIT", label: "Add to customer credit", sub: "Amount stays as credit in the customer's account" },
+  { value: "UPI_NEFT", label: "Pay via UPI/NEFT", sub: "Refund the amount instantly via bank transfer" },
+  { value: "CASH", label: "Pay via Cash", sub: "Refund the amount instantly in cash" },
+];
+
+// Line shape returned by GET /api/v1/invoices/[id]
+interface InvoiceLineLite {
+  id: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+  gstRate: number;
+}
+
+interface InvoiceDetail {
+  id: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  grandTotal: number;
+  lineItems: InvoiceLineLite[];
 }
 
 export default function SalesReturnsView() {
@@ -451,9 +480,24 @@ function NewReturnDialog({
   const [customerId, setCustomerId] = React.useState("");
   const [invoiceId, setInvoiceId] = React.useState("");
   const [custInvoices, setCustInvoices] = React.useState<Invoice[]>([]);
+  const [invoiceSort, setInvoiceSort] = React.useState<"recent" | "oldest">("recent");
+  const [invLoading, setInvLoading] = React.useState(false);
+  const [refundMode, setRefundMode] = React.useState<RefundMode>("CREDIT");
   const [returnDate, setReturnDate] = React.useState(toISODate(new Date()));
   const [items, setItems] = React.useState<DraftItem[]>([]);
   const [saving, setSaving] = React.useState(false);
+
+  // Fresh draft every time the dialog opens
+  React.useEffect(() => {
+    if (!open) return;
+    setCustomerId("");
+    setInvoiceId("");
+    setCustInvoices([]);
+    setInvoiceSort("recent");
+    setRefundMode("CREDIT");
+    setReturnDate(toISODate(new Date()));
+    setItems([]);
+  }, [open]);
 
   React.useEffect(() => {
     if (!open || !activeFirmId) return;
@@ -484,9 +528,13 @@ function NewReturnDialog({
     if (!open || !activeFirmId || !customerId) {
       setCustInvoices([]);
       setInvoiceId("");
+      setItems([]);
       return;
     }
     let alive = true;
+    // customer switched — clear any previously loaded invoice cart
+    setInvoiceId("");
+    setItems([]);
     apiGet<Invoice[]>("/api/v1/invoices", { firmId: activeFirmId, customerId })
       .then((res) => alive && setCustInvoices(res))
       .catch(() => alive && setCustInvoices([]));
@@ -494,6 +542,44 @@ function NewReturnDialog({
       alive = false;
     };
   }, [customerId, activeFirmId, open]);
+
+  // Recent-first by default, flip with the sort toggle
+  const sortedInvoices = React.useMemo(() => {
+    const arr = [...custInvoices];
+    arr.sort((a, b) => {
+      const da = new Date(a.invoiceDate).getTime() || 0;
+      const dbb = new Date(b.invoiceDate).getTime() || 0;
+      return invoiceSort === "recent" ? dbb - da : da - dbb;
+    });
+    return arr;
+  }, [custInvoices, invoiceSort]);
+
+  // Selecting an invoice auto-loads its products at the INVOICED pricing —
+  // every row starts with damaged qty 0 (not returned) until typed in.
+  React.useEffect(() => {
+    if (!open || !invoiceId) return;
+    let alive = true;
+    setInvLoading(true);
+    apiGet<InvoiceDetail>(`/api/v1/invoices/${invoiceId}`)
+      .then((inv) => {
+        if (!alive) return;
+        setItems(
+          (inv.lineItems ?? []).map((l) => ({
+            productId: l.productId,
+            qty: 0,
+            defectType: "Damaged" as DraftItem["defectType"],
+            unitPrice: Number(l.unitPrice) || 0,
+            invoicedQty: Number(l.quantity) || 0,
+            fromInvoice: true,
+          })),
+        );
+      })
+      .catch(() => alive && setItems([]))
+      .finally(() => alive && setInvLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [invoiceId, open]);
 
   function addItem() {
     if (products.length === 0) return;
@@ -509,41 +595,59 @@ function NewReturnDialog({
     let taxable = 0;
     let tax = 0;
     for (const it of items) {
+      if (!(it.qty > 0)) continue; // rows with damaged qty 0 never reach the return
       const p = products.find((x) => x.id === it.productId);
-      if (!p) continue;
       const t = round2(Number(it.unitPrice) * it.qty);
       taxable += t;
-      const g = previewGst(t, p.gstRate, firmStateCode, customers.find((c) => c.id === customerId)?.stateCode ?? firmStateCode);
+      const g = previewGst(t, p?.gstRate ?? 0, firmStateCode, customers.find((c) => c.id === customerId)?.stateCode ?? firmStateCode);
       tax += g.cgst + g.sgst + g.igst;
     }
     return { taxable: round2(taxable), tax: round2(tax), grand: round2(round2(taxable) + round2(tax)) };
   }, [items, products, customerId, customers, firmStateCode]);
 
   const selectedInvoice = custInvoices.find((i) => i.id === invoiceId);
+  const returnRows = React.useMemo(() => items.filter((it) => it.qty > 0), [items]);
+  const overQtyRows = React.useMemo(
+    () => returnRows.filter((it) => it.invoicedQty != null && it.qty > (it.invoicedQty ?? 0)),
+    [returnRows],
+  );
 
   async function submit() {
     if (!activeFirmId) return;
-    if (items.length === 0) {
-      toast({ variant: "destructive", title: "No items", description: "Add at least one returned product." });
+    const returnItems = items.filter((it) => it.qty > 0);
+    if (returnItems.length === 0) {
+      toast({ variant: "destructive", title: "Nothing to return", description: "Set a damaged quantity (at least 1) on the products being returned — rows left at 0 stay out of the return." });
       return;
     }
-    const valid = items.every((it) => it.productId && it.qty > 0 && Number(it.unitPrice) >= 0);
+    const over = returnItems.filter((it) => it.invoicedQty != null && it.qty > (it.invoicedQty ?? 0));
+    if (over.length > 0) {
+      toast({ variant: "destructive", title: "Quantity exceeds the invoice", description: `${over.length} row(s) exceed the invoiced quantity — reduce the damaged qty on those rows.` });
+      return;
+    }
+    const valid = returnItems.every((it) => it.productId && Number(it.unitPrice) >= 0);
     if (!valid) {
-      toast({ variant: "destructive", title: "Invalid rows", description: "Every line needs a product, positive qty and a rate." });
+      toast({ variant: "destructive", title: "Invalid rows", description: "Every returned line needs a product and a rate." });
       return;
     }
     setSaving(true);
     try {
-      await apiPost("/api/v1/sales-returns", {
+      const res = await apiPost<{ salesReturn: { creditNoteNo: string; grandTotal: number } | null; refundMode: RefundMode }>("/api/v1/sales-returns", {
         firmId: activeFirmId,
         customerId: customerId || undefined,
         invoiceId: invoiceId || undefined,
         invoiceRef: selectedInvoice?.invoiceNumber ?? "",
         returnDate,
         notes: "",
-        items: items.map((it) => ({ productId: it.productId, damagedQty: it.qty, unitPrice: Number(it.unitPrice), defectType: it.defectType })),
+        refundMode,
+        items: returnItems.map((it) => ({ productId: it.productId, damagedQty: it.qty, unitPrice: Number(it.unitPrice), defectType: it.defectType })),
       });
-      toast({ title: "Return recorded", description: "Credit note posted — qty moved to Damaged Stock." });
+      const settleNote =
+        refundMode === "CREDIT"
+          ? `${formatINR(res.salesReturn?.grandTotal ?? 0)} credited to the customer's account`
+          : refundMode === "UPI_NEFT"
+            ? `${formatINR(res.salesReturn?.grandTotal ?? 0)} refund payable via UPI/NEFT`
+            : `${formatINR(res.salesReturn?.grandTotal ?? 0)} refund payable in Cash`;
+      toast({ title: `Return recorded — ${res.salesReturn?.creditNoteNo ?? "credit note posted"}`, description: `Damaged qty quarantined · ${settleNote}.` });
       setItems([]);
       setCustomerId("");
       setInvoiceId("");
@@ -563,12 +667,12 @@ function NewReturnDialog({
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">New sales return</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
-            B2B customers only — damaged/broken goods are not collected from B2C counter buyers. Returned qty is quarantined to Damaged Stock; the credit note reduces the customer receivable.
+            B2B customers only — damaged/broken goods are not collected from B2C counter buyers. Pick a customer invoice to auto-load its products at the invoiced prices, then set the damaged qty per row (0 = not returned).
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Customer">
+          <Field label="Customer (B2B)">
             <Select
               value={customerId}
               onValueChange={(v) => setCustomerId(v)}
@@ -586,76 +690,149 @@ function NewReturnDialog({
               B2B only — no returns from B2C counter buyers.
             </p>
           </Field>
-          <Field label="Invoice reference (optional)">
-            <Select value={invoiceId} onValueChange={setInvoiceId} disabled={!customerId}>
-              <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder={customerId ? "Select invoice" : "Pick a customer first"} /></SelectTrigger>
-              <SelectContent className="max-h-64">
-                {custInvoices.length === 0 ? (
-                  <SelectItem value="none" disabled>No invoices for this customer</SelectItem>
-                ) : (
-                  custInvoices.map((i) => (
-                    <SelectItem key={i.id} value={i.id}>
-                      <span className="font-money">{i.invoiceNumber}</span> · {formatDate(i.invoiceDate)} · {formatINR(Number(i.grandTotal))}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+          <Field label="Customer invoices">
+            <div className="flex gap-1.5">
+              <Select value={invoiceId} onValueChange={setInvoiceId} disabled={!customerId}>
+                <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder={customerId ? "Pick an invoice…" : "Pick a customer first"} /></SelectTrigger>
+                <SelectContent className="max-h-64">
+                  {sortedInvoices.length === 0 ? (
+                    <SelectItem value="none" disabled>No invoices for this customer</SelectItem>
+                  ) : (
+                    sortedInvoices.map((i) => (
+                      <SelectItem key={i.id} value={i.id}>
+                        <span className="font-money">{i.invoiceNumber}</span> · {formatDate(i.invoiceDate)} · {formatINR(Number(i.grandTotal))}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-9 shrink-0 border-dmk-border-subtle px-2 text-[11px] text-dmk-text-secondary hover:bg-dmk-hover"
+                onClick={() => setInvoiceSort((s) => (s === "recent" ? "oldest" : "recent"))}
+                disabled={!customerId || sortedInvoices.length < 2}
+                title="Toggle invoice sort order"
+              >
+                {invoiceSort === "recent" ? "Newest ↓" : "Oldest ↑"}
+              </Button>
+            </div>
+            <p className="mt-1 text-[11px] leading-tight text-dmk-text-muted">
+              Recent invoices first — picking one loads its products &amp; prices below.
+            </p>
           </Field>
           <Field label="Return date">
             <Input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
           </Field>
+          <Field label="Refund settlement">
+            <div className="grid grid-cols-3 gap-1.5">
+              {REFUND_MODES.map((m) => (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setRefundMode(m.value)}
+                  title={`${m.label} — ${m.sub}`}
+                  aria-pressed={refundMode === m.value}
+                  className={cn(
+                    "h-9 rounded-md border px-1 text-[11px] font-medium leading-tight transition-colors",
+                    refundMode === m.value
+                      ? "border-dmk-yellow bg-dmk-yellow text-white shadow-sm"
+                      : "border-dmk-border-medium bg-transparent text-dmk-text-secondary hover:bg-dmk-hover",
+                  )}
+                >
+                  {m.value === "CREDIT" ? "Add to credit" : m.value === "UPI_NEFT" ? "UPI / NEFT" : "Cash"}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] leading-tight text-dmk-text-muted">
+              {REFUND_MODES.find((m) => m.value === refundMode)?.sub}
+            </p>
+          </Field>
         </div>
 
-        {/* Item rows */}
+        {/* Item rows — auto-loaded from the invoice (damaged qty per row) or manual */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Returned items</span>
-            <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={addItem} disabled={products.length === 0}>
-              <Plus className="h-3.5 w-3.5" /> Add item
-            </Button>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+              {invLoading ? "Loading invoice products…" : selectedInvoice ? `Products from ${selectedInvoice.invoiceNumber} — invoiced prices` : "Returned items"}
+            </span>
+            {selectedInvoice ? (
+              <span className="text-[11px] text-dmk-text-muted">Set damaged qty — rows left at 0 are not returned</span>
+            ) : (
+              <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={addItem} disabled={products.length === 0}>
+                <Plus className="h-3.5 w-3.5" /> Add item
+              </Button>
+            )}
           </div>
           {items.length === 0 ? (
-            <div className="dmk-well p-4 text-center text-[12px] text-dmk-text-muted">No item rows — click “Add item”.</div>
+            <div className="dmk-well p-4 text-center text-[12px] text-dmk-text-muted">
+              {selectedInvoice
+                ? "No product lines on this invoice."
+                : customerId
+                  ? "Pick an invoice above to auto-load its products, or click “Add item”."
+                  : "Select a B2B customer to begin."}
+            </div>
           ) : (
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
               {items.map((it, idx) => {
                 const p = products.find((x) => x.id === it.productId);
-                const lineTaxable = round2(Number(it.unitPrice) * it.qty);
+                const lineTaxable = round2(Number(it.unitPrice) * Math.max(0, it.qty));
                 const g = p ? previewGst(lineTaxable, p.gstRate, firmStateCode, customers.find((c) => c.id === customerId)?.stateCode ?? firmStateCode) : { cgst: 0, sgst: 0, igst: 0 };
+                const over = it.invoicedQty != null && it.qty > (it.invoicedQty ?? 0);
+                const inactive = !(it.qty > 0);
                 return (
-                  <div key={idx} className="dmk-well p-2.5 grid grid-cols-12 gap-2 items-center">
+                  <div key={`${it.productId}-${idx}`} className={cn("dmk-well p-2.5 grid grid-cols-12 gap-2 items-center", inactive && "opacity-60")}>
                     <div className="col-span-12 sm:col-span-5">
-                      <Select
-                        value={it.productId}
-                        onValueChange={(v) => {
-                          const np = products.find((x) => x.id === v);
-                          updateItem(idx, { productId: v, unitPrice: np ? Number(np.tier4Retailer) || 0 : it.unitPrice });
-                        }}
-                      >
-                        <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue /></SelectTrigger>
-                        <SelectContent className="max-h-64">
-                          {products.map((pr) => (
-                            <SelectItem key={pr.id} value={pr.id}>
-                              <span className="font-money">{pr.sku}</span> · {pr.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {it.fromInvoice ? (
+                        <div>
+                          <span className="block text-[12.5px] font-medium leading-tight">
+                            <span className="font-money text-[10.5px] text-dmk-text-muted mr-1.5">{p?.sku ?? "—"}</span>
+                            {p?.name ?? "Product"}
+                          </span>
+                          <span className="mt-0.5 block text-[10.5px] text-dmk-text-muted">
+                            Invoiced <span className="font-money">{it.invoicedQty}</span> × <span className="font-money">{formatINR(it.unitPrice)}</span> — invoiced price
+                          </span>
+                        </div>
+                      ) : (
+                        <Select
+                          value={it.productId}
+                          onValueChange={(v) => {
+                            const np = products.find((x) => x.id === v);
+                            updateItem(idx, { productId: v, unitPrice: np ? Number(np.tier4Retailer) || 0 : it.unitPrice });
+                          }}
+                        >
+                          <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue /></SelectTrigger>
+                          <SelectContent className="max-h-64">
+                            {products.map((pr) => (
+                              <SelectItem key={pr.id} value={pr.id}>
+                                <span className="font-money">{pr.sku}</span> · {pr.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
                     <div className="col-span-4 sm:col-span-2">
+                      {it.fromInvoice && (
+                        <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">Damaged qty</label>
+                      )}
                       <Input
                         type="number"
-                        min={1}
+                        min={it.fromInvoice ? 0 : 1}
                         step={1}
                         value={it.qty}
-                        onChange={(e) => updateItem(idx, { qty: Math.max(1, Number(e.target.value) || 1) })}
-                        aria-label="Returned quantity"
-                        className={cn(inputCls, "font-money")}
-                        placeholder="Qty"
+                        onChange={(e) => updateItem(idx, { qty: it.fromInvoice ? Math.max(0, Math.floor(Number(e.target.value) || 0)) : Math.max(1, Number(e.target.value) || 1) })}
+                        aria-label={it.fromInvoice ? "Damaged quantity" : "Returned quantity"}
+                        className={cn(inputCls, "font-money", over && "border-dmk-danger")}
+                        placeholder={it.fromInvoice ? "0" : "Qty"}
                       />
+                      {over && <span className="mt-0.5 block text-[10px] text-dmk-danger">Max {it.invoicedQty}</span>}
                     </div>
                     <div className="col-span-8 sm:col-span-3">
+                      {it.fromInvoice && (
+                        <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">Defect</label>
+                      )}
                       <Select value={it.defectType} onValueChange={(v) => updateItem(idx, { defectType: v as DraftItem["defectType"] })}>
                         <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -665,18 +842,25 @@ function NewReturnDialog({
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="col-span-10 sm:col-span-1.5">
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={it.unitPrice}
-                        onChange={(e) => updateItem(idx, { unitPrice: Number(e.target.value) || 0 })}
-                        aria-label="Unit price"
-                        className={cn(inputCls, "font-money")}
-                        placeholder="₹"
-                      />
-                    </div>
+                    {it.fromInvoice ? (
+                      <div className="col-span-10 sm:col-span-1.5 text-right">
+                        <span className="block text-[10px] uppercase tracking-wide text-dmk-text-muted sm:hidden">Line total</span>
+                        <span className="font-money text-[12.5px] text-dmk-text-primary">{formatINR(round2(lineTaxable + g.cgst + g.sgst + g.igst))}</span>
+                      </div>
+                    ) : (
+                      <div className="col-span-10 sm:col-span-1.5">
+                        <Input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={it.unitPrice}
+                          onChange={(e) => updateItem(idx, { unitPrice: Number(e.target.value) || 0 })}
+                          aria-label="Unit price"
+                          className={cn(inputCls, "font-money")}
+                          placeholder="₹"
+                        />
+                      </div>
+                    )}
                     <div className="col-span-2 sm:col-span-0.5 flex justify-end">
                       <button
                         onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
@@ -688,8 +872,14 @@ function NewReturnDialog({
                     </div>
                     <div className="col-span-12 flex items-center justify-between text-[11px] text-dmk-text-muted px-1">
                       <span>
-                        Taxable <span className="font-money text-dmk-text-secondary">{formatINR(lineTaxable)}</span>
-                        {" · "}GST {p?.gstRate ?? 0}% <span className="font-money text-dmk-text-secondary">{formatINR(g.cgst + g.sgst + g.igst)}</span>
+                        {over ? (
+                          <span className="text-dmk-danger font-medium">Exceeds invoiced qty ({it.invoicedQty})</span>
+                        ) : (
+                          <>
+                            Taxable <span className="font-money text-dmk-text-secondary">{formatINR(lineTaxable)}</span>
+                            {" · "}GST {p?.gstRate ?? 0}% <span className="font-money text-dmk-text-secondary">{formatINR(g.cgst + g.sgst + g.igst)}</span>
+                          </>
+                        )}
                       </span>
                       <span>
                         Line total <span className="font-money text-dmk-text-primary">{formatINR(round2(lineTaxable + g.cgst + g.sgst + g.igst))}</span>
@@ -702,20 +892,29 @@ function NewReturnDialog({
           )}
         </div>
 
+        {overQtyRows.length > 0 && (
+          <div className="rounded-md border border-dmk-danger/40 bg-dmk-danger/10 px-3 py-2 text-[11.5px] text-dmk-danger">
+            {overQtyRows.length} row{overQtyRows.length === 1 ? "" : "s"} exceed the invoiced quantity — reduce the damaged qty before posting.
+          </div>
+        )}
+
         <div className="flex items-center justify-between dmk-well px-3 py-2.5">
           <div className="flex items-center gap-1.5 text-[11.5px] text-dmk-warning">
-            <AlertTriangle className="h-3.5 w-3.5" /> Qty quarantined to Damaged Stock
+            <AlertTriangle className="h-3.5 w-3.5" /> Damaged qty quarantined to Damaged Stock
           </div>
           <div className="text-right">
-            <span className="text-[11px] text-dmk-text-muted block">Preview total (taxable {formatINR(draftTotals.taxable)} + tax {formatINR(draftTotals.tax)})</span>
+            <span className="text-[11px] text-dmk-text-muted block">
+              {refundMode === "CREDIT" ? "Credited to customer account" : refundMode === "UPI_NEFT" ? "Refund via UPI/NEFT" : "Refund in Cash"}
+              {" (taxable "}{formatINR(draftTotals.taxable)}{" + tax "}{formatINR(draftTotals.tax)}{")"}
+            </span>
             <span className="font-money text-[16px] text-dmk-yellow">{formatINR(draftTotals.grand)}</span>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
-          <Button onClick={submit} disabled={saving || items.length === 0} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
-            {saving ? "Posting…" : "Create credit note"}
+          <Button onClick={submit} disabled={saving || returnRows.length === 0 || overQtyRows.length > 0} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+            {saving ? "Posting…" : returnRows.length > 0 ? `Create credit note · ${returnRows.length} item${returnRows.length === 1 ? "" : "s"}` : "Create credit note"}
           </Button>
         </DialogFooter>
       </DialogContent>

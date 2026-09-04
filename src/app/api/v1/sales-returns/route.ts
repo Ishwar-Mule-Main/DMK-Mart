@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
       returnDate: getDate(body.returnDate),
       notes: getStr(body.notes),
       items,
+      refundMode: getStr(body.refundMode) === "UPI_NEFT" || getStr(body.refundMode) === "CASH" ? (getStr(body.refundMode) as "UPI_NEFT" | "CASH") : "CREDIT",
     });
 
     return ok(result, 201);
