@@ -657,3 +657,33 @@ export interface RecurringRunsResponse {
   };
   rows: RecurringRunRow[];
 }
+
+// ── AI Copilot visual answer (dashboard hero, right column) ─────
+
+export type CopilotChart =
+  | {
+      kind: "line";
+      topic: string;
+      title: string;
+      subtitle: string;
+      unit: "inr" | "qty";
+      points: Array<{ label: string; value: number }>;
+    }
+  | {
+      kind: "hbar";
+      topic: string;
+      title: string;
+      subtitle: string;
+      unit: "inr" | "qty";
+      items: Array<{ label: string; value: number; hint?: string; color?: string }>;
+    }
+  | {
+      kind: "donut";
+      topic: string;
+      title: string;
+      subtitle: string;
+      unit: "inr";
+      centerLabel: string;
+      centerValue: number;
+      slices: Array<{ label: string; value: number; color?: string }>;
+    };

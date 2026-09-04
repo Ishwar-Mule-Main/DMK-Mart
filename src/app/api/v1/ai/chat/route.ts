@@ -1,6 +1,9 @@
 // ═══════════════════════════════════════════════════════════════
 // /api/v1/ai/chat — DMK Mart ERP Copilot (backend-only LLM call)
-// Grounds the model strictly in a JSON snapshot of the firm's live data.
+// Grounds the model strictly in a JSON snapshot of the firm's live
+// data. Every reply also carries a `chart` — an intent-derived
+// visualization built from the SAME snapshot, rendered by the
+// dashboard copilot's right column.
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
@@ -19,9 +22,169 @@ import {
 } from "@/app/api/v1/_lib/api";
 import { buildDashboard } from "@/app/api/v1/_lib/dashboard";
 import { computePnl } from "@/app/api/v1/_lib/pnl";
+import type { CopilotChart } from "@/types/erp";
 
 interface ChatCompletionShape {
   choices?: Array<{ message?: { content?: string } }>;
+}
+
+const DAY_FMT = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short" });
+
+function shortDay(iso: string): string {
+  return DAY_FMT.format(new Date(`${iso}T00:00:00`));
+}
+
+function inr(n: number): string {
+  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+}
+
+// ── Chart builders (one per intent; all fed from the live snapshot) ──
+
+function salesTrendChart(trend: Array<{ date: string; total: number }>): CopilotChart {
+  return {
+    kind: "line",
+    topic: "SALES",
+    title: "Sales · last 7 days",
+    subtitle: "Posted invoice totals per day",
+    unit: "inr",
+    points: trend.map((t) => ({ label: shortDay(t.date), value: t.total })),
+  };
+}
+
+interface ChartContext {
+  trend: Array<{ date: string; total: number }>;
+  topProducts: Array<{ sku: string; name: string; qty: number; value: number }>;
+  lowStock: Array<{ sku: string; name: string; stockQuantity: number; lowStockThreshold: number }>;
+  damaged: Array<{ sku: string; name: string; damagedStock: number; damagedValue: number }>;
+  arAging: { d0_30: number; d31_60: number; d61_90: number; d90plus: number; total: number };
+  cash: number;
+  bank: number;
+  pnl: {
+    netRevenue: number;
+    cogs: number;
+    totalExpenses: number;
+    netProfit: number;
+  };
+}
+
+/**
+ * Deterministic intent → chart mapping. The chart always comes from the
+ * same grounded snapshot the LLM reads, so the visual can never disagree
+ * with the text answer.
+ */
+export function buildCopilotChart(message: string, ctx: ChartContext): CopilotChart {
+  const m = message.toLowerCase();
+
+  const asksDamaged = /damaged|breakag|wast|spoilt|scrap|mend/.test(m);
+  const asksLowStock = /low.{0,4}stock|shortage|reorder|below threshold|restock|out of stock|running low|running short/.test(m);
+  const asksTopProducts =
+    /(top|best|fast.?mov|most|highest).*(product|item|sku|sell)|product.*(top|best|most)/.test(m);
+  const asksPnl = /profit|p\s*&\s*l|pnl|expense|margin|revenue|loss|cogs/.test(m);
+  const asksReceivables = /overdue|receivab|outstanding|debtor|aging|unpaid/.test(m);
+  const asksCash = /cash|bank|liquid|position|balance/.test(m);
+
+  if (asksDamaged) {
+    return {
+      kind: "hbar",
+      topic: "DAMAGED",
+      title: "Damaged stock value",
+      subtitle: "Top 5 products sitting in the damaged pool, at cost",
+      unit: "inr",
+      items: ctx.damaged.map((d) => ({
+        label: d.name,
+        value: d.damagedValue,
+        hint: `${d.damagedStock} units · ${d.sku}`,
+      })),
+    };
+  }
+
+  if (asksLowStock) {
+    return {
+      kind: "hbar",
+      topic: "STOCK",
+      title: "Low stock products",
+      subtitle: "Sellable quantity on hand — reorder before these run out",
+      unit: "qty",
+      items: ctx.lowStock.map((p) => ({
+        label: p.name,
+        value: p.stockQuantity,
+        hint: `${p.sku} · threshold ${p.lowStockThreshold}`,
+      })),
+    };
+  }
+
+  if (asksTopProducts) {
+    return {
+      kind: "hbar",
+      topic: "PRODUCTS",
+      title: "Top sellers · last 30 days",
+      subtitle: "Units sold — bracket shows billed value",
+      unit: "qty",
+      items: ctx.topProducts.map((p) => ({
+        label: p.name,
+        value: p.qty,
+        hint: `${p.sku} · ${inr(p.value)} billed`,
+      })),
+    };
+  }
+
+  if (asksPnl) {
+    return {
+      kind: "hbar",
+      topic: "P&L",
+      title: "P&L · last 30 days",
+      subtitle: "Revenue, costs and bottom line from live journals",
+      unit: "inr",
+      items: [
+        { label: "Net revenue", value: ctx.pnl.netRevenue, color: "#ffc300" },
+        { label: "COGS", value: ctx.pnl.cogs, color: "#38bdf8" },
+        { label: "Expenses", value: ctx.pnl.totalExpenses, color: "#eab308" },
+        {
+          label: "Net profit",
+          value: ctx.pnl.netProfit,
+          color: ctx.pnl.netProfit >= 0 ? "#22c55e" : "#ef4444",
+        },
+      ],
+    };
+  }
+
+  if (asksReceivables) {
+    return {
+      kind: "donut",
+      topic: "RECEIVABLES",
+      title: "Receivables by age",
+      subtitle: "Outstanding invoices grouped by days since billing",
+      unit: "inr",
+      centerLabel: "Total receivable",
+      centerValue: ctx.arAging.total,
+      slices: [
+        { label: "0–30 days", value: ctx.arAging.d0_30, color: "#22c55e" },
+        { label: "31–60 days", value: ctx.arAging.d31_60, color: "#ffc300" },
+        { label: "61–90 days", value: ctx.arAging.d61_90, color: "#eab308" },
+        { label: "90+ days", value: ctx.arAging.d90plus, color: "#ef4444" },
+      ],
+    };
+  }
+
+  if (asksCash) {
+    return {
+      kind: "donut",
+      topic: "CASH & BANK",
+      title: "Liquid position",
+      subtitle: "Funds across the counter and bank accounts",
+      unit: "inr",
+      centerLabel: "Total liquid",
+      centerValue: round2(ctx.cash + ctx.bank),
+      slices: [
+        { label: "Cash in hand", value: ctx.cash, color: "#ffc300" },
+        { label: "Bank balance", value: ctx.bank, color: "#38bdf8" },
+      ],
+    };
+  }
+
+  // Default — sales is the most-asked topic, so the trend line is the
+  // fallback (also used for the container's resting state).
+  return salesTrendChart(ctx.trend);
 }
 
 export async function POST(request: NextRequest) {
@@ -31,11 +194,18 @@ export async function POST(request: NextRequest) {
     const message = getStr(body.message);
 
     const firm = await resolveFirm(firmId);
+    const now = new Date();
+
     if (!message) {
-      return ok({ reply: "Ask me anything about your firm's sales, stock, receivables or books." });
+      // Empty ask — the dashboard hero uses this to get its resting
+      // visual (7-day sales trend) without spending an LLM call.
+      const kpis = await buildDashboard(firmId);
+      return ok({
+        reply: "Ask me anything about your firm's sales, stock, receivables or books.",
+        chart: salesTrendChart(kpis.salesTrend),
+      });
     }
 
-    const now = new Date();
     const [kpis, activeProducts, debtors, recentInvoices, pnl, damaged] = await Promise.all([
       buildDashboard(firmId),
       db.product.findMany({
@@ -126,6 +296,22 @@ export async function POST(request: NextRequest) {
       })),
     };
 
+    const chart = buildCopilotChart(message, {
+      trend: kpis.salesTrend,
+      topProducts: kpis.topProducts.slice(0, 5),
+      lowStock,
+      damaged: snapshot.damagedStockTop5,
+      arAging: kpis.arAging,
+      cash: kpis.cash,
+      bank: kpis.bank,
+      pnl: {
+        netRevenue: pnl.netRevenue,
+        cogs: pnl.cogs,
+        totalExpenses: pnl.totalExpenses,
+        netProfit: pnl.netProfit,
+      },
+    });
+
     const systemPrompt = [
       "You are the DMK Mart ERP Copilot, an expert business assistant for an Indian trading firm (plastic goods distribution).",
       "Answer ONLY from the provided data snapshot. Figures are INR.",
@@ -147,9 +333,9 @@ export async function POST(request: NextRequest) {
 
     const reply = completion.choices?.[0]?.message?.content?.trim();
     if (!reply) {
-      return ok({ reply: "I could not generate a response from the current data. Please try again." });
+      return ok({ reply: "I could not generate a response from the current data. Please try again.", chart });
     }
-    return ok({ reply });
+    return ok({ reply, chart });
   } catch (e) {
     return handleApiError(e);
   }
