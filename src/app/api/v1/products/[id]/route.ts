@@ -13,6 +13,7 @@ import {
   ok,
 } from "@/app/api/v1/_lib/api";
 import { roundProductNumerics, validateProductBusinessRules } from "@/app/api/v1/_lib/product";
+import { ensureVendorPrefixedName, resolveManufacturerVendor } from "@/app/api/v1/_lib/product-naming";
 
 async function getProductOr404(id: string) {
   const product = await db.product.findUnique({ where: { id } });
@@ -92,6 +93,17 @@ export async function PATCH(
     if (body.weightGrams !== undefined) data.weightGrams = body.weightGrams === null ? null : getNum(body.weightGrams);
     if (body.barcode !== undefined) data.barcode = getStr(body.barcode) || null;
     if (body.isActive !== undefined) data.isActive = body.isActive === true || body.isActive === "true";
+
+    // Manufacturer link changes — keep the vendor-prefixed name convention
+    if (body.manufacturerVendorId !== undefined) {
+      const mfrVendor = await resolveManufacturerVendor(product.firmId, body.manufacturerVendorId);
+      data.manufacturerVendorId = mfrVendor?.id ?? null;
+      if (mfrVendor) {
+        const baseName = body.name !== undefined ? getStr(body.name) : product.name;
+        data.name = ensureVendorPrefixedName(baseName, mfrVendor.vendorName);
+        if (!getStr(body.brand) && !data.brand) data.brand = mfrVendor.brand;
+      }
+    }
 
     const updated = await db.product.update({ where: { id }, data });
     return ok(updated);

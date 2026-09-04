@@ -137,13 +137,15 @@ export async function POST(_request: NextRequest) {
     });
 
     // ── 2. Products + opening stock movements ─────────────────────
+    // Product names are vendor-prefixed ("DMK Polymers Bucket 20L…") so
+    // every surface shows whose product it is (vendor naming rule).
     const productMap = new Map<string, { id: string; sku: string }>();
     for (const p of PRODUCTS) {
       const created = await db.product.create({
         data: {
           firmId: firm.id,
           sku: p.sku,
-          name: p.name,
+          name: p.brand ? `${p.brand} ${p.name}` : p.name,
           category: p.category,
           brand: p.brand,
           unit: p.unit ?? "Pcs",
@@ -265,6 +267,15 @@ export async function POST(_request: NextRequest) {
         },
       });
       vendorMap.set(v.name, created.id);
+    }
+
+    // ── 4b. Link products to their MANUFACTURER vendor (R10) ─────
+    for (const v of vendorSeed) {
+      if (v.type !== "MANUFACTURER" || !v.brand) continue;
+      await db.product.updateMany({
+        where: { firmId: firm.id, brand: v.brand },
+        data: { manufacturerVendorId: vendorMap.get(v.name) },
+      });
     }
 
     // ── 5. Sample transactions (last 7 days) ──────────────────────

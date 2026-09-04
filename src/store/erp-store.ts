@@ -19,6 +19,7 @@ export type ViewId =
   | "sales/receipts"
   | "sales/recurring"
   | "purchase/orders"
+  | "purchase/new-order"
   | "purchase/verification"
   | "purchase/returns"
   | "purchase/vendors"

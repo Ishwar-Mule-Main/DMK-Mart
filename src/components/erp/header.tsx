@@ -380,7 +380,11 @@ export function Header() {
               {firm?.firmName ?? "Owner"} · signed in
             </DropdownMenuLabel>
             <DropdownMenuItem
-              onClick={() => useErpStore.getState().logout()}
+              onClick={() => {
+                // Owners always land back on the OWNER login address.
+                useErpStore.getState().logout();
+                window.location.assign("/");
+              }}
               className="gap-2 text-[13px] cursor-pointer text-dmk-danger"
             >
               <LogOut className="h-4 w-4" /> Sign out

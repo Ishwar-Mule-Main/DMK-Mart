@@ -42,6 +42,8 @@ export interface Product {
   stockQuantity: number;
   damagedStock: number;
   lowStockThreshold: number;
+  /** MANUFACTURER vendor that makes this product (PO picker scoping). */
+  manufacturerVendorId?: string | null;
   weightGrams?: number | null;
   barcode?: string | null;
   isActive: boolean;

@@ -15,6 +15,15 @@ import { cn } from "@/lib/utils";
 import { LoginGate } from "@/components/auth/login-gate";
 import { VerificationPortal } from "@/components/verify/verification-portal";
 
+/**
+ * Portal address — the two logins live at different URLs and are never
+ * shown together: owner door at "/", verification team door at "/?portal=team".
+ */
+function currentPortal(): "owner" | "team" {
+  if (typeof window === "undefined") return "owner";
+  return window.location.search.includes("portal=team") ? "team" : "owner";
+}
+
 import DashboardView from "./views/dashboard";
 import ProductsView from "./views/products";
 import StockLevelsView from "./views/stock-levels";
@@ -32,6 +41,7 @@ import InvoiceDocsView from "./views/invoice-docs";
 import CreditDebitNotesView from "./views/credit-debit-notes";
 import VendorsView from "./views/vendors";
 import PurchaseOrdersView from "./views/purchase-orders";
+import NewPurchaseOrderView from "./views/new-purchase-order";
 import PurchaseReturnsView from "./views/purchase-returns";
 import VendorPaymentsView from "./views/vendor-payments";
 import JournalsView from "./views/journals";
@@ -64,6 +74,7 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   "docs/notes": CreditDebitNotesView,
   "purchase/vendors": VendorsView,
   "purchase/orders": PurchaseOrdersView,
+  "purchase/new-order": NewPurchaseOrderView,
   "purchase/verification": PurchaseVerificationView,
   "purchase/returns": PurchaseReturnsView,
   "purchase/payments": VendorPaymentsView,
@@ -85,10 +96,14 @@ export function AppShell() {
   const [mounted, setMounted] = React.useState(false);
   const [booting, setBooting] = React.useState(true);
   const [bootError, setBootError] = React.useState<string | null>(null);
+  const [portal, setPortal] = React.useState<"owner" | "team">("owner");
 
   // Persisted session (zustand) only exists client-side — render nothing
   // brand-specific until mounted to keep SSR hydration exact.
-  React.useEffect(() => setMounted(true), []);
+  React.useEffect(() => {
+    setMounted(true);
+    setPortal(currentPortal());
+  }, []);
 
   // Boot sequence: ensure seed exists → load firms
   React.useEffect(() => {
@@ -119,7 +134,7 @@ export function AppShell() {
     );
   }
   if (!session) {
-    return <LoginGate />;
+    return <LoginGate door={portal} />;
   }
   if (session.role === "TEAM") {
     return <VerificationPortal />;

@@ -65,7 +65,7 @@ const NAV_GROUPS: Array<{ heading: string; items: NavItem[] }> = [
 const ACTIONS: Array<{ id: string; label: string; icon: React.ElementType; view: ViewId; hint: string }> = [
   { id: "act-sale", label: "New B2B Sale", icon: Plus, view: "sales/billing", hint: "Fast billing with tier pricing" },
   { id: "act-counter", label: "New Counter Sale", icon: ScanBarcode, view: "sales/b2c", hint: "B2C walk-in POS" },
-  { id: "act-po", label: "New Purchase Order", icon: ClipboardList, view: "purchase/orders", hint: "Draft a PENDING PO" },
+  { id: "act-po", label: "New Purchase Order", icon: ClipboardList, view: "purchase/new-order", hint: "Billing-style PO draft — vendor-scoped products" },
   { id: "act-receipt", label: "Record Customer Receipt", icon: Receipt, view: "sales/receipts", hint: "Collect receivable" },
   { id: "act-recurring", label: "New Recurring Template", icon: Plus, view: "sales/recurring", hint: "Standing-order auto billing" },
   { id: "act-payment", label: "Record Vendor Payment", icon: Banknote, view: "purchase/payments", hint: "Pay payable" },

@@ -134,7 +134,11 @@ export function VerificationPortal() {
           <Button
             variant="outline"
             size="sm"
-            onClick={logout}
+            onClick={() => {
+              // Team members always land back on the TEAM login address.
+              logout();
+              window.location.assign("/?portal=team");
+            }}
             className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:text-dmk-danger hover:border-dmk-danger/50"
           >
             <LogOut className="h-4 w-4" /> <span className="hidden sm:inline">Sign out</span>

@@ -54,7 +54,7 @@ import {
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/api-client";
 import { toast } from "@/hooks/use-toast";
 import { useErpStore } from "@/store/erp-store";
-import type { Product } from "@/types/erp";
+import type { Product, Vendor } from "@/types/erp";
 import { cn } from "@/lib/utils";
 
 const UNITS = ["Pcs", "Set", "Packet", "Box", "Crate"];
@@ -79,6 +79,7 @@ interface ProductFormState {
   lowStockThreshold: string;
   weightGrams: string;
   barcode: string;
+  manufacturerVendorId: string;
 }
 
 const EMPTY_FORM: ProductFormState = {
@@ -100,6 +101,7 @@ const EMPTY_FORM: ProductFormState = {
   lowStockThreshold: "5",
   weightGrams: "",
   barcode: "",
+  manufacturerVendorId: "",
 };
 
 function formFromProduct(p: Product): ProductFormState {
@@ -122,6 +124,7 @@ function formFromProduct(p: Product): ProductFormState {
     lowStockThreshold: String(p.lowStockThreshold),
     weightGrams: p.weightGrams != null ? String(p.weightGrams) : "",
     barcode: p.barcode ?? "",
+    manufacturerVendorId: p.manufacturerVendorId ?? "",
   };
 }
 
@@ -164,6 +167,7 @@ export default function ProductsView() {
   const [editing, setEditing] = React.useState<Product | null>(null);
   const [form, setForm] = React.useState<ProductFormState>(EMPTY_FORM);
   const [formError, setFormError] = React.useState<string | null>(null);
+  const [mfrVendors, setMfrVendors] = React.useState<Vendor[]>([]);
   const [saving, setSaving] = React.useState(false);
 
   const set = (patch: Partial<ProductFormState>) => setForm((f) => ({ ...f, ...patch }));
@@ -207,6 +211,14 @@ export default function ProductsView() {
     void load();
   }, [load, reloadKey]);
 
+  // Manufacturer vendors — power the "Manufactured by" picker in the form
+  React.useEffect(() => {
+    if (!activeFirmId) return;
+    apiGet<Vendor[]>("/api/v1/vendors", { firmId: activeFirmId })
+      .then((list) => setMfrVendors(list.filter((v) => v.vendorType === "MANUFACTURER")))
+      .catch(() => setMfrVendors([]));
+  }, [activeFirmId]);
+
   const openAdd = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
@@ -243,6 +255,8 @@ export default function ProductsView() {
       lowStockThreshold: numOr(form.lowStockThreshold),
       weightGrams: form.weightGrams.trim() === "" ? undefined : numOr(form.weightGrams),
       barcode: form.barcode.trim() || undefined,
+      // Manufacturer ownership — server validates vendor + auto-prefixes name
+      manufacturerVendorId: form.manufacturerVendorId || (editing ? null : undefined),
       ...(editing
         ? {}
         : {
@@ -509,6 +523,24 @@ export default function ProductsView() {
                 value={form.brand}
                 onChange={(e) => set({ brand: e.target.value })}
               />
+            </Field>
+            <Field label="Manufactured by" hint="Vendor-specific products for PO scoping">
+              <Select
+                value={form.manufacturerVendorId || "none"}
+                onValueChange={(v) => set({ manufacturerVendorId: v === "none" ? "" : v })}
+              >
+                <SelectTrigger className="w-full h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
+                  <SelectValue placeholder="No manufacturer link" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No manufacturer link</SelectItem>
+                  {mfrVendors.map((v) => (
+                    <SelectItem key={v.id} value={v.id}>
+                      {v.vendorName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
             <Field label="Unit">
               <Select value={form.unit} onValueChange={(v) => set({ unit: v })}>

@@ -1,10 +1,12 @@
 "use client";
 
 // ═══════════════════════════════════════════════════════════════
-// LOGIN GATE — two doors, one brand.
-// · OWNER → full ERP workspace (password per company, default 1234)
-// · VERIFICATION TEAM → the separate verification portal shell
-// · "New company account" creates a fully isolated firm from here
+// LOGIN GATE — two doors, two URLs, one brand.
+// · OWNER  → "/"                 (full ERP workspace, password per company)
+// · TEAM   → "/?portal=team"     (dedicated verification portal shell)
+// Each URL renders ONLY its own door — the two logins are never shown
+// together. A small cross-link hops between the addresses.
+// "New company account" creates a fully isolated firm from the owner URL.
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
@@ -21,9 +23,11 @@ import { cn } from "@/lib/utils";
 
 type Door = "owner" | "team";
 
-export function LoginGate() {
+export const TEAM_LOGIN_URL = "/?portal=team";
+export const OWNER_LOGIN_URL = "/";
+
+export function LoginGate({ door }: { door: Door }) {
   const { firms, setFirms, setSession, setActiveFirm } = useErpStore();
-  const [door, setDoor] = React.useState<Door>("owner");
   const [firmsLoaded, setFirmsLoaded] = React.useState(firms.length > 0);
 
   React.useEffect(() => {
@@ -37,45 +41,55 @@ export function LoginGate() {
     }
   }, [firms.length, setFirms]);
 
+  const isOwner = door === "owner";
+
   return (
     <div className="min-h-screen flex flex-col bg-dmk-bg-primary">
       <div className="flex-1 flex items-center justify-center px-4 py-10 relative overflow-hidden">
-        <div aria-hidden className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 h-96 w-[720px] rounded-full bg-dmk-yellow/10 blur-3xl" />
+        <div aria-hidden className={cn("pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 h-96 w-[720px] rounded-full blur-3xl", isOwner ? "bg-dmk-yellow/10" : "bg-dmk-blue/10")} />
         <div className="w-full max-w-[420px] dmk-card p-7 relative dmk-enter">
           <div className="flex flex-col items-center text-center gap-3">
             <img src="/dmk-logo.png" alt="DMK Mart logo" width={72} height={72} className="rounded-full" />
             <div>
-              <p className="text-[19px] font-black tracking-tight text-dmk-text-primary">DMK Mart ERP</p>
-              <p className="text-[11.5px] text-dmk-text-muted mt-0.5">Trading · Distribution · Bookkeeping</p>
+              <p className="text-[19px] font-black tracking-tight text-dmk-text-primary">
+                {isOwner ? "DMK Mart ERP" : "DMK Verification Portal"}
+              </p>
+              <p className="text-[11.5px] text-dmk-text-muted mt-0.5">
+                {isOwner ? "Trading · Distribution · Bookkeeping" : "Owner link · goods-in checkpoint"}
+              </p>
             </div>
+            <span
+              className={cn(
+                "dmk-badge h-7 px-3 gap-1.5",
+                isOwner ? "bg-dmk-yellow/15 text-dmk-yellow" : "bg-dmk-blue/15 text-dmk-blue"
+              )}
+            >
+              {isOwner ? <Building2 className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+              {isOwner ? "Owner login" : "Verification team login"}
+            </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-dmk-input-well border border-dmk-border-subtle mt-6">
-            {(
-              [
-                { id: "owner", label: "Owner", icon: Building2 },
-                { id: "team", label: "Verification Team", icon: Users },
-              ] as const
-            ).map((d) => (
-              <button
-                key={d.id}
-                onClick={() => setDoor(d.id)}
-                className={cn(
-                  "h-9 rounded-md flex items-center justify-center gap-2 text-[12.5px] font-semibold transition-colors",
-                  door === d.id ? "bg-dmk-yellow text-[#0A0F1D]" : "text-dmk-text-secondary hover:bg-dmk-hover"
-                )}
-              >
-                <d.icon className="h-4 w-4" strokeWidth={1.9} />
-                {d.label}
-              </button>
-            ))}
-          </div>
-
-          {door === "owner" ? (
+          {isOwner ? (
             <OwnerDoor firms={firms} firmsLoaded={firmsLoaded} onSignedIn={setSession} onPickFirm={setActiveFirm} />
           ) : (
             <TeamDoor onSignedIn={setSession} />
           )}
+
+          {/* Cross-link — the two doors live at different addresses */}
+          <a
+            href={isOwner ? TEAM_LOGIN_URL : OWNER_LOGIN_URL}
+            className="mt-5 w-full text-[11.5px] font-semibold text-dmk-text-muted hover:text-dmk-yellow flex items-center justify-center gap-1.5 transition-colors"
+          >
+            {isOwner ? (
+              <>
+                <Users className="h-3.5 w-3.5" /> Verification team member? Sign in at the team portal
+              </>
+            ) : (
+              <>
+                <Building2 className="h-3.5 w-3.5" /> Company owner? Sign in at the owner portal
+              </>
+            )}
+          </a>
         </div>
       </div>
       <footer className="mt-auto border-t border-dmk-border-subtle bg-[#0D1527]/60 py-3 text-center">
@@ -175,7 +189,7 @@ function OwnerDoor({
       </button>
 
       <p className="text-[10.5px] text-dmk-text-muted text-center leading-relaxed">
-        Default owner password is <span className="font-mono text-dmk-text-secondary">1234</span> · team members sign in from the Verification Team door
+        Default owner password is <span className="font-mono text-dmk-text-secondary">1234</span> · team members sign in at <span className="font-mono text-dmk-text-secondary">/?portal=team</span>
       </p>
 
       <RegisterFirmDialog

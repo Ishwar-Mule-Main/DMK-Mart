@@ -1,0 +1,562 @@
+    68→    68→  AlertDialogAction,
+    69→    69→  AlertDialogCancel,
+    70→    70→  AlertDialogContent,
+    71→    71→  AlertDialogDescription,
+    72→    72→  AlertDialogFooter,
+    73→    73→  AlertDialogHeader,
+    74→    74→  AlertDialogTitle,
+    75→    75→} from "@/components/ui/alert-dialog";
+    76→    76→import { useToast } from "@/hooks/use-toast";
+    77→    77→import { requestPayPo } from "@/lib/settle-bus";
+    78→    78→import { cn } from "@/lib/utils";
+    79→    79→
+    80→    80→// ── API row shapes (as returned by the routes) ──────────────────
+    81→    81→interface PoVendor {
+    82→    82→  id: string;
+    83→    83→  vendorName: string;
+    84→    84→  vendorType: string;
+    85→    85→  brand: string;
+    86→    86→}
+    87→    87→
+    88→    88→interface PoItemRow {
+    89→    89→  id: string;
+    90→    90→  productId: string;
+    91→    91→  sku: string;
+    92→    92→  productName: string;
+    93→    93→  hsnCode: string;
+    94→    94→  quantity: number;
+    95→    95→  receivedQty: number;
+    96→    96→  unitCost: number;
+    97→    97→  taxableAmount: number;
+    98→    98→  gstRate: number;
+    99→    99→  cgstAmount: number;
+   100→   100→  sgstAmount: number;
+   101→   101→  igstAmount: number;
+   102→   102→  totalAmount: number;
+   103→   103→}
+   104→   104→
+   105→   105→interface PoRow {
+   106→   106→  id: string;
+   107→   107→  firmId: string;
+   108→   108→  vendorId: string;
+   109→   109→  vendor?: PoVendor;
+   110→   110→  poNumber: string;
+   111→   111→  poDate: string;
+   112→   112→  status: "PENDING" | "CONFIRMED" | "CANCELLED";
+   113→   113→  subtotal: number;
+   114→   114→  totalCgst: number;
+   115→   115→  totalSgst: number;
+   116→   116→  totalIgst: number;
+   117→   117→  grandTotal: number;
+   118→   118→  receivedNote: string;
+   119→   119→  vendorBillNo: string;
+   120→   120→  vendorBillDate: string | null;
+   121→   121→  notes: string;
+   122→   122→  items: PoItemRow[];
+   123→   123→  createdAt: string;
+   124→   124→  /** AP subledger (CONFIRMED only — from purchase-orders GET, cycle 17). */
+   125→   125→  paid?: number;
+   126→   126→  credited?: number;
+   127→   127→  outstanding?: number;
+   128→   128→}
+   129→   129→
+   130→   130→interface PoLine {
+   131→   131→  productId: string;
+   132→   132→  sku: string;
+   133→   133→  name: string;
+   134→   134→  gstRate: number;
+   135→   135→  qty: string;
+   136→   136→  cost: string;
+   137→   137→}
+   138→   138→
+   139→   139→// ── helpers ──────────────────────────────────────────────────────
+   140→   140→function round2(n: number): number {
+   141→   141→  return Math.round((n + Number.EPSILON) * 100) / 100;
+   142→   142→}
+   143→   143→
+   144→   144→function num(s: string | number): number {
+   145→   145→  const n = typeof s === "number" ? s : Number(s);
+   146→   146→  return Number.isFinite(n) ? n : 0;
+   147→   147→}
+   148→   148→
+   149→   149→/** Client-side replica of lib/gst calculateGST (server stays source of truth). */
+   150→   150→function gstPreview(taxable: number, gstRate: number, intra: boolean) {
+   151→   151→  if (intra) {
+   152→   152→    return { cgst: round2(taxable * (gstRate / 200)), sgst: round2(taxable * (gstRate / 200)), igst: 0 };
+   153→   153→  }
+   154→   154→  return { cgst: 0, sgst: 0, igst: round2(taxable * (gstRate / 100)) };
+   155→   155→}
+   156→   156→
+   157→   157→function normalizeProducts(res: unknown): Product[] {
+   158→   158→  if (Array.isArray(res)) return res as Product[];
+   159→   159→  const obj = res as { products?: Product[] } | null;
+   160→   160→  return obj?.products ?? [];
+   161→   161→}
+   162→   162→
+   163→   163→export default function PurchaseOrdersView() {
+   164→   164→  const { toast } = useToast();
+   165→   165→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   166→   166→  const setView = useErpStore((s) => s.setView);
+   167→   167→
+   168→   168→  const [query, setQuery] = React.useState("");
+   169→   169→  const [status, setStatus] = React.useState("ALL");
+   170→   170→  const [rows, setRows] = React.useState<PoRow[] | null>(null);
+   171→   171→  const [refresh, setRefresh] = React.useState(0);
+   172→   172→
+   173→   173→  const [newOpen, setNewOpen] = React.useState(false);
+   174→   174→  const [editOf, setEditOf] = React.useState<PoRow | null>(null);
+   175→   175→  const [viewOf, setViewOf] = React.useState<PoRow | null>(null);
+   176→   176→  const [cancelOf, setCancelOf] = React.useState<PoRow | null>(null);
+   177→   177→  const [cancelling, setCancelling] = React.useState(false);
+   178→   178→
+   179→   179→  React.useEffect(() => {
+   180→   180→    if (!activeFirmId) return;
+   181→   181→    let alive = true;
+   182→   182→    const t = setTimeout(async () => {
+   183→   183→      try {
+   184→   184→        const res = await apiGet<PoRow[]>("/api/v1/purchase-orders", {
+   185→   185→          firmId: activeFirmId,
+   186→   186→          status: status === "ALL" ? undefined : status,
+   187→   187→          search: query.trim(),
+   188→   188→        });
+   189→   189→        if (alive) setRows(res);
+   190→   190→      } catch (e) {
+   191→   191→        if (alive) {
+   192→   192→          setRows([]);
+   193→   193→          if (e instanceof ApiError)
+   194→   194→            toast({ variant: "destructive", title: "Could not load purchase orders", description: e.message });
+   195→   195→        }
+   196→   196→      }
+   197→   197→    }, 220);
+   198→   198→    return () => {
+   199→   199→      alive = false;
+   200→   200→      clearTimeout(t);
+   201→   201→    };
+   202→   202→  }, [activeFirmId, query, status, refresh, toast]);
+   203→   203→
+   204→   204→  /** Cycle 17: pay a specific bill from its PO row. */
+   205→   205→  function payFromRow(po: PoRow) {
+   206→   206→    if (po.status !== "CONFIRMED" || !po.outstanding || po.outstanding <= 0.009) return;
+   207→   207→    requestPayPo(po.id, po.vendorId);
+   208→   208→    setView("purchase/payments");
+   209→   209→    toast({
+   210→   210→      title: "Opening payment dialog",
+   211→   211→      description: `${po.poNumber} · ${formatINR(po.outstanding)} outstanding pre-allocated — confirm there.`,
+   212→   212→    });
+   213→   213→  }
+   214→   214→
+   215→   215→  async function confirmCancel() {
+   216→   216→    if (!cancelOf) return;
+   217→   217→    setCancelling(true);
+   218→   218→    try {
+   219→   219→      await apiPost<PoRow>(`/api/v1/purchase-orders/${cancelOf.id}/cancel`, {});
+   220→   220→      toast({ title: "PO cancelled", description: `${cancelOf.poNumber} — no stock or ledger impact.` });
+   221→   221→      setCancelOf(null);
+   222→   222→      setRefresh((r) => r + 1);
+   223→   223→    } catch (e) {
+   224→   224→      toast({
+   225→   225→        variant: "destructive",
+   226→   226→        title: "Cancel failed",
+   227→   227→        description: e instanceof ApiError ? e.message : "Could not cancel this PO.",
+   228→   228→      });
+   229→   229→    } finally {
+   230→   230→      setCancelling(false);
+   231→   231→    }
+   232→   232→  }
+   233→   233→
+   234→   234→  const pendingCount = (rows ?? []).filter((r) => r.status === "PENDING").length;
+   235→   235→  const openPayable = (rows ?? [])
+   236→   236→    .filter((r) => r.status === "CONFIRMED" && (r.outstanding ?? 0) > 0.009)
+   237→   237→    .reduce((s, r) => s + (r.outstanding ?? 0), 0);
+   238→   238→
+   239→   239→  // ── Masonry summary stats ───────────────────────────────────────
+   240→   240→  const list = rows ?? [];
+   241→   241→  const totalValue = list.reduce((s, r) => s + Number(r.grandTotal), 0);
+   242→   242→  const confirmedValue = list.filter((r) => r.status === "CONFIRMED").reduce((s, r) => s + Number(r.grandTotal), 0);
+   243→   243→  const pendingValue = list.filter((r) => r.status === "PENDING").reduce((s, r) => s + Number(r.grandTotal), 0);
+   244→   244→  const denom = Math.max(1, list.length);
+   245→   245→  const statusRows = (["PENDING", "CONFIRMED", "CANCELLED"] as const)
+   246→   246→    .map((st) => ({ st, count: list.filter((r) => r.status === st).length, value: list.filter((r) => r.status === st).reduce((s, r) => s + Number(r.grandTotal), 0) }))
+   247→   247→    .filter((x) => x.count > 0);
+   248→   248→  const statusBar: Record<string, string> = { PENDING: "bg-dmk-warning", CONFIRMED: "bg-dmk-success", CANCELLED: "bg-dmk-danger" };
+   249→   249→  const vendorAgg = new Map<string, { name: string; count: number; value: number }>();
+   250→   250→  for (const r of list) {
+   251→   251→    const name = r.vendor?.vendorName ?? "—";
+   252→   252→    const cur = vendorAgg.get(r.vendorId) ?? { name, count: 0, value: 0 };
+   253→   253→    vendorAgg.set(r.vendorId, { name, count: cur.count + 1, value: cur.value + Number(r.grandTotal) });
+   254→   254→  }
+   255→   255→  const topVendors = [...vendorAgg.entries()].sort((a, b) => b[1].value - a[1].value).slice(0, 4);
+   256→   256→  const topVendorMax = Math.max(1, topVendors[0]?.[1].value ?? 1);
+   257→   257→
+   258→   258→  return (
+   259→   259→    <div className="space-y-4">
+   260→   260→      <PageHeader
+   261→   261→        title="Purchase Orders"
+   262→   262→        subtitle="PENDING → team verification → your acceptance → CONFIRMED · damaged units quarantined"
+   263→   263→        icon={ClipboardList}
+   264→   264→        actions={
+   265→   265→          <Button
+   266→   266→            size="sm"
+   267→   267→            className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+   268→   268→            onClick={() => setNewOpen(true)}
+   269→   269→          >
+   270→   270→            <Plus className="h-4 w-4" /> New PO
+   271→   271→          </Button>
+   272→   272→        }
+   273→   273→      />
+   274→   274→
+   275→   275→      <SectionGrid
+   276→   276→        list={
+   277→   277→          <RegisterCard
+   278→   278→            title="Purchase orders"
+   279→   279→            icon={ClipboardList}
+   280→   280→            count={list.length}
+   281→   281→            countLabel="orders"
+   282→   282→            filters={
+   283→   283→              <>
+   284→   284→                <div className="relative flex-1 min-w-0">
+   285→   285→                  <SearchInput value={query} onChange={setQuery} placeholder="Search PO number or vendor…" className="pl-9" />
+   286→   286→                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
+   287→   287→                </div>
+   288→   288→                <Select value={status} onValueChange={setStatus}>
+   289→   289→                  <SelectTrigger className={cn(inputCls, "w-full sm:w-[170px] shrink-0")}>
+   290→   290→                    <SelectValue placeholder="All statuses" />
+   291→   291→                  </SelectTrigger>
+   292→   292→                  <SelectContent>
+   293→   293→                    <SelectItem value="ALL">All statuses</SelectItem>
+   294→   294→                    <SelectItem value="PENDING">Pending</SelectItem>
+   295→   295→                    <SelectItem value="CONFIRMED">Confirmed</SelectItem>
+   296→   296→                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
+   297→   297→                  </SelectContent>
+   298→   298→                </Select>
+   299→   299→              </>
+   300→   300→            }
+   301→   301→            footer={
+   302→   302→              <>
+   303→   303→                <span><span className="font-money text-dmk-warning">{pendingCount}</span> at the verification team</span>
+   304→   304→                {openPayable > 0.009 && (
+   305→   305→                  <span><span className="font-money text-dmk-blue">{formatINR(openPayable)}</span> open payable — hover a row to <span className="text-dmk-info font-semibold">Pay</span></span>
+   306→   306→                )}
+   307→   307→                <span className="hidden sm:inline">Acceptance posts: stock IN · payable Cr · PURCHASE journal</span>
+   308→   308→              </>
+   309→   309→            }
+   310→   310→          >
+   311→   311→            {rows === null ? (
+   312→   312→              <LoadingRows rows={7} />
+   313→   313→            ) : list.length === 0 ? (
+   314→   314→              <EmptyState
+   315→   315→                icon={ClipboardList}
+   316→   316→                title="No purchase orders"
+   317→   317→                hint="Create a PO to a manufacturer or distributor — the verification team counts the delivery, then you accept it to book stock and payable."
+   318→   318→              />
+   319→   319→            ) : (
+   320→   320→              list.map((po) => {
+   321→   321→                const tax = po.totalCgst + po.totalSgst + po.totalIgst;
+   322→   322→                const osd = po.outstanding;
+   323→   323→                const settled = po.status === "CONFIRMED" && osd !== undefined && osd <= 0.009;
+   324→   324→                const payable = po.status === "CONFIRMED" && osd !== undefined && osd > 0.009;
+   325→   325→                return (
+   326→   326→                  <RegisterRow key={po.id} className={po.status === "PENDING" ? "bg-[rgba(245,158,11,0.04)]" : undefined}>
+   327→   327→                    <div className="flex items-center justify-between gap-2">
+   328→   328→                      <div className="flex items-center gap-2 min-w-0">
+   329→   329→                        <span className="font-money text-[12px] text-dmk-text-primary shrink-0">
+   330→   330→                          {po.poNumber}
+   331→   331→                          {po.vendorBillNo && (
+   332→   332→                            <span className="block text-[10px] text-dmk-text-muted" title="Vendor bill no.">
+   333→   333→                              Bill {po.vendorBillNo}
+   334→   334→                            </span>
+   335→   335→                          )}
+   336→   336→                        </span>
+   337→   337→                        <span className="text-[11px] text-dmk-text-muted shrink-0">{formatDate(po.poDate)}</span>
+   338→   338→                      </div>
+   339→   339→                      <StatusBadge status={po.status} />
+   340→   340→                    </div>
+   341→   341→                    <div className="mt-1 flex items-center justify-between gap-2">
+   342→   342→                      <span className="text-[12px] text-dmk-text-secondary truncate">
+   343→   343→                        <span className="font-medium">{po.vendor?.vendorName ?? "—"}</span>
+   344→   344→                        <span className="text-dmk-text-muted"> · {po.items.length} item{po.items.length === 1 ? "" : "s"} · tax {formatINR(tax)}</span>
+   345→   345→                      </span>
+   346→   346→                      <span className="flex items-baseline gap-2 shrink-0">
+   347→   347→                        <span className="font-money text-[13px] font-semibold text-dmk-text-primary">{formatINR(po.grandTotal)}</span>
+   348→   348→                      </span>
+   349→   349→                    </div>
+   350→   350→                    <div className="mt-1.5 flex items-center justify-between gap-2">
+   351→   351→                      <span className="text-[11px] shrink-0">
+   352→   352→                        {po.status !== "CONFIRMED" ? (
+   353→   353→                          <span className="text-dmk-text-muted">balance —</span>
+   354→   354→                        ) : settled ? (
+   355→   355→                          <Badge tone="success">SETTLED</Badge>
+   356→   356→                        ) : osd !== undefined ? (
+   357→   357→                          <span className="font-money font-semibold text-dmk-blue">balance {formatINR(osd)}</span>
+   358→   358→                        ) : (
+   359→   359→                          <span className="text-dmk-text-muted">balance …</span>
+   360→   360→                        )}
+   361→   361→                      </span>
+   362→   362→                      <span className="flex items-center gap-1.5 shrink-0">
+   363→   363→                        {payable && (
+   364→   364→                          <button
+   365→   365→                            type="button"
+   366→   366→                            onClick={() => payFromRow(po)}
+   367→   367→                            title={`Record a payment against ${po.poNumber} (${formatINR(osd ?? 0)})`}
+   368→   368→                            className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover text-dmk-info hover:border-dmk-info/40"
+   369→   369→                          >
+   370→   370→                            <HandCoins className="h-3 w-3" /> Pay
+   371→   371→                          </button>
+   372→   372→                        )}
+   373→   373→                        {po.status === "PENDING" && (
+   374→   374→                          <>
+   375→   375→                            <Button
+   376→   376→                              size="sm"
+   377→   377→                              className="h-7 px-2.5 text-[11px] bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-semibold"
+   378→   378→                              onClick={() => {
+   379→   379→                                setView("purchase/verification");
+   380→   380→                                toast({ title: `${po.poNumber} is in verification`, description: "The team portal counts sellable vs damaged — you accept the counts to book stock & payable." });
+   381→   381→                              }}
+   382→   382→                            >
+   383→   383→                              <PackageSearch className="h-3 w-3" /> Verify
+   384→   384→                            </Button>
+   385→   385→                            <Button size="sm" variant="outline" className="h-7 w-7 p-0 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setEditOf(po)} aria-label={`Edit ${po.poNumber}`}>
+   386→   386→                              <Pencil className="h-3 w-3" />
+   387→   387→                            </Button>
+   388→   388→                            <Button size="sm" variant="outline" className="h-7 w-7 p-0 border-dmk-border-subtle text-dmk-danger hover:bg-dmk-hover" onClick={() => setCancelOf(po)} aria-label={`Cancel ${po.poNumber}`}>
+   389→   389→                              <X className="h-3 w-3" />
+   390→   390→                            </Button>
+   391→   391→                          </>
+   392→   392→                        )}
+   393→   393→                        {po.status !== "PENDING" && (
+   394→   394→                          <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px] border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setViewOf(po)}>
+   395→   395→                            <Eye className="h-3 w-3" /> View
+   396→   396→                          </Button>
+   397→   397→                        )}
+   398→   398→                      </span>
+   399→   399→                    </div>
+   400→   400→                  </RegisterRow>
+   401→   401→                );
+   402→   402→              })
+   403→   403→            )}
+   404→   404→          </RegisterCard>
+   405→   405→        }
+   406→   406→        aside={
+   407→   407→          <>
+   408→   408→            <div className="grid grid-cols-2 gap-3">
+   409→   409→              <KpiCard label="PO value" value={formatINR(totalValue)} sub={`${list.length} orders listed`} icon={IndianRupee} tone="orange" />
+   410→   410→              <KpiCard label="In verification" value={String(pendingCount)} sub={`${formatINR(pendingValue)} awaiting counts`} icon={Timer} tone={pendingCount > 0 ? "gold" : "success"} />
+   411→   411→              <KpiCard label="Confirmed value" value={formatINR(confirmedValue)} sub="booked on acceptance" icon={PackageCheck} tone="success" />
+   412→   412→              <KpiCard label="Open payable" value={formatINR(openPayable)} sub="owed to vendors" icon={Truck} tone="blue" />
+   413→   413→            </div>
+   414→   414→
+   415→   415→            <AsideCard title="Status mix" icon={Layers} iconClass="text-dmk-info" footnote="Only PENDING orders can be edited or cancelled — CONFIRMED orders change via Purchase Returns.">
+   416→   416→              <div className="space-y-2.5">
+   417→   417→                {statusRows.length === 0 ? (
+   418→   418→                  <p className="text-[12px] text-dmk-text-muted">No orders in the current filter.</p>
+   419→   419→                ) : (
+   420→   420→                  statusRows.map((x) => (
+   421→   421→                    <MixBar
+   422→   422→                      key={x.st}
+   423→   423→                      label={<><StatusBadge status={x.st} /> <span className="text-dmk-text-muted">· {x.count}</span></>}
+   424→   424→                      value={formatINR(x.value)}
+   425→   425→                      pct={(x.count / denom) * 100}
+   426→   426→                      barClass={statusBar[x.st] ?? "bg-dmk-yellow"}
+   427→   427→                    />
+   428→   428→                  ))
+   429→   429→                )}
+   430→   430→              </div>
+   431→   431→            </AsideCard>
+   432→   432→
+   433→   433→            <AsideCard
+   434→   434→              title="Top vendors"
+   435→   435→              icon={Truck}
+   436→   436→              iconClass="text-dmk-yellow"
+   437→   437→              footnote="Manufacturers are brand-scoped (R10) — their POs only list that brand's products."
+   438→   438→            >
+   439→   439→              <div className="space-y-2.5">
+   440→   440→                {topVendors.length === 0 ? (
+   441→   441→                  <p className="text-[12px] text-dmk-text-muted">No vendors yet.</p>
+   442→   442→                ) : (
+   443→   443→                  topVendors.map(([, v]) => (
+   444→   444→                    <MixBar
+   445→   445→                      key={v.name}
+   446→   446→                      label={<>{v.name} <span className="text-dmk-text-muted">· {v.count} PO</span></>}
+   447→   447→                      value={formatINR(v.value)}
+   448→   448→                      pct={(v.value / topVendorMax) * 100}
+   449→   449→                      barClass="bg-dmk-yellow"
+   450→   450→                    />
+   451→   451→                  ))
+   452→   452→                )}
+   453→   453→              </div>
+   454→   454→            </AsideCard>
+   455→   455→          </>
+   456→   456→        }
+   457→   457→      />
+   458→   458→
+   459→   459→      <PoFormDialog
+   460→   460→        open={newOpen || !!editOf}
+   461→   461→        editing={editOf}
+   462→   462→        onOpenChange={(o) => {
+   463→   463→          if (!o) {
+   464→   464→            setNewOpen(false);
+   465→   465→            setEditOf(null);
+   466→   466→          }
+   467→   467→        }}
+   468→   468→        onSaved={() => setRefresh((r) => r + 1)}
+   469→   469→      />
+   470→   470→
+   471→   471→
+   472→   472→      <ViewPoDialog po={viewOf} onClose={() => setViewOf(null)} />
+   473→   473→
+   474→   474→      <AlertDialog open={!!cancelOf} onOpenChange={(o) => !o && setCancelOf(null)}>
+   475→   475→        <AlertDialogContent className="dmk-elevated border-dmk-border-medium">
+   476→   476→          <AlertDialogHeader>
+   477→   477→            <AlertDialogTitle className="text-dmk-text-primary">Cancel PO {cancelOf?.poNumber}?</AlertDialogTitle>
+   478→   478→            <AlertDialogDescription className="text-dmk-text-secondary">
+   479→   479→              Only PENDING orders can be cancelled. Cancelled orders have no stock, payable or journal impact.
+   480→   480→              This action cannot be undone.
+   481→   481→            </AlertDialogDescription>
+   482→   482→          </AlertDialogHeader>
+   483→   483→          <AlertDialogFooter>
+   484→   484→            <AlertDialogCancel className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
+   485→   485→              Keep PO
+   486→   486→            </AlertDialogCancel>
+   487→   487→            <AlertDialogAction
+   488→   488→              onClick={confirmCancel}
+   489→   489→              disabled={cancelling}
+   490→   490→              className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
+   491→   491→            >
+   492→   492→              Cancel PO
+   493→   493→            </AlertDialogAction>
+   494→   494→          </AlertDialogFooter>
+   495→   495→        </AlertDialogContent>
+   496→   496→      </AlertDialog>
+   497→   497→    </div>
+   498→   498→  );
+   499→   499→}
+   500→   500→
+   501→   501→// ═══════════════════════════════════════════════════════════════
+   502→   502→// New / Edit PO form (shared) — vendor brand scope + GST preview
+   503→   503→// ═══════════════════════════════════════════════════════════════
+   504→   504→function PoFormDialog({
+   505→   505→  open,
+   506→   506→  editing,
+   507→   507→  onOpenChange,
+   508→   508→  onSaved,
+   509→   509→}: {
+   510→   510→  open: boolean;
+   511→   511→  editing: PoRow | null;
+   512→   512→  onOpenChange: (o: boolean) => void;
+   513→   513→  onSaved: () => void;
+   514→   514→}) {
+   515→   515→  const { toast } = useToast();
+   516→   516→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   517→   517→  const firm = useActiveFirm();
+   518→   518→  const firmStateCode = firm?.stateCode ?? "27";
+   519→   519→
+   520→   520→  const [saving, setSaving] = React.useState(false);
+   521→   521→  const [vendors, setVendors] = React.useState<Vendor[]>([]);
+   522→   522→  const [products, setProducts] = React.useState<Product[]>([]);
+   523→   523→  const [vendorId, setVendorId] = React.useState("");
+   524→   524→  const [poDate, setPoDate] = React.useState(toISODate(new Date()));
+   525→   525→  const [vendorBillNo, setVendorBillNo] = React.useState("");
+   526→   526→  const [vendorBillDate, setVendorBillDate] = React.useState("");
+   527→   527→  const [notes, setNotes] = React.useState("");
+   528→   528→  const [lines, setLines] = React.useState<PoLine[]>([]);
+   529→   529→  const [pickQuery, setPickQuery] = React.useState("");
+   530→   530→
+   531→   531→  // Load vendors + products whenever the dialog opens
+   532→   532→  React.useEffect(() => {
+   533→   533→    if (!open || !activeFirmId) return;
+   534→   534→    let alive = true;
+   535→   535→    apiGet<Vendor[]>("/api/v1/vendors", { firmId: activeFirmId })
+   536→   536→      .then((res) => alive && setVendors(res))
+   537→   537→      .catch(() => alive && setVendors([]));
+   538→   538→    apiGet<Product[]>("/api/v1/products", { firmId: activeFirmId, activeOnly: !editing })
+   539→   539→      .then((res) => alive && setProducts(normalizeProducts(res)))
+   540→   540→      .catch(() => alive && setProducts([]));
+   541→   541→    return () => {
+   542→   542→      alive = false;
+   543→   543→    };
+   544→   544→  }, [open, activeFirmId, editing]);
+   545→   545→
+   546→   546→  // Prefill for edit / reset for new (gstRate from the stored PO item —
+   547→   547→  // no dependency on the async products fetch)
+   548→   548→  React.useEffect(() => {
+   549→   549→    if (!open) return;
+   550→   550→    if (editing) {
+   551→   551→      setVendorId(editing.vendorId);
+   552→   552→      setPoDate(toISODate(editing.poDate));
+   553→   553→      setVendorBillNo(editing.vendorBillNo ?? "");
+   554→   554→      setVendorBillDate(editing.vendorBillDate ? toISODate(editing.vendorBillDate) : "");
+   555→   555→      setNotes(editing.notes ?? "");
+   556→   556→      setLines(
+   557→   557→        editing.items.map((it) => ({
+   558→   558→          productId: it.productId,
+   559→   559→          sku: it.sku,
+   560→   560→          name: it.productName,
+   561→   561→          gstRate: it.gstRate,
+   562→   562→          qty: String(it.quantity),
+   563→   563→          cost: String(it.unitCost),
+   564→   564→        }))
+   565→   565→      );
+   566→   566→    } else {
+   567→   567→      setVendorId("");
+   568→   568→      setPoDate(toISODate(new Date()));
+   569→   569→      setVendorBillNo("");
+   570→   570→      setVendorBillDate("");
+   571→   571→      setNotes("");
+   572→   572→      setLines([]);
+   573→   573→    }
+   574→   574→    setPickQuery("");
+   575→   575→  }, [open, editing]);
+   576→   576→
+   577→   577→  const vendor = vendors.find((v) => v.id === vendorId);
+   578→   578→  const isManufacturer = vendor?.vendorType === "MANUFACTURER" && !!vendor.brand;
+   579→   579→  const intra = !!vendor && vendor.stateCode === firmStateCode;
+   580→   580→
+   581→   581→  // R10 — manufacturer POs are scoped to the vendor's brand
+   582→   582→  const pickable = products.filter((p) => {
+   583→   583→    if (!p.isActive) return false;
+   584→   584→    if (isManufacturer && vendor && p.brand.toLowerCase() !== vendor.brand.toLowerCase()) return false;
+   585→   585→    const q = pickQuery.trim().toLowerCase();
+   586→   586→    if (!q) return true;
+   587→   587→    return (
+   588→   588→      p.sku.toLowerCase().includes(q) ||
+   589→   589→      p.name.toLowerCase().includes(q) ||
+   590→   590→      p.category.toLowerCase().includes(q) ||
+   591→   591→      p.brand.toLowerCase().includes(q)
+   592→   592→    );
+   593→   593→  });
+   594→   594→
+   595→   595→  const computed = lines.map((l) => {
+   596→   596→    const taxable = round2(num(l.qty) * num(l.cost));
+   597→   597→    const gst = gstPreview(taxable, l.gstRate, intra);
+   598→   598→    return { line: l, taxable, gst, total: round2(taxable + gst.cgst + gst.sgst + gst.igst) };
+   599→   599→  });
+   600→   600→  const totals = computed.reduce(
+   601→   601→    (acc, c) => ({
+   602→   602→      taxable: round2(acc.taxable + c.taxable),
+   603→   603→      cgst: round2(acc.cgst + c.gst.cgst),
+   604→   604→      sgst: round2(acc.sgst + c.gst.sgst),
+   605→   605→      igst: round2(acc.igst + c.gst.igst),
+   606→   606→    }),
+   607→   607→    { taxable: 0, cgst: 0, sgst: 0, igst: 0 }
+   608→   608→  );
+   609→   609→  const grand = round2(totals.taxable + totals.cgst + totals.sgst + totals.igst);
+   610→   610→
+   611→   611→  function addProduct(p: Product) {
+   612→   612→    setLines((ls) => {
+   613→   613→      const idx = ls.findIndex((l) => l.productId === p.id);
+   614→   614→      if (idx >= 0) {
+   615→   615→        const next = [...ls];
+   616→   616→        next[idx] = { ...next[idx], qty: String(num(next[idx].qty) + 1) };
+   617→   617→        return next;
+   618→   618→      }
+   619→   619→      return [
+   620→   620→        ...ls,
+   621→   621→        { productId: p.id, sku: p.sku, name: p.name, gstRate: p.gstRate, qty: "1", cost: String(p.purchaseCost) },
+   622→   622→      ];
+   623→   623→    });
+   624→   624→  }
+   625→   625→
+   626→   626→  function updateLine(i: number, patch: Partial<PoLine>) {
+   627→   627→    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+
+[showing lines 68-627 of 1069; use offset=628 with limit to continue reading]

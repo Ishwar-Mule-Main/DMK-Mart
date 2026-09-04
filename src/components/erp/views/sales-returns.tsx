@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   ArrowRightLeft,
   IndianRupee,
+  Loader2,
   PackageX,
   Plus,
   RotateCcw,
@@ -56,6 +57,16 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface ReturnItemRow {
   id: string;
@@ -114,6 +125,8 @@ export default function SalesReturnsView() {
   const [rows, setRows] = React.useState<ReturnListRow[] | null>(null);
   const [view, setView] = React.useState<ReturnListRow | null>(null);
   const [newOpen, setNewOpen] = React.useState(false);
+  const [sendOpen, setSendOpen] = React.useState(false);
+  const [sending, setSending] = React.useState(false);
 
   const load = React.useCallback(async () => {
     if (!activeFirmId) return;
@@ -129,6 +142,34 @@ export default function SalesReturnsView() {
   React.useEffect(() => {
     load();
   }, [load]);
+
+  /** ONE-CLICK: every sales-return line → purchase-return debit notes. */
+  async function sendAllToPurchaseReturn() {
+    setSending(true);
+    try {
+      const res = await apiPost<{
+        created: Array<{ debitNoteNo: string; vendorName: string | null; items: number; total: number }>;
+        skipped: Array<{ sku: string }>;
+        totals: { debitNotes: number; items: number; qty: number; value: number };
+        message: string;
+      }>("/api/v1/sales-returns/send-to-purchase", { firmId: activeFirmId });
+      toast({
+        title: `${res.totals.debitNotes} debit note${res.totals.debitNotes === 1 ? "" : "s"} created`,
+        description: `${res.message} · ${formatINR(res.totals.value)} recovered from vendors.`,
+      });
+      setSendOpen(false);
+      await load();
+      navigate("purchase/returns");
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Could not send to Purchase Return",
+        description: e instanceof ApiError ? e.message : "Something went wrong.",
+      });
+    } finally {
+      setSending(false);
+    }
+  }
 
   if (!activeFirmId) {
     return <EmptyState icon={RotateCcw} title="No active firm" hint="Select a firm from the header switcher." />;
@@ -164,9 +205,21 @@ export default function SalesReturnsView() {
         subtitle="Customer returns → credit notes · goods quarantined to Damaged Stock (R4)"
         icon={RotateCcw}
         actions={
-          <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setNewOpen(true)}>
-            <Plus className="h-4 w-4" /> New Return
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 border-dmk-info/40 bg-dmk-info/10 text-dmk-info hover:bg-dmk-info/20 hover:text-dmk-info font-semibold"
+              disabled={list.length === 0}
+              onClick={() => setSendOpen(true)}
+              title="Send every returned item back to the vendors as debit notes"
+            >
+              <ArrowRightLeft className="h-4 w-4" /> Send all to Purchase Return
+            </Button>
+            <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setNewOpen(true)}>
+              <Plus className="h-4 w-4" /> New Return
+            </Button>
+          </div>
         }
       />
 
@@ -332,6 +385,46 @@ export default function SalesReturnsView() {
       </Dialog>
 
       <NewReturnDialog open={newOpen} onOpenChange={setNewOpen} onCreated={() => load()} firmStateCode={firm?.stateCode ?? ""} />
+
+      {/* ONE-CLICK bulk recovery — all sales returns → purchase returns */}
+      <AlertDialog open={sendOpen} onOpenChange={(o) => !sending && setSendOpen(o)}>
+        <AlertDialogContent className="dmk-elevated border-dmk-border-medium">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-dmk-text-primary">
+              <ArrowRightLeft className="h-5 w-5 text-dmk-info" /> Send all returns to Purchase Return?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-dmk-text-secondary">
+              Every line from <span className="font-semibold text-dmk-text-primary">all {list.length} credit note{list.length === 1 ? "" : "s"}</span>{" "}
+              ({totalItems} item{totalItems === 1 ? "" : "s"}, {formatINR(totalValue)} returned value) will be raised as
+              purchase-return debit notes against the vendor each product was bought from. Damaged stock is drawn down and
+              vendor payable reduces together — books stay balanced.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="dmk-well px-3 py-2.5 text-[11.5px] text-dmk-text-muted leading-relaxed">
+            Lines whose damaged quantity was already recovered are skipped automatically — stock can never go negative.
+            You will land in <span className="font-semibold text-dmk-text-secondary">Purchase Returns</span> to review the debit notes.
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={sending}
+              className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void sendAllToPurchaseReturn();
+              }}
+              disabled={sending || list.length === 0}
+              className="bg-dmk-info text-white hover:bg-dmk-info/90"
+            >
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
+              {sending ? "Sending…" : "Send everything"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

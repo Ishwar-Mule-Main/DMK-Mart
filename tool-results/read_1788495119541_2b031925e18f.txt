@@ -1,0 +1,1069 @@
+     1→"use client";
+     2→
+     3→// ═══════════════════════════════════════════════════════════════
+     4→// PURCHASE — ORDERS + GRN COCKPIT
+     5→// Lifecycle: PENDING (editable / cancellable) → CONFIRMED via GRN
+     6→// (locked — changes only via Purchase Return) → CANCELLED.
+     7→// GRN splits received qty → Accepted (sellable) + Damaged (quarantine).
+     8→// GST computed vs vendor.stateCode (IGST if ≠ firm.stateCode).
+     9→// ═══════════════════════════════════════════════════════════════
+    10→
+    11→import * as React from "react";
+    12→import {
+    13→  ClipboardList,
+    14→  Eye,
+    15→  HandCoins,
+    16→  IndianRupee,
+    17→  Layers,
+    18→  PackageCheck,
+    19→  PackageSearch,
+    20→  Pencil,
+    21→  Plus,
+    22→  Search,
+    23→  Timer,
+    24→  Trash2,
+    25→  Truck,
+    26→  X,
+    27→} from "lucide-react";
+    28→import { useErpStore, useActiveFirm } from "@/store/erp-store";
+    29→import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api-client";
+    30→import { formatINR, formatDate, toISODate } from "@/lib/format";
+    31→import type { Product, Vendor } from "@/types/erp";
+    32→import {
+    33→  PageHeader,
+    34→  Badge,
+    35→  EmptyState,
+    36→  LoadingRows,
+    37→  SearchInput,
+    38→  Field,
+    39→  inputCls,
+    40→  StatusBadge,
+    41→  Money,
+    42→  SectionGrid,
+    43→  RegisterCard,
+    44→  RegisterRow,
+    45→  AsideCard,
+    46→  MixBar,
+    47→  KpiCard,
+    48→} from "@/components/erp/shared";
+    49→import { Button } from "@/components/ui/button";
+    50→import { Input } from "@/components/ui/input";
+    51→import {
+    52→  Dialog,
+    53→  DialogContent,
+    54→  DialogDescription,
+    55→  DialogFooter,
+    56→  DialogHeader,
+    57→  DialogTitle,
+    58→} from "@/components/ui/dialog";
+    59→import {
+    60→  Select,
+    61→  SelectContent,
+    62→  SelectItem,
+    63→  SelectTrigger,
+    64→  SelectValue,
+    65→} from "@/components/ui/select";
+    66→import {
+    67→  AlertDialog,
+    68→  AlertDialogAction,
+    69→  AlertDialogCancel,
+    70→  AlertDialogContent,
+    71→  AlertDialogDescription,
+    72→  AlertDialogFooter,
+    73→  AlertDialogHeader,
+    74→  AlertDialogTitle,
+    75→} from "@/components/ui/alert-dialog";
+    76→import { useToast } from "@/hooks/use-toast";
+    77→import { requestPayPo } from "@/lib/settle-bus";
+    78→import { cn } from "@/lib/utils";
+    79→
+    80→// ── API row shapes (as returned by the routes) ──────────────────
+    81→interface PoVendor {
+    82→  id: string;
+    83→  vendorName: string;
+    84→  vendorType: string;
+    85→  brand: string;
+    86→}
+    87→
+    88→interface PoItemRow {
+    89→  id: string;
+    90→  productId: string;
+    91→  sku: string;
+    92→  productName: string;
+    93→  hsnCode: string;
+    94→  quantity: number;
+    95→  receivedQty: number;
+    96→  unitCost: number;
+    97→  taxableAmount: number;
+    98→  gstRate: number;
+    99→  cgstAmount: number;
+   100→  sgstAmount: number;
+   101→  igstAmount: number;
+   102→  totalAmount: number;
+   103→}
+   104→
+   105→interface PoRow {
+   106→  id: string;
+   107→  firmId: string;
+   108→  vendorId: string;
+   109→  vendor?: PoVendor;
+   110→  poNumber: string;
+   111→  poDate: string;
+   112→  status: "PENDING" | "CONFIRMED" | "CANCELLED";
+   113→  subtotal: number;
+   114→  totalCgst: number;
+   115→  totalSgst: number;
+   116→  totalIgst: number;
+   117→  grandTotal: number;
+   118→  receivedNote: string;
+   119→  vendorBillNo: string;
+   120→  vendorBillDate: string | null;
+   121→  notes: string;
+   122→  items: PoItemRow[];
+   123→  createdAt: string;
+   124→  /** AP subledger (CONFIRMED only — from purchase-orders GET, cycle 17). */
+   125→  paid?: number;
+   126→  credited?: number;
+   127→  outstanding?: number;
+   128→}
+   129→
+   130→interface PoLine {
+   131→  productId: string;
+   132→  sku: string;
+   133→  name: string;
+   134→  gstRate: number;
+   135→  qty: string;
+   136→  cost: string;
+   137→}
+   138→
+   139→// ── helpers ──────────────────────────────────────────────────────
+   140→function round2(n: number): number {
+   141→  return Math.round((n + Number.EPSILON) * 100) / 100;
+   142→}
+   143→
+   144→function num(s: string | number): number {
+   145→  const n = typeof s === "number" ? s : Number(s);
+   146→  return Number.isFinite(n) ? n : 0;
+   147→}
+   148→
+   149→/** Client-side replica of lib/gst calculateGST (server stays source of truth). */
+   150→function gstPreview(taxable: number, gstRate: number, intra: boolean) {
+   151→  if (intra) {
+   152→    return { cgst: round2(taxable * (gstRate / 200)), sgst: round2(taxable * (gstRate / 200)), igst: 0 };
+   153→  }
+   154→  return { cgst: 0, sgst: 0, igst: round2(taxable * (gstRate / 100)) };
+   155→}
+   156→
+   157→function normalizeProducts(res: unknown): Product[] {
+   158→  if (Array.isArray(res)) return res as Product[];
+   159→  const obj = res as { products?: Product[] } | null;
+   160→  return obj?.products ?? [];
+   161→}
+   162→
+   163→export default function PurchaseOrdersView() {
+   164→  const { toast } = useToast();
+   165→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   166→  const setView = useErpStore((s) => s.setView);
+   167→
+   168→  const [query, setQuery] = React.useState("");
+   169→  const [status, setStatus] = React.useState("ALL");
+   170→  const [rows, setRows] = React.useState<PoRow[] | null>(null);
+   171→  const [refresh, setRefresh] = React.useState(0);
+   172→
+   173→  const [newOpen, setNewOpen] = React.useState(false);
+   174→  const [editOf, setEditOf] = React.useState<PoRow | null>(null);
+   175→  const [viewOf, setViewOf] = React.useState<PoRow | null>(null);
+   176→  const [cancelOf, setCancelOf] = React.useState<PoRow | null>(null);
+   177→  const [cancelling, setCancelling] = React.useState(false);
+   178→
+   179→  React.useEffect(() => {
+   180→    if (!activeFirmId) return;
+   181→    let alive = true;
+   182→    const t = setTimeout(async () => {
+   183→      try {
+   184→        const res = await apiGet<PoRow[]>("/api/v1/purchase-orders", {
+   185→          firmId: activeFirmId,
+   186→          status: status === "ALL" ? undefined : status,
+   187→          search: query.trim(),
+   188→        });
+   189→        if (alive) setRows(res);
+   190→      } catch (e) {
+   191→        if (alive) {
+   192→          setRows([]);
+   193→          if (e instanceof ApiError)
+   194→            toast({ variant: "destructive", title: "Could not load purchase orders", description: e.message });
+   195→        }
+   196→      }
+   197→    }, 220);
+   198→    return () => {
+   199→      alive = false;
+   200→      clearTimeout(t);
+   201→    };
+   202→  }, [activeFirmId, query, status, refresh, toast]);
+   203→
+   204→  /** Cycle 17: pay a specific bill from its PO row. */
+   205→  function payFromRow(po: PoRow) {
+   206→    if (po.status !== "CONFIRMED" || !po.outstanding || po.outstanding <= 0.009) return;
+   207→    requestPayPo(po.id, po.vendorId);
+   208→    setView("purchase/payments");
+   209→    toast({
+   210→      title: "Opening payment dialog",
+   211→      description: `${po.poNumber} · ${formatINR(po.outstanding)} outstanding pre-allocated — confirm there.`,
+   212→    });
+   213→  }
+   214→
+   215→  async function confirmCancel() {
+   216→    if (!cancelOf) return;
+   217→    setCancelling(true);
+   218→    try {
+   219→      await apiPost<PoRow>(`/api/v1/purchase-orders/${cancelOf.id}/cancel`, {});
+   220→      toast({ title: "PO cancelled", description: `${cancelOf.poNumber} — no stock or ledger impact.` });
+   221→      setCancelOf(null);
+   222→      setRefresh((r) => r + 1);
+   223→    } catch (e) {
+   224→      toast({
+   225→        variant: "destructive",
+   226→        title: "Cancel failed",
+   227→        description: e instanceof ApiError ? e.message : "Could not cancel this PO.",
+   228→      });
+   229→    } finally {
+   230→      setCancelling(false);
+   231→    }
+   232→  }
+   233→
+   234→  const pendingCount = (rows ?? []).filter((r) => r.status === "PENDING").length;
+   235→  const openPayable = (rows ?? [])
+   236→    .filter((r) => r.status === "CONFIRMED" && (r.outstanding ?? 0) > 0.009)
+   237→    .reduce((s, r) => s + (r.outstanding ?? 0), 0);
+   238→
+   239→  // ── Masonry summary stats ───────────────────────────────────────
+   240→  const list = rows ?? [];
+   241→  const totalValue = list.reduce((s, r) => s + Number(r.grandTotal), 0);
+   242→  const confirmedValue = list.filter((r) => r.status === "CONFIRMED").reduce((s, r) => s + Number(r.grandTotal), 0);
+   243→  const pendingValue = list.filter((r) => r.status === "PENDING").reduce((s, r) => s + Number(r.grandTotal), 0);
+   244→  const denom = Math.max(1, list.length);
+   245→  const statusRows = (["PENDING", "CONFIRMED", "CANCELLED"] as const)
+   246→    .map((st) => ({ st, count: list.filter((r) => r.status === st).length, value: list.filter((r) => r.status === st).reduce((s, r) => s + Number(r.grandTotal), 0) }))
+   247→    .filter((x) => x.count > 0);
+   248→  const statusBar: Record<string, string> = { PENDING: "bg-dmk-warning", CONFIRMED: "bg-dmk-success", CANCELLED: "bg-dmk-danger" };
+   249→  const vendorAgg = new Map<string, { name: string; count: number; value: number }>();
+   250→  for (const r of list) {
+   251→    const name = r.vendor?.vendorName ?? "—";
+   252→    const cur = vendorAgg.get(r.vendorId) ?? { name, count: 0, value: 0 };
+   253→    vendorAgg.set(r.vendorId, { name, count: cur.count + 1, value: cur.value + Number(r.grandTotal) });
+   254→  }
+   255→  const topVendors = [...vendorAgg.entries()].sort((a, b) => b[1].value - a[1].value).slice(0, 4);
+   256→  const topVendorMax = Math.max(1, topVendors[0]?.[1].value ?? 1);
+   257→
+   258→  return (
+   259→    <div className="space-y-4">
+   260→      <PageHeader
+   261→        title="Purchase Orders"
+   262→        subtitle="PENDING → team verification → your acceptance → CONFIRMED · damaged units quarantined"
+   263→        icon={ClipboardList}
+   264→        actions={
+   265→          <Button
+   266→            size="sm"
+   267→            className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+   268→            onClick={() => setNewOpen(true)}
+   269→          >
+   270→            <Plus className="h-4 w-4" /> New PO
+   271→          </Button>
+   272→        }
+   273→      />
+   274→
+   275→      <SectionGrid
+   276→        list={
+   277→          <RegisterCard
+   278→            title="Purchase orders"
+   279→            icon={ClipboardList}
+   280→            count={list.length}
+   281→            countLabel="orders"
+   282→            filters={
+   283→              <>
+   284→                <div className="relative flex-1 min-w-0">
+   285→                  <SearchInput value={query} onChange={setQuery} placeholder="Search PO number or vendor…" className="pl-9" />
+   286→                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
+   287→                </div>
+   288→                <Select value={status} onValueChange={setStatus}>
+   289→                  <SelectTrigger className={cn(inputCls, "w-full sm:w-[170px] shrink-0")}>
+   290→                    <SelectValue placeholder="All statuses" />
+   291→                  </SelectTrigger>
+   292→                  <SelectContent>
+   293→                    <SelectItem value="ALL">All statuses</SelectItem>
+   294→                    <SelectItem value="PENDING">Pending</SelectItem>
+   295→                    <SelectItem value="CONFIRMED">Confirmed</SelectItem>
+   296→                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
+   297→                  </SelectContent>
+   298→                </Select>
+   299→              </>
+   300→            }
+   301→            footer={
+   302→              <>
+   303→                <span><span className="font-money text-dmk-warning">{pendingCount}</span> at the verification team</span>
+   304→                {openPayable > 0.009 && (
+   305→                  <span><span className="font-money text-dmk-blue">{formatINR(openPayable)}</span> open payable — hover a row to <span className="text-dmk-info font-semibold">Pay</span></span>
+   306→                )}
+   307→                <span className="hidden sm:inline">Acceptance posts: stock IN · payable Cr · PURCHASE journal</span>
+   308→              </>
+   309→            }
+   310→          >
+   311→            {rows === null ? (
+   312→              <LoadingRows rows={7} />
+   313→            ) : list.length === 0 ? (
+   314→              <EmptyState
+   315→                icon={ClipboardList}
+   316→                title="No purchase orders"
+   317→                hint="Create a PO to a manufacturer or distributor — the verification team counts the delivery, then you accept it to book stock and payable."
+   318→              />
+   319→            ) : (
+   320→              list.map((po) => {
+   321→                const tax = po.totalCgst + po.totalSgst + po.totalIgst;
+   322→                const osd = po.outstanding;
+   323→                const settled = po.status === "CONFIRMED" && osd !== undefined && osd <= 0.009;
+   324→                const payable = po.status === "CONFIRMED" && osd !== undefined && osd > 0.009;
+   325→                return (
+   326→                  <RegisterRow key={po.id} className={po.status === "PENDING" ? "bg-[rgba(245,158,11,0.04)]" : undefined}>
+   327→                    <div className="flex items-center justify-between gap-2">
+   328→                      <div className="flex items-center gap-2 min-w-0">
+   329→                        <span className="font-money text-[12px] text-dmk-text-primary shrink-0">
+   330→                          {po.poNumber}
+   331→                          {po.vendorBillNo && (
+   332→                            <span className="block text-[10px] text-dmk-text-muted" title="Vendor bill no.">
+   333→                              Bill {po.vendorBillNo}
+   334→                            </span>
+   335→                          )}
+   336→                        </span>
+   337→                        <span className="text-[11px] text-dmk-text-muted shrink-0">{formatDate(po.poDate)}</span>
+   338→                      </div>
+   339→                      <StatusBadge status={po.status} />
+   340→                    </div>
+   341→                    <div className="mt-1 flex items-center justify-between gap-2">
+   342→                      <span className="text-[12px] text-dmk-text-secondary truncate">
+   343→                        <span className="font-medium">{po.vendor?.vendorName ?? "—"}</span>
+   344→                        <span className="text-dmk-text-muted"> · {po.items.length} item{po.items.length === 1 ? "" : "s"} · tax {formatINR(tax)}</span>
+   345→                      </span>
+   346→                      <span className="flex items-baseline gap-2 shrink-0">
+   347→                        <span className="font-money text-[13px] font-semibold text-dmk-text-primary">{formatINR(po.grandTotal)}</span>
+   348→                      </span>
+   349→                    </div>
+   350→                    <div className="mt-1.5 flex items-center justify-between gap-2">
+   351→                      <span className="text-[11px] shrink-0">
+   352→                        {po.status !== "CONFIRMED" ? (
+   353→                          <span className="text-dmk-text-muted">balance —</span>
+   354→                        ) : settled ? (
+   355→                          <Badge tone="success">SETTLED</Badge>
+   356→                        ) : osd !== undefined ? (
+   357→                          <span className="font-money font-semibold text-dmk-blue">balance {formatINR(osd)}</span>
+   358→                        ) : (
+   359→                          <span className="text-dmk-text-muted">balance …</span>
+   360→                        )}
+   361→                      </span>
+   362→                      <span className="flex items-center gap-1.5 shrink-0">
+   363→                        {payable && (
+   364→                          <button
+   365→                            type="button"
+   366→                            onClick={() => payFromRow(po)}
+   367→                            title={`Record a payment against ${po.poNumber} (${formatINR(osd ?? 0)})`}
+   368→                            className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover text-dmk-info hover:border-dmk-info/40"
+   369→                          >
+   370→                            <HandCoins className="h-3 w-3" /> Pay
+   371→                          </button>
+   372→                        )}
+   373→                        {po.status === "PENDING" && (
+   374→                          <>
+   375→                            <Button
+   376→                              size="sm"
+   377→                              className="h-7 px-2.5 text-[11px] bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-semibold"
+   378→                              onClick={() => {
+   379→                                setView("purchase/verification");
+   380→                                toast({ title: `${po.poNumber} is in verification`, description: "The team portal counts sellable vs damaged — you accept the counts to book stock & payable." });
+   381→                              }}
+   382→                            >
+   383→                              <PackageSearch className="h-3 w-3" /> Verify
+   384→                            </Button>
+   385→                            <Button size="sm" variant="outline" className="h-7 w-7 p-0 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setEditOf(po)} aria-label={`Edit ${po.poNumber}`}>
+   386→                              <Pencil className="h-3 w-3" />
+   387→                            </Button>
+   388→                            <Button size="sm" variant="outline" className="h-7 w-7 p-0 border-dmk-border-subtle text-dmk-danger hover:bg-dmk-hover" onClick={() => setCancelOf(po)} aria-label={`Cancel ${po.poNumber}`}>
+   389→                              <X className="h-3 w-3" />
+   390→                            </Button>
+   391→                          </>
+   392→                        )}
+   393→                        {po.status !== "PENDING" && (
+   394→                          <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px] border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setViewOf(po)}>
+   395→                            <Eye className="h-3 w-3" /> View
+   396→                          </Button>
+   397→                        )}
+   398→                      </span>
+   399→                    </div>
+   400→                  </RegisterRow>
+   401→                );
+   402→              })
+   403→            )}
+   404→          </RegisterCard>
+   405→        }
+   406→        aside={
+   407→          <>
+   408→            <div className="grid grid-cols-2 gap-3">
+   409→              <KpiCard label="PO value" value={formatINR(totalValue)} sub={`${list.length} orders listed`} icon={IndianRupee} tone="orange" />
+   410→              <KpiCard label="In verification" value={String(pendingCount)} sub={`${formatINR(pendingValue)} awaiting counts`} icon={Timer} tone={pendingCount > 0 ? "gold" : "success"} />
+   411→              <KpiCard label="Confirmed value" value={formatINR(confirmedValue)} sub="booked on acceptance" icon={PackageCheck} tone="success" />
+   412→              <KpiCard label="Open payable" value={formatINR(openPayable)} sub="owed to vendors" icon={Truck} tone="blue" />
+   413→            </div>
+   414→
+   415→            <AsideCard title="Status mix" icon={Layers} iconClass="text-dmk-info" footnote="Only PENDING orders can be edited or cancelled — CONFIRMED orders change via Purchase Returns.">
+   416→              <div className="space-y-2.5">
+   417→                {statusRows.length === 0 ? (
+   418→                  <p className="text-[12px] text-dmk-text-muted">No orders in the current filter.</p>
+   419→                ) : (
+   420→                  statusRows.map((x) => (
+   421→                    <MixBar
+   422→                      key={x.st}
+   423→                      label={<><StatusBadge status={x.st} /> <span className="text-dmk-text-muted">· {x.count}</span></>}
+   424→                      value={formatINR(x.value)}
+   425→                      pct={(x.count / denom) * 100}
+   426→                      barClass={statusBar[x.st] ?? "bg-dmk-yellow"}
+   427→                    />
+   428→                  ))
+   429→                )}
+   430→              </div>
+   431→            </AsideCard>
+   432→
+   433→            <AsideCard
+   434→              title="Top vendors"
+   435→              icon={Truck}
+   436→              iconClass="text-dmk-yellow"
+   437→              footnote="Manufacturers are brand-scoped (R10) — their POs only list that brand's products."
+   438→            >
+   439→              <div className="space-y-2.5">
+   440→                {topVendors.length === 0 ? (
+   441→                  <p className="text-[12px] text-dmk-text-muted">No vendors yet.</p>
+   442→                ) : (
+   443→                  topVendors.map(([, v]) => (
+   444→                    <MixBar
+   445→                      key={v.name}
+   446→                      label={<>{v.name} <span className="text-dmk-text-muted">· {v.count} PO</span></>}
+   447→                      value={formatINR(v.value)}
+   448→                      pct={(v.value / topVendorMax) * 100}
+   449→                      barClass="bg-dmk-yellow"
+   450→                    />
+   451→                  ))
+   452→                )}
+   453→              </div>
+   454→            </AsideCard>
+   455→          </>
+   456→        }
+   457→      />
+   458→
+   459→      <PoFormDialog
+   460→        open={newOpen || !!editOf}
+   461→        editing={editOf}
+   462→        onOpenChange={(o) => {
+   463→          if (!o) {
+   464→            setNewOpen(false);
+   465→            setEditOf(null);
+   466→          }
+   467→        }}
+   468→        onSaved={() => setRefresh((r) => r + 1)}
+   469→      />
+   470→
+   471→
+   472→      <ViewPoDialog po={viewOf} onClose={() => setViewOf(null)} />
+   473→
+   474→      <AlertDialog open={!!cancelOf} onOpenChange={(o) => !o && setCancelOf(null)}>
+   475→        <AlertDialogContent className="dmk-elevated border-dmk-border-medium">
+   476→          <AlertDialogHeader>
+   477→            <AlertDialogTitle className="text-dmk-text-primary">Cancel PO {cancelOf?.poNumber}?</AlertDialogTitle>
+   478→            <AlertDialogDescription className="text-dmk-text-secondary">
+   479→              Only PENDING orders can be cancelled. Cancelled orders have no stock, payable or journal impact.
+   480→              This action cannot be undone.
+   481→            </AlertDialogDescription>
+   482→          </AlertDialogHeader>
+   483→          <AlertDialogFooter>
+   484→            <AlertDialogCancel className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
+   485→              Keep PO
+   486→            </AlertDialogCancel>
+   487→            <AlertDialogAction
+   488→              onClick={confirmCancel}
+   489→              disabled={cancelling}
+   490→              className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
+   491→            >
+   492→              Cancel PO
+   493→            </AlertDialogAction>
+   494→          </AlertDialogFooter>
+   495→        </AlertDialogContent>
+   496→      </AlertDialog>
+   497→    </div>
+   498→  );
+   499→}
+   500→
+   501→// ═══════════════════════════════════════════════════════════════
+   502→// New / Edit PO form (shared) — vendor brand scope + GST preview
+   503→// ═══════════════════════════════════════════════════════════════
+   504→function PoFormDialog({
+   505→  open,
+   506→  editing,
+   507→  onOpenChange,
+   508→  onSaved,
+   509→}: {
+   510→  open: boolean;
+   511→  editing: PoRow | null;
+   512→  onOpenChange: (o: boolean) => void;
+   513→  onSaved: () => void;
+   514→}) {
+   515→  const { toast } = useToast();
+   516→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   517→  const firm = useActiveFirm();
+   518→  const firmStateCode = firm?.stateCode ?? "27";
+   519→
+   520→  const [saving, setSaving] = React.useState(false);
+   521→  const [vendors, setVendors] = React.useState<Vendor[]>([]);
+   522→  const [products, setProducts] = React.useState<Product[]>([]);
+   523→  const [vendorId, setVendorId] = React.useState("");
+   524→  const [poDate, setPoDate] = React.useState(toISODate(new Date()));
+   525→  const [vendorBillNo, setVendorBillNo] = React.useState("");
+   526→  const [vendorBillDate, setVendorBillDate] = React.useState("");
+   527→  const [notes, setNotes] = React.useState("");
+   528→  const [lines, setLines] = React.useState<PoLine[]>([]);
+   529→  const [pickQuery, setPickQuery] = React.useState("");
+   530→
+   531→  // Load vendors + products whenever the dialog opens
+   532→  React.useEffect(() => {
+   533→    if (!open || !activeFirmId) return;
+   534→    let alive = true;
+   535→    apiGet<Vendor[]>("/api/v1/vendors", { firmId: activeFirmId })
+   536→      .then((res) => alive && setVendors(res))
+   537→      .catch(() => alive && setVendors([]));
+   538→    apiGet<Product[]>("/api/v1/products", { firmId: activeFirmId, activeOnly: !editing })
+   539→      .then((res) => alive && setProducts(normalizeProducts(res)))
+   540→      .catch(() => alive && setProducts([]));
+   541→    return () => {
+   542→      alive = false;
+   543→    };
+   544→  }, [open, activeFirmId, editing]);
+   545→
+   546→  // Prefill for edit / reset for new (gstRate from the stored PO item —
+   547→  // no dependency on the async products fetch)
+   548→  React.useEffect(() => {
+   549→    if (!open) return;
+   550→    if (editing) {
+   551→      setVendorId(editing.vendorId);
+   552→      setPoDate(toISODate(editing.poDate));
+   553→      setVendorBillNo(editing.vendorBillNo ?? "");
+   554→      setVendorBillDate(editing.vendorBillDate ? toISODate(editing.vendorBillDate) : "");
+   555→      setNotes(editing.notes ?? "");
+   556→      setLines(
+   557→        editing.items.map((it) => ({
+   558→          productId: it.productId,
+   559→          sku: it.sku,
+   560→          name: it.productName,
+   561→          gstRate: it.gstRate,
+   562→          qty: String(it.quantity),
+   563→          cost: String(it.unitCost),
+   564→        }))
+   565→      );
+   566→    } else {
+   567→      setVendorId("");
+   568→      setPoDate(toISODate(new Date()));
+   569→      setVendorBillNo("");
+   570→      setVendorBillDate("");
+   571→      setNotes("");
+   572→      setLines([]);
+   573→    }
+   574→    setPickQuery("");
+   575→  }, [open, editing]);
+   576→
+   577→  const vendor = vendors.find((v) => v.id === vendorId);
+   578→  const isManufacturer = vendor?.vendorType === "MANUFACTURER" && !!vendor.brand;
+   579→  const intra = !!vendor && vendor.stateCode === firmStateCode;
+   580→
+   581→  // R10 — manufacturer POs are scoped to the vendor's brand
+   582→  const pickable = products.filter((p) => {
+   583→    if (!p.isActive) return false;
+   584→    if (isManufacturer && vendor && p.brand.toLowerCase() !== vendor.brand.toLowerCase()) return false;
+   585→    const q = pickQuery.trim().toLowerCase();
+   586→    if (!q) return true;
+   587→    return (
+   588→      p.sku.toLowerCase().includes(q) ||
+   589→      p.name.toLowerCase().includes(q) ||
+   590→      p.category.toLowerCase().includes(q) ||
+   591→      p.brand.toLowerCase().includes(q)
+   592→    );
+   593→  });
+   594→
+   595→  const computed = lines.map((l) => {
+   596→    const taxable = round2(num(l.qty) * num(l.cost));
+   597→    const gst = gstPreview(taxable, l.gstRate, intra);
+   598→    return { line: l, taxable, gst, total: round2(taxable + gst.cgst + gst.sgst + gst.igst) };
+   599→  });
+   600→  const totals = computed.reduce(
+   601→    (acc, c) => ({
+   602→      taxable: round2(acc.taxable + c.taxable),
+   603→      cgst: round2(acc.cgst + c.gst.cgst),
+   604→      sgst: round2(acc.sgst + c.gst.sgst),
+   605→      igst: round2(acc.igst + c.gst.igst),
+   606→    }),
+   607→    { taxable: 0, cgst: 0, sgst: 0, igst: 0 }
+   608→  );
+   609→  const grand = round2(totals.taxable + totals.cgst + totals.sgst + totals.igst);
+   610→
+   611→  function addProduct(p: Product) {
+   612→    setLines((ls) => {
+   613→      const idx = ls.findIndex((l) => l.productId === p.id);
+   614→      if (idx >= 0) {
+   615→        const next = [...ls];
+   616→        next[idx] = { ...next[idx], qty: String(num(next[idx].qty) + 1) };
+   617→        return next;
+   618→      }
+   619→      return [
+   620→        ...ls,
+   621→        { productId: p.id, sku: p.sku, name: p.name, gstRate: p.gstRate, qty: "1", cost: String(p.purchaseCost) },
+   622→      ];
+   623→    });
+   624→  }
+   625→
+   626→  function updateLine(i: number, patch: Partial<PoLine>) {
+   627→    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+   628→  }
+   629→
+   630→  function removeLine(i: number) {
+   631→    setLines((ls) => ls.filter((_, idx) => idx !== i));
+   632→  }
+   633→
+   634→  const itemsValid = lines.every(
+   635→    (l) => num(l.qty) > 0 && num(l.cost) >= 0 && Number.isFinite(num(l.qty)) && Number.isFinite(num(l.cost))
+   636→  );
+   637→  const canSave = !!vendorId && lines.length > 0 && itemsValid;
+   638→
+   639→  async function submit() {
+   640→    if (!activeFirmId || !canSave) return;
+   641→    setSaving(true);
+   642→    const body = {
+   643→      poDate,
+   644→      notes: notes.trim(),
+   645→      vendorBillNo: vendorBillNo.trim(),
+   646→      vendorBillDate: vendorBillDate || null,
+   647→      items: lines.map((l) => ({ productId: l.productId, quantity: num(l.qty), unitCost: num(l.cost) })),
+   648→    };
+   649→    try {
+   650→      if (editing) {
+   651→        await apiPatch<PoRow>(`/api/v1/purchase-orders/${editing.id}`, body);
+   652→        toast({ title: "PO updated", description: `${editing.poNumber} re-priced and saved.` });
+   653→      } else {
+   654→        const created = await apiPost<PoRow>("/api/v1/purchase-orders", {
+   655→          firmId: activeFirmId,
+   656→          vendorId,
+   657→          poDate,
+   658→          notes: notes.trim(),
+   659→          vendorBillNo: vendorBillNo.trim(),
+   660→          vendorBillDate: vendorBillDate || null,
+   661→          items: body.items,
+   662→        });
+   663→        toast({ title: `PO ${created.poNumber} created`, description: "Sent to the verification team portal — stock & payable book when you accept their counts." });
+   664→      }
+   665→      onSaved();
+   666→      onOpenChange(false);
+   667→    } catch (e) {
+   668→      const isLocked = e instanceof ApiError && (e.code === "ERR_NOT_EDITABLE" || e.status === 409);
+   669→      toast({
+   670→        variant: "destructive",
+   671→        title: isLocked ? "PO is locked" : "Save failed",
+   672→        description: e instanceof ApiError ? e.message : "Could not save purchase order.",
+   673→      });
+   674→      if (isLocked) {
+   675→        onSaved();
+   676→        onOpenChange(false);
+   677→      }
+   678→    } finally {
+   679→      setSaving(false);
+   680→    }
+   681→  }
+   682→
+   683→  return (
+   684→    <Dialog open={open} onOpenChange={onOpenChange}>
+   685→      <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto sm:w-[880px]">
+   686→        <DialogHeader>
+   687→          <DialogTitle className="text-dmk-text-primary">
+   688→            {editing ? `Edit PO ${editing.poNumber}` : "New purchase order"}
+   689→          </DialogTitle>
+   690→          <DialogDescription className="text-dmk-text-muted">
+   691→            {editing
+   692→              ? "Only PENDING orders can be edited — items are replaced and totals re-computed."
+   693→              : "Draft a PENDING order — it goes to the verification team portal; nothing is booked until you accept their counts."}
+   694→          </DialogDescription>
+   695→        </DialogHeader>
+   696→
+   697→        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   698→          <div className="sm:col-span-2">
+   699→            <Field label="Vendor *">
+   700→              <Select
+   701→                value={vendorId}
+   702→                onValueChange={(v) => {
+   703→                  setVendorId(v);
+   704→                  setLines([]); // brand scope changes → clear lines
+   705→                }}
+   706→                disabled={!!editing}
+   707→              >
+   708→                <SelectTrigger className={cn(inputCls, "w-full")}>
+   709→                  <SelectValue placeholder="Select vendor…" />
+   710→                </SelectTrigger>
+   711→                <SelectContent>
+   712→                  {vendors.map((v) => (
+   713→                    <SelectItem key={v.id} value={v.id}>
+   714→                      {v.vendorName}
+   715→                      {v.vendorType === "MANUFACTURER" && v.brand ? ` — Mfr · ${v.brand}` : " — Distributor"}
+   716→                    </SelectItem>
+   717→                  ))}
+   718→                </SelectContent>
+   719→              </Select>
+   720→            </Field>
+   721→          </div>
+   722→          <Field label="PO date">
+   723→            <Input type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} className={inputCls} />
+   724→          </Field>
+   725→        </div>
+   726→
+   727→        {/* Vendor bill identity — powers bill-first GSTR-2B matching */}
+   728→        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   729→          <Field label="Vendor bill no." hint="Supplier's sales-invoice number">
+   730→            <Input
+   731→              value={vendorBillNo}
+   732→              onChange={(e) => setVendorBillNo(e.target.value)}
+   733→              className={inputCls}
+   734→              placeholder="e.g. SB/26-27/4512"
+   735→            />
+   736→          </Field>
+   737→          <Field label="Vendor bill date">
+   738→            <Input
+   739→              type="date"
+   740→              value={vendorBillDate}
+   741→              onChange={(e) => setVendorBillDate(e.target.value)}
+   742→              className={inputCls}
+   743→            />
+   744→          </Field>
+   745→          <div className="hidden sm:block self-end pb-1 text-[10.5px] text-dmk-text-muted leading-snug">
+   746→            Optional — capturing the supplier's bill no. lets GSTR-2B matching
+   747→            key on the bill itself instead of amount guesses.
+   748→          </div>
+   749→        </div>
+   750→
+   751→        {isManufacturer && vendor && (
+   752→          <div className="dmk-well px-3 py-2 text-[11.5px] text-dmk-gold flex items-center gap-2">
+   753→            <span className="dmk-badge bg-dmk-gold/15 text-dmk-gold">Brand scope</span>
+   754→            Only <span className="font-semibold">{vendor.brand}</span> products appear in the picker (R10).
+   755→          </div>
+   756→        )}
+   757→        {vendor && (
+   758→          <div className="dmk-well px-3 py-2 text-[11.5px] text-dmk-text-muted">
+   759→            GST mode:{" "}
+   760→            {intra ? (
+   761→              <span className="text-dmk-info">Intra-state — CGST + SGST (vendor & firm both in {vendor.stateCode})</span>
+   762→            ) : (
+   763→              <span className="text-dmk-gold">Inter-state — IGST (vendor {vendor.stateCode} ≠ firm {firmStateCode})</span>
+   764→            )}
+   765→          </div>
+   766→        )}
+   767→
+   768→        {/* Product picker */}
+   769→        <div className="space-y-2">
+   770→          <div className="relative">
+   771→            <SearchInput
+   772→              value={pickQuery}
+   773→              onChange={setPickQuery}
+   774→              placeholder={vendor ? "Search products to add (SKU, name, category)…" : "Select a vendor first"}
+   775→              className="pl-9"
+   776→            />
+   777→            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
+   778→          </div>
+   779→          <div className="dmk-card max-h-44 overflow-y-auto overflow-x-hidden">
+   780→            {!vendor ? (
+   781→              <p className="text-[12px] text-dmk-text-muted px-3 py-4 text-center">Pick a vendor to list products.</p>
+   782→            ) : pickable.length === 0 ? (
+   783→              <p className="text-[12px] text-dmk-text-muted px-3 py-4 text-center">
+   784→                {isManufacturer ? `No ${vendor?.brand} products match.` : "No products match your search."}
+   785→              </p>
+   786→            ) : (
+   787→              <table className="dmk-table">
+   788→                <tbody>
+   789→                  {pickable.slice(0, 60).map((p) => (
+   790→                    <tr key={p.id} className="cursor-pointer" onClick={() => addProduct(p)}>
+   791→                      <td className="font-money text-[11px] text-dmk-text-secondary w-[110px]">{p.sku}</td>
+   792→                      <td className="text-[12.5px] max-w-[280px] truncate">
+   793→                        {p.name}
+   794→                        {p.brand && <span className="ml-1.5 text-[10.5px] text-dmk-text-muted">({p.brand})</span>}
+   795→                      </td>
+   796→                      <td className="num text-[12px] text-dmk-text-secondary w-[110px]">GST {p.gstRate}%</td>
+   797→                      <td className="num text-[12.5px] w-[110px]">{formatINR(p.purchaseCost)}</td>
+   798→                      <td className="w-[90px] text-right">
+   799→                        <span className="dmk-badge dmk-badge-info">+ Add</span>
+   800→                      </td>
+   801→                    </tr>
+   802→                  ))}
+   803→                </tbody>
+   804→              </table>
+   805→            )}
+   806→          </div>
+   807→        </div>
+   808→
+   809→        {/* Lines */}
+   810→        <div className="dmk-card overflow-hidden">
+   811→          <div className="overflow-x-auto">
+   812→            {lines.length === 0 ? (
+   813→              <p className="text-[12px] text-dmk-text-muted px-3 py-5 text-center">
+   814→                No items yet — click products above to add lines.
+   815→              </p>
+   816→            ) : (
+   817→              <table className="dmk-table min-w-[760px]">
+   818→                <thead>
+   819→                  <tr>
+   820→                    <th>Product</th>
+   821→                    <th className="text-right w-[92px]">Qty</th>
+   822→                    <th className="text-right w-[118px]">Unit cost</th>
+   823→                    <th className="text-right">Taxable</th>
+   824→                    <th className="text-right">{intra ? "CGST + SGST" : "IGST"}</th>
+   825→                    <th className="text-right">Line total</th>
+   826→                    <th className="w-[44px]" />
+   827→                  </tr>
+   828→                </thead>
+   829→                <tbody>
+   830→                  {computed.map(({ line, taxable, gst, total }, i) => {
+   831→                    const lineGst = gst.cgst + gst.sgst + gst.igst;
+   832→                    const invalid = num(line.qty) <= 0 || num(line.cost) < 0;
+   833→                    return (
+   834→                      <tr key={line.productId} className={cn(invalid && "bg-[rgba(239,68,68,0.06)]")}>
+   835→                        <td className="max-w-[260px]">
+   836→                          <span className="font-money text-[10.5px] text-dmk-text-muted mr-1.5">{line.sku}</span>
+   837→                          <span className="text-[12.5px]">{line.name}</span>
+   838→                          <span className="ml-1.5 text-[10.5px] text-dmk-text-muted">GST {line.gstRate}%</span>
+   839→                        </td>
+   840→                        <td>
+   841→                          <Input
+   842→                            type="number"
+   843→                            min="1"
+   844→                            step="1"
+   845→                            value={line.qty}
+   846→                            onChange={(e) => updateLine(i, { qty: e.target.value })}
+   847→                            className={cn(inputCls, "h-8 text-right font-money")}
+   848→                            aria-label={`Quantity for ${line.name}`}
+   849→                          />
+   850→                        </td>
+   851→                        <td>
+   852→                          <Input
+   853→                            type="number"
+   854→                            min="0"
+   855→                            step="0.01"
+   856→                            value={line.cost}
+   857→                            onChange={(e) => updateLine(i, { cost: e.target.value })}
+   858→                            className={cn(inputCls, "h-8 text-right font-money")}
+   859→                            aria-label={`Unit cost for ${line.name}`}
+   860→                          />
+   861→                        </td>
+   862→                        <td className="num text-[12.5px]">{formatINR(taxable)}</td>
+   863→                        <td className="num text-[12px] text-dmk-text-secondary">
+   864→                          {intra ? `${formatINR(gst.cgst)} + ${formatINR(gst.sgst)}` : formatINR(gst.igst)}
+   865→                        </td>
+   866→                        <td className="num text-[12.5px] font-semibold">{formatINR(total)}</td>
+   867→                        <td>
+   868→                          <Button
+   869→                            size="sm"
+   870→                            variant="ghost"
+   871→                            className="h-7 w-7 p-0 text-dmk-text-muted hover:text-dmk-danger hover:bg-dmk-hover"
+   872→                            onClick={() => removeLine(i)}
+   873→                            aria-label={`Remove ${line.name}`}
+   874→                          >
+   875→                            <Trash2 className="h-3.5 w-3.5" />
+   876→                          </Button>
+   877→                        </td>
+   878→                      </tr>
+   879→                    );
+   880→                  })}
+   881→                </tbody>
+   882→              </table>
+   883→            )}
+   884→          </div>
+   885→          {lines.length > 0 && (
+   886→            <div className="dmk-well px-4 py-3 space-y-1">
+   887→              <div className="flex justify-between text-[12px] text-dmk-text-secondary">
+   888→                <span>Taxable</span>
+   889→                <Money value={totals.taxable} />
+   890→              </div>
+   891→              {intra ? (
+   892→                <>
+   893→                  <div className="flex justify-between text-[12px] text-dmk-text-secondary">
+   894→                    <span>CGST</span><Money value={totals.cgst} />
+   895→                  </div>
+   896→                  <div className="flex justify-between text-[12px] text-dmk-text-secondary">
+   897→                    <span>SGST</span><Money value={totals.sgst} />
+   898→                  </div>
+   899→                </>
+   900→              ) : (
+   901→                <div className="flex justify-between text-[12px] text-dmk-text-secondary">
+   902→                  <span>IGST</span><Money value={totals.igst} />
+   903→                </div>
+   904→              )}
+   905→              <div className="flex justify-between text-[13.5px] font-semibold text-dmk-text-primary pt-1 border-t border-dmk-border-subtle">
+   906→                <span>Grand Total</span>
+   907→                <Money value={grand} className="text-dmk-yellow text-[15px]" />
+   908→              </div>
+   909→            </div>
+   910→          )}
+   911→        </div>
+   912→
+   913→        <Field label="Notes">
+   914→          <Input value={notes} onChange={(e) => setNotes(e.target.value)} className={inputCls} placeholder="Optional — delivery instructions, packaging…" />
+   915→        </Field>
+   916→
+   917→        <DialogFooter>
+   918→          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
+   919→            Cancel
+   920→          </Button>
+   921→          <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+   922→            {editing ? "Save changes" : "Create PO"}
+   923→          </Button>
+   924→        </DialogFooter>
+   925→      </DialogContent>
+   926→    </Dialog>
+   927→  );
+   928→}
+   929→
+   930→// ═══════════════════════════════════════════════════════════════
+   931→// GRN receive moved to the PO VERIFICATION flow (owner portal →
+   932→// Purchase → PO Verification): the team counts sellable vs damaged
+   933→// on their portal; the owner's acceptance runs the same GRN
+   934→// pipeline (stock IN + damaged quarantine + payable + PURCHASE
+   935→// journal). PENDING rows here link straight to that cockpit.
+   936→// ═══════════════════════════════════════════════════════════════
+   937→
+   938→// ═══════════════════════════════════════════════════════════════
+   939→// View PO detail dialog (CONFIRMED / CANCELLED)
+   940→// ═══════════════════════════════════════════════════════════════
+   941→interface PoDetailVendor extends PoVendor {
+   942→  stateCode?: string;
+   943→  gstin?: string;
+   944→}
+   945→
+   946→interface PoDetail extends Omit<PoRow, "vendor"> {
+   947→  vendor?: PoDetailVendor;
+   948→}
+   949→
+   950→function ViewPoDialog({ po, onClose }: { po: PoRow | null; onClose: () => void }) {
+   951→  const [detail, setDetail] = React.useState<PoDetail | null>(null);
+   952→
+   953→  React.useEffect(() => {
+   954→    if (!po) return;
+   955→    let alive = true;
+   956→    setDetail(null);
+   957→    apiGet<PoDetail>(`/api/v1/purchase-orders/${po.id}`)
+   958→      .then((res) => alive && setDetail(res))
+   959→      .catch(() => alive && setDetail(po));
+   960→    return () => {
+   961→      alive = false;
+   962→    };
+   963→  }, [po]);
+   964→
+   965→  const d: PoDetail | null = detail ?? po;
+   966→  const tax = (d?.totalCgst ?? 0) + (d?.totalSgst ?? 0) + (d?.totalIgst ?? 0);
+   967→
+   968→  return (
+   969→    <Dialog open={!!po} onOpenChange={(o) => !o && onClose()}>
+   970→      <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto sm:w-[800px]">
+   971→        <DialogHeader>
+   972→          <DialogTitle className="text-dmk-text-primary flex items-center gap-2.5">
+   973→            {d?.poNumber} <StatusBadge status={d?.status ?? "PENDING"} />
+   974→          </DialogTitle>
+   975→          <DialogDescription className="text-dmk-text-muted">
+   976→            {d?.vendor?.vendorName} {d?.vendor?.brand ? `· ${d.vendor.brand}` : ""} · {d ? formatDate(d.poDate) : ""}
+   977→            {d?.vendor?.gstin && (
+   978→              <>
+   979→                {" · GSTIN "}
+   980→                <span className="font-money">{d.vendor.gstin}</span>
+   981→              </>
+   982→            )}
+   983→          </DialogDescription>
+   984→        </DialogHeader>
+   985→
+   986→        {d?.vendorBillNo && (
+   987→          <div className="dmk-well px-3 py-2 text-[12px] text-dmk-text-secondary flex flex-wrap items-center gap-x-4 gap-y-1">
+   988→            <span>
+   989→              <span className="text-dmk-text-muted font-semibold uppercase tracking-wider text-[10.5px] mr-2">Vendor bill</span>
+   990→              <span className="font-money text-dmk-text-primary">{d.vendorBillNo}</span>
+   991→            </span>
+   992→            {d.vendorBillDate && (
+   993→              <span className="text-dmk-text-muted">dated {formatDate(d.vendorBillDate)}</span>
+   994→            )}
+   995→            <span className="text-[10.5px] text-dmk-gold">used for GSTR-2B bill-first matching</span>
+   996→          </div>
+   997→        )}
+   998→        {d?.receivedNote && (
+   999→          <div className="dmk-well px-3 py-2 text-[12px] text-dmk-text-secondary">
+  1000→            <span className="text-dmk-text-muted font-semibold uppercase tracking-wider text-[10.5px] mr-2">Received note</span>
+  1001→            {d.receivedNote}
+  1002→          </div>
+  1003→        )}
+  1004→        {d?.notes && (
+  1005→          <div className="dmk-well px-3 py-2 text-[12px] text-dmk-text-secondary">
+  1006→            <span className="text-dmk-text-muted font-semibold uppercase tracking-wider text-[10.5px] mr-2">Notes</span>
+  1007→            {d.notes}
+  1008→          </div>
+  1009→        )}
+  1010→
+  1011→        <div className="dmk-card overflow-hidden">
+  1012→          <div className="overflow-x-auto">
+  1013→            <table className="dmk-table min-w-[720px]">
+  1014→              <thead>
+  1015→                <tr>
+  1016→                  <th>SKU</th>
+  1017→                  <th>Product</th>
+  1018→                  <th className="text-right">Qty</th>
+  1019→                  <th className="text-right">Received</th>
+  1020→                  <th className="text-right">Unit cost</th>
+  1021→                  <th className="text-right">Taxable</th>
+  1022→                  <th className="text-right">GST</th>
+  1023→                  <th className="text-right">Total</th>
+  1024→                </tr>
+  1025→              </thead>
+  1026→              <tbody>
+  1027→                {(d?.items ?? []).map((it) => {
+  1028→                  const gstAmt = it.cgstAmount + it.sgstAmount + it.igstAmount;
+  1029→                  return (
+  1030→                    <tr key={it.id}>
+  1031→                      <td className="font-money text-[11px] text-dmk-text-secondary">{it.sku}</td>
+  1032→                      <td className="text-[12.5px] max-w-[200px] truncate">{it.productName}</td>
+  1033→                      <td className="num text-[12.5px]">{it.quantity}</td>
+  1034→                      <td className="num text-[12.5px]">{it.receivedQty || "—"}</td>
+  1035→                      <td className="num text-[12.5px]">{formatINR(it.unitCost)}</td>
+  1036→                      <td className="num text-[12.5px]">{formatINR(it.taxableAmount)}</td>
+  1037→                      <td className="num text-[12px] text-dmk-text-secondary">{formatINR(gstAmt)} <span className="text-dmk-text-muted">({it.gstRate}%)</span></td>
+  1038→                      <td className="num text-[12.5px] font-semibold">{formatINR(it.totalAmount)}</td>
+  1039→                    </tr>
+  1040→                  );
+  1041→                })}
+  1042→              </tbody>
+  1043→            </table>
+  1044→          </div>
+  1045→          <div className="dmk-well px-4 py-3 space-y-1">
+  1046→            <div className="flex justify-between text-[12px] text-dmk-text-secondary">
+  1047→              <span>Taxable</span><Money value={d?.subtotal ?? 0} />
+  1048→            </div>
+  1049→            <div className="flex justify-between text-[12px] text-dmk-text-secondary">
+  1050→              <span>GST (CGST {formatINR(d?.totalCgst ?? 0)} + SGST {formatINR(d?.totalSgst ?? 0)} + IGST {formatINR(d?.totalIgst ?? 0)})</span>
+  1051→              <Money value={tax} />
+  1052→            </div>
+  1053→            <div className="flex justify-between text-[13.5px] font-semibold text-dmk-text-primary pt-1 border-t border-dmk-border-subtle">
+  1054→              <span>Grand Total</span>
+  1055→              <Money value={d?.grandTotal ?? 0} className="text-dmk-yellow text-[15px]" />
+  1056→            </div>
+  1057→          </div>
+  1058→        </div>
+  1059→
+  1060→        <DialogFooter>
+  1061→          <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
+  1062→            Close
+  1063→          </Button>
+  1064→        </DialogFooter>
+  1065→      </DialogContent>
+  1066→    </Dialog>
+  1067→  );
+  1068→}
+  1069→

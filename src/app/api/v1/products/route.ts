@@ -19,6 +19,10 @@ import {
   roundProductNumerics,
   validateProductBusinessRules,
 } from "@/app/api/v1/_lib/product";
+import {
+  ensureVendorPrefixedName,
+  resolveManufacturerVendor,
+} from "@/app/api/v1/_lib/product-naming";
 
 export async function GET(request: NextRequest) {
   try {
@@ -101,13 +105,18 @@ export async function POST(request: NextRequest) {
     const weightGrams = body.weightGrams === undefined ? null : getNum(body.weightGrams);
     const barcode = getStr(body.barcode) || null;
 
+    // Manufacturer link — product belongs to a MANUFACTURER vendor (R10).
+    // The catalog name then starts with the vendor's name automatically.
+    const mfrVendor = await resolveManufacturerVendor(firm.id, body.manufacturerVendorId);
+    const finalName = mfrVendor ? ensureVendorPrefixedName(name, mfrVendor.vendorName) : name;
+
     const product = await db.product.create({
       data: {
         firmId: firm.id,
         sku,
-        name,
+        name: finalName,
         category: getStr(body.category) || "General",
-        brand: getStr(body.brand),
+        brand: getStr(body.brand) || mfrVendor?.brand || "",
         unit: getStr(body.unit) || "Pcs",
         hsnCode: getStr(body.hsnCode) || "3924",
         gstRate: nums.gstRate,
@@ -120,6 +129,7 @@ export async function POST(request: NextRequest) {
         stockQuantity: nums.openingStock,
         damagedStock: nums.openingDamagedStock,
         lowStockThreshold: nums.lowStockThreshold,
+        manufacturerVendorId: mfrVendor?.id ?? null,
         weightGrams,
         barcode,
         isActive: true,

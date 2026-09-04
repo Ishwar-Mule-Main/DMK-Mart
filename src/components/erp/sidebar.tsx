@@ -36,6 +36,7 @@ import {
   FileCheck2,
   FileWarning,
   ClipboardCheck,
+  PackagePlus,
 } from "lucide-react";
 import { useErpStore, type ViewId } from "@/store/erp-store";
 import { cn } from "@/lib/utils";
@@ -72,6 +73,7 @@ const SECTIONS: NavSection[] = [
     label: "Purchase",
     items: [
       { id: "purchase/orders", label: "Purchase Orders", icon: ClipboardList },
+      { id: "purchase/new-order", label: "New Purchase Order", icon: PackagePlus },
       { id: "purchase/verification", label: "PO Verification", icon: ClipboardCheck },
       { id: "purchase/returns", label: "Purchase Returns", icon: UndoIcon },
       { id: "purchase/payments", label: "Vendor Payments", icon: Banknote },

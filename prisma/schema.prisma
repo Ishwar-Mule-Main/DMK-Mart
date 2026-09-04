@@ -80,12 +80,14 @@ model Product {
   stockQuantity     Float    @default(0) // sellable
   damagedStock      Float    @default(0) // quarantined — NEVER sellable
   lowStockThreshold Float    @default(0)
+  manufacturerVendorId String? // MANUFACTURER vendor this product belongs to (PO scoping R10)
   weightGrams       Float?
   barcode           String?
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
+  manufacturerVendor Vendor? @relation("ManufacturerProducts", fields: [manufacturerVendorId], references: [id])
   purchaseOrderItems PurchaseOrderItem[]
   invoiceLineItems    InvoiceLineItem[]
   salesReturnItems    SalesReturnItem[]
@@ -96,6 +98,7 @@ model Product {
   @@unique([firmId, sku])
   @@index([firmId, name])
   @@index([firmId, category])
+  @@index([firmId, manufacturerVendorId])
 }
 
 // ─── CUSTOMERS (B2B + B2C counter directory) ─────────────────────
@@ -160,6 +163,7 @@ model Vendor {
   purchaseReturns   PurchaseReturn[]
   payments          VendorPayment[]
   ledgerEntries     LedgerEntry[]
+  manufacturedProducts Product[] @relation("ManufacturerProducts")
 
   @@index([firmId, vendorName])
   @@index([firmId, gstin])

@@ -170,7 +170,6 @@ export default function PurchaseOrdersView() {
   const [rows, setRows] = React.useState<PoRow[] | null>(null);
   const [refresh, setRefresh] = React.useState(0);
 
-  const [newOpen, setNewOpen] = React.useState(false);
   const [editOf, setEditOf] = React.useState<PoRow | null>(null);
   const [viewOf, setViewOf] = React.useState<PoRow | null>(null);
   const [cancelOf, setCancelOf] = React.useState<PoRow | null>(null);
@@ -265,7 +264,7 @@ export default function PurchaseOrdersView() {
           <Button
             size="sm"
             className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
-            onClick={() => setNewOpen(true)}
+            onClick={() => setView("purchase/new-order")}
           >
             <Plus className="h-4 w-4" /> New PO
           </Button>
@@ -457,11 +456,10 @@ export default function PurchaseOrdersView() {
       />
 
       <PoFormDialog
-        open={newOpen || !!editOf}
+        open={!!editOf}
         editing={editOf}
         onOpenChange={(o) => {
           if (!o) {
-            setNewOpen(false);
             setEditOf(null);
           }
         }}
@@ -575,13 +573,18 @@ function PoFormDialog({
   }, [open, editing]);
 
   const vendor = vendors.find((v) => v.id === vendorId);
-  const isManufacturer = vendor?.vendorType === "MANUFACTURER" && !!vendor.brand;
+  const isManufacturer = vendor?.vendorType === "MANUFACTURER";
   const intra = !!vendor && vendor.stateCode === firmStateCode;
 
-  // R10 — manufacturer POs are scoped to the vendor's brand
+  // R4/R10 — manufacturer POs list ONLY that vendor's own products
+  // (manufacturerVendorId link, legacy brand match as fallback);
+  // distributors list the whole catalog.
   const pickable = products.filter((p) => {
     if (!p.isActive) return false;
-    if (isManufacturer && vendor && p.brand.toLowerCase() !== vendor.brand.toLowerCase()) return false;
+    if (isManufacturer && vendor) {
+      const brandMatch = !!vendor.brand && p.brand.toLowerCase() === vendor.brand.toLowerCase();
+      if (p.manufacturerVendorId !== vendor.id && !brandMatch) return false;
+    }
     const q = pickQuery.trim().toLowerCase();
     if (!q) return true;
     return (
