@@ -11,7 +11,6 @@ import { CommandPalette } from "./command-palette";
 import { useErpStore, type ViewId } from "@/store/erp-store";
 import { apiGet, apiPost } from "@/lib/api-client";
 import type { Firm } from "@/types/erp";
-import { cn } from "@/lib/utils";
 import { LoginGate } from "@/components/auth/login-gate";
 import { VerificationPortal } from "@/components/verify/verification-portal";
 
@@ -90,7 +89,6 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
 
 export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
   const { view, firms, activeFirmId, setFirms, session } = useErpStore();
-  const sidebarOpen = useErpStore((s) => s.sidebarOpen);
   const [mounted, setMounted] = React.useState(false);
   const [booting, setBooting] = React.useState(true);
   const [bootError, setBootError] = React.useState<string | null>(null);
@@ -214,7 +212,8 @@ export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
       <Header />
       <Sidebar />
       <CommandPalette />
-      <div className={cn("flex-1 flex flex-col transition-all duration-200 mt-14", sidebarOpen ? "lg:ml-[240px]" : "lg:ml-[64px]")}>
+      {/* Desktop: the sidebar is a hover-to-expand rail, so the content offset is always the 64px rail width — the expanded panel overlays instead of pushing content. */}
+      <div className="flex-1 flex flex-col transition-none mt-14 lg:ml-16">
         <main key={view} className="dmk-enter flex-1 px-3 sm:px-5 py-4 sm:py-5 max-w-[1600px] w-full mx-auto">
           <ActiveView />
         </main>

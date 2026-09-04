@@ -716,3 +716,21 @@ Stage Summary:
 - The Copilot now greets the user at the very top of the app — dashboard opens into a live chat grounded on the firm's books, with grouped quick asks.
 - Creating a sales return or purchase return is no longer a popup: each is a full-width inline container on its register page (toggle open/close from the header button), keeping the register visible for context while posting — flows verified end-to-end (CN/0011, DN/0013) with balanced books.
 - Suggested next cycle: verification request assignment (assignedToId), team-portal toast/sound on new PO, GRN print at acceptance, verification history export, refund/settlement mode shown on CN/DN print documents.
+
+---
+Task ID: 32
+Agent: ATLAS (main session — user: "sidebar panel should always be closed/minimized when user hover on it it must expand")
+Task: Sidebar always minimized by default — expands only on hover (desktop rail), mobile drawer unchanged
+
+Work Log:
+- MODEL REWORK: store `sidebarOpen` is now the MOBILE drawer only (default false, REMOVED from persist partialize so it never resurrects); desktop is driven by a local `hovered` state + `useIsDesktop()` matchMedia hook (lg 1024px) — `expanded = isDesktop ? hovered : sidebarOpen` keeps every breakpoint correct even across mid-session resizes.
+- SIDEBAR (src/components/erp/sidebar.tsx): aside is ALWAYS the 64px icon rail on desktop (`lg:w-16 lg:translate-x-0`); `onMouseEnter/Leave` toggles expansion to 240px as an OVERLAY with `shadow-[10px_0_32px_rgba(0,0,0,0.5)]` (content never shifts); `onFocusCapture`/`onBlurCapture` (relatedTarget-guarded) expand/collapse for keyboard users; section headers collapse into hairline dividers on the rail (first section unindented) and restore to label+chevron when expanded; nav buttons keep `title` tooltips + stay centered icon-only when collapsed; footer well swaps to a pulsing `ChevronsRight` hint ("Hover to expand the menu" + sr-only text) when collapsed; `overflow-x-hidden` prevents label spill during the 200ms width transition; mount effect force-resets drawer state; unused Link/usePathname imports removed.
+- APP SHELL: content offset is now statically `lg:ml-16` (64px) — the expanded panel overlays, zero reflow on hover; `sidebarOpen` usage removed.
+- HEADER: hamburger button is now mobile-only (`lg:hidden`) with dynamic aria-label/aria-expanded (Open/Close navigation menu) since desktop navigation is hover-driven.
+- QA (agent-browser via :81 gateway, owner session): fresh desktop load → rail 64px + content margin 64px + hint chevron ✓; mouseover → 240px, shadow on, labels block, dividers gone, hint hidden, well visible ✓ (qa-sidebar-expanded.png); mouseout → back to 64px, shadow off, margin still 64px ✓ (qa-sidebar-collapsed.png); keyboard focus → 240px, blur → 64px ✓; nav clicks land (Products, Dashboard) and panel stays expanded while pointer/focus remains ✓; mobile 390px → aside off-canvas at x=-240, hamburger visible, drawer opens at x=0 with overlay + labels, item click closes drawer + overlay ✓ (qa-sidebar-mobile-drawer.png); zero console errors/warnings.
+- TOOLING CAVEAT (honest): this sandbox's agent-browser `hover`/`mouse move` commands deliver ZERO native pointer events to the page (verified by instrumenting the aside — 0 events captured), so hover behavior was verified by dispatching the exact native events browsers fire (bubbling mouseover/mouseout → React onMouseEnter/onMouseLeave emulation); the handlers are the app's only hover mechanism and respond correctly. No app-side issue.
+- GATES: bun run lint 0/0 · bunx tsc --noEmit 0 · zero browser console errors.
+
+Stage Summary:
+- The sidebar is now a permanent minimized 64px icon rail on desktop that expands to a full 240px overlay ONLY while hovered (or keyboard-focused) and snaps back on leave — content stays put at a fixed 64px offset with no layout shift; mobile keeps the classic hamburger drawer. Verified end-to-end with screenshots for collapsed/expanded/mobile states.
+- Suggested next cycle: verification request assignment (assignedToId), team-portal toast/sound on new PO, GRN print at acceptance, verification history export, refund/settlement mode shown on CN/DN print documents.

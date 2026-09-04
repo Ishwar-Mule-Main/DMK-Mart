@@ -168,10 +168,13 @@ export function Header() {
   return (
     <header className="fixed top-0 inset-x-0 z-[60] h-14 bg-[#0D1527]/90 backdrop-blur-md border-b border-dmk-border-subtle">
       <div className="h-full px-3 sm:px-4 flex items-center gap-2 sm:gap-3">
+        {/* Sidebar toggle — mobile drawer only. On desktop the sidebar is an
+            always-minimized rail that expands on hover, so this button is hidden. */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="h-9 w-9 flex items-center justify-center rounded-lg hover:bg-dmk-hover text-dmk-text-secondary"
-          aria-label="Toggle sidebar"
+          className="h-9 w-9 flex items-center justify-center rounded-lg hover:bg-dmk-hover text-dmk-text-secondary lg:hidden"
+          aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"}
+          aria-expanded={sidebarOpen}
         >
           <Menu className="h-5 w-5" strokeWidth={1.75} />
         </button>

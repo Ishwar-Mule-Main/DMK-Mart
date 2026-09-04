@@ -57,6 +57,7 @@ interface ErpState {
   activeFirmId: string | null;
   financialYear: string;
   view: ViewId;
+  /** Mobile drawer only — desktop is a hover-to-expand rail and ignores this. */
   sidebarOpen: boolean;
   notifications: number;
   session: ErpSession | null;
@@ -77,7 +78,7 @@ export const useErpStore = create<ErpState>()(
       activeFirmId: null,
       financialYear: "",
       view: "dashboard",
-      sidebarOpen: true,
+      sidebarOpen: false,
       notifications: 0,
       session: null,
       setSession: (session) => set({ session }),
@@ -107,7 +108,6 @@ export const useErpStore = create<ErpState>()(
         activeFirmId: s.activeFirmId,
         financialYear: s.financialYear,
         view: s.view,
-        sidebarOpen: s.sidebarOpen,
         session: s.session,
       }),
     }
