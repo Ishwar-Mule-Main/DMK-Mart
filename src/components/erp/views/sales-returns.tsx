@@ -19,6 +19,7 @@ import {
   RotateCcw,
   ShieldAlert,
   Trash2,
+  X,
 } from "lucide-react";
 import { useErpStore, useActiveFirm } from "@/store/erp-store";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
@@ -209,12 +210,34 @@ export default function SalesReturnsView() {
             >
               <ArrowRightLeft className="h-4 w-4" /> Send to Purchase Return
             </Button>
-            <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setNewOpen(true)}>
-              <Plus className="h-4 w-4" /> New Return
+            <Button
+              size="sm"
+              aria-expanded={newOpen}
+              className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+              onClick={() => setNewOpen((o) => !o)}
+            >
+              {newOpen ? (
+                <>
+                  <X className="h-4 w-4" /> Close form
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" /> New Return
+                </>
+              )}
             </Button>
           </div>
         }
       />
+
+      {/* New return — inline container (no popup) */}
+      {newOpen && (
+        <NewReturnPanel
+          onClose={() => setNewOpen(false)}
+          onCreated={() => load()}
+          firmStateCode={firm?.stateCode ?? ""}
+        />
+      )}
 
       <SectionGrid
         list={
@@ -389,8 +412,6 @@ export default function SalesReturnsView() {
         </DialogContent>
       </Dialog>
 
-      <NewReturnDialog open={newOpen} onOpenChange={setNewOpen} onCreated={() => load()} firmStateCode={firm?.stateCode ?? ""} />
-
       {/* Selective vendor recovery — only lines NOT yet sent to vendors are
           listed, and the user picks exactly what goes. Nothing is swept
           from leftover damaged-pool stock on its own. */}
@@ -400,16 +421,14 @@ export default function SalesReturnsView() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// New return dialog
+// New return — INLINE CONTAINER (rendered in the page, not a popup)
 // ═══════════════════════════════════════════════════════════════
-function NewReturnDialog({
-  open,
-  onOpenChange,
+function NewReturnPanel({
+  onClose,
   onCreated,
   firmStateCode,
 }: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
+  onClose: () => void;
   onCreated: () => void;
   firmStateCode: string;
 }) {
@@ -428,20 +447,14 @@ function NewReturnDialog({
   const [items, setItems] = React.useState<DraftItem[]>([]);
   const [saving, setSaving] = React.useState(false);
 
-  // Fresh draft every time the dialog opens
+  // Inline container: a fresh draft on every mount (rendered when open)
+  const panelRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
-    if (!open) return;
-    setCustomerId("");
-    setInvoiceId("");
-    setCustInvoices([]);
-    setInvoiceSort("recent");
-    setRefundMode("CREDIT");
-    setReturnDate(toISODate(new Date()));
-    setItems([]);
-  }, [open]);
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, []);
 
   React.useEffect(() => {
-    if (!open || !activeFirmId) return;
+    if (!activeFirmId) return;
     let alive = true;
     (async () => {
       try {
@@ -462,11 +475,11 @@ function NewReturnDialog({
     return () => {
       alive = false;
     };
-  }, [open, activeFirmId]);
+  }, [activeFirmId]);
 
   // Load the selected customer's invoices for the reference picker
   React.useEffect(() => {
-    if (!open || !activeFirmId || !customerId) {
+    if (!activeFirmId || !customerId) {
       setCustInvoices([]);
       setInvoiceId("");
       setItems([]);
@@ -482,7 +495,7 @@ function NewReturnDialog({
     return () => {
       alive = false;
     };
-  }, [customerId, activeFirmId, open]);
+  }, [customerId, activeFirmId]);
 
   // Recent-first by default, flip with the sort toggle
   const sortedInvoices = React.useMemo(() => {
@@ -498,7 +511,7 @@ function NewReturnDialog({
   // Selecting an invoice auto-loads its products at the INVOICED pricing —
   // every row starts with damaged qty 0 (not returned) until typed in.
   React.useEffect(() => {
-    if (!open || !invoiceId) return;
+    if (!invoiceId) return;
     let alive = true;
     setInvLoading(true);
     apiGet<InvoiceDetail>(`/api/v1/invoices/${invoiceId}`)
@@ -520,7 +533,7 @@ function NewReturnDialog({
     return () => {
       alive = false;
     };
-  }, [invoiceId, open]);
+  }, [invoiceId]);
 
   function addItem() {
     if (products.length === 0) return;
@@ -593,7 +606,7 @@ function NewReturnDialog({
       setCustomerId("");
       setInvoiceId("");
       onCreated();
-      onOpenChange(false);
+      onClose();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Could not record return.";
       toast({ variant: "destructive", title: "Return failed", description: msg });
@@ -603,16 +616,40 @@ function NewReturnDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="dmk-elevated border-dmk-border-medium">
-        <DialogHeader>
-          <DialogTitle className="text-dmk-text-primary">New sales return</DialogTitle>
-          <DialogDescription className="text-dmk-text-muted">
-            B2B customers only — damaged/broken goods are not collected from B2C counter buyers. Pick a customer invoice to auto-load its products at the invoiced prices, then set the damaged qty per row (0 = not returned).
-          </DialogDescription>
-        </DialogHeader>
+    <div
+      ref={panelRef}
+      role="region"
+      aria-label="New sales return form"
+      className="dmk-card relative overflow-hidden dmk-enter"
+    >
+      {/* Accent strip */}
+      <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-dmk-yellow via-dmk-warning/50 to-transparent" />
 
-        <div className="grid grid-cols-2 gap-3">
+      <div className="p-4 sm:p-5 space-y-4">
+        {/* Panel header */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="h-9 w-9 rounded-lg bg-dmk-warning/12 border border-dmk-warning/30 flex items-center justify-center shrink-0">
+              <RotateCcw className="h-4 w-4 text-dmk-warning" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-[15px] font-semibold text-dmk-text-primary">New sales return</h2>
+              <p className="text-[11.5px] text-dmk-text-muted leading-snug">
+                B2B customers only — damaged/broken goods are not collected from B2C counter buyers. Pick a customer invoice to auto-load its products at the invoiced prices, then set the damaged qty per row (0 = not returned).
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close new return form"
+            className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md text-dmk-text-muted hover:text-dmk-text-primary hover:bg-dmk-hover transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
           <Field label="Customer (B2B)">
             <Select
               value={customerId}
@@ -715,7 +752,7 @@ function NewReturnDialog({
                   : "Select a B2B customer to begin."}
             </div>
           ) : (
-            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
               {items.map((it, idx) => {
                 const p = products.find((x) => x.id === it.productId);
                 const lineTaxable = round2(Number(it.unitPrice) * Math.max(0, it.qty));
@@ -852,14 +889,15 @@ function NewReturnDialog({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
+        {/* Panel footer actions */}
+        <div className="flex items-center justify-end gap-2 border-t border-dmk-border-subtle pt-3">
+          <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
           <Button onClick={submit} disabled={saving || returnRows.length === 0 || overQtyRows.length > 0} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving ? "Posting…" : returnRows.length > 0 ? `Create credit note · ${returnRows.length} item${returnRows.length === 1 ? "" : "s"}` : "Create credit note"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
   );
 }
 

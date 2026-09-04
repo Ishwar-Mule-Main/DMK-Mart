@@ -326,6 +326,9 @@ export default function DashboardView() {
 
       {error && <ErrorText>{error}</ErrorText>}
 
+      {/* ── DMK AI Copilot — the first container on the dashboard ── */}
+      <DashboardAiChat />
+
       {!data && loading ? (
         <div className="space-y-4">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -596,9 +599,6 @@ export default function DashboardView() {
                 </button>
               )}
             </div>
-
-            {/* AI chatbot — grounded on this firm's live data */}
-            <DashboardAiChat />
           </div>
 
           {/* ── Recent transactions ─────────────────────── */}

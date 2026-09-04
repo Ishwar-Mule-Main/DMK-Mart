@@ -18,6 +18,7 @@ import {
   Trash2,
   Truck,
   Undo2,
+  X,
 } from "lucide-react";
 import { useErpStore, useActiveFirm } from "@/store/erp-store";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
@@ -179,13 +180,30 @@ export default function PurchaseReturnsView() {
         actions={
           <Button
             size="sm"
+            aria-expanded={newOpen}
             className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
-            onClick={() => setNewOpen(true)}
+            onClick={() => setNewOpen((o) => !o)}
           >
-            <Plus className="h-4 w-4" /> New Debit Note
+            {newOpen ? (
+              <>
+                <X className="h-4 w-4" /> Close form
+              </>
+            ) : (
+              <>
+                <Plus className="h-4 w-4" /> New Debit Note
+              </>
+            )}
           </Button>
         }
       />
+
+      {/* New debit note — inline container (no popup) */}
+      {newOpen && (
+        <NewDebitNotePanel
+          onClose={() => setNewOpen(false)}
+          onSaved={() => setRefresh((r) => r + 1)}
+        />
+      )}
 
       <SectionGrid
         list={
@@ -302,19 +320,13 @@ export default function PurchaseReturnsView() {
         }
       />
 
-      <NewDebitNoteDialog
-        open={newOpen}
-        onOpenChange={setNewOpen}
-        onSaved={() => setRefresh((r) => r + 1)}
-      />
-
       <ViewReturnDialog row={viewOf} onClose={() => setViewOf(null)} />
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// New debit note dialog
+// New debit note — INLINE CONTAINER (rendered in the page, not a popup)
 // ═══════════════════════════════════════════════════════════════
 interface DnLine {
   productId: string;
@@ -342,13 +354,11 @@ interface PoLite {
   items: Array<{ productId: string; sku: string; productName: string; quantity: number; unitCost: number }>;
 }
 
-function NewDebitNoteDialog({
-  open,
-  onOpenChange,
+function NewDebitNotePanel({
+  onClose,
   onSaved,
 }: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
+  onClose: () => void;
   onSaved: () => void;
 }) {
   const { toast } = useToast();
@@ -367,8 +377,14 @@ function NewDebitNoteDialog({
   const [returnDate, setReturnDate] = React.useState(toISODate(new Date()));
   const [lines, setLines] = React.useState<DnLine[]>([]);
 
+  // Inline container: a fresh draft on every mount (rendered when open)
+  const panelRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
-    if (!open || !activeFirmId) return;
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, []);
+
+  React.useEffect(() => {
+    if (!activeFirmId) return;
     let alive = true;
     apiGet<Vendor[]>("/api/v1/vendors", { firmId: activeFirmId })
       .then((res) => alive && setVendors(res))
@@ -379,11 +395,11 @@ function NewDebitNoteDialog({
     return () => {
       alive = false;
     };
-  }, [open, activeFirmId]);
+  }, [activeFirmId]);
 
   // Load the vendor's CONFIRMED POs for the reference select
   React.useEffect(() => {
-    if (!open || !activeFirmId || vendorId === "NONE") {
+    if (!activeFirmId || vendorId === "NONE") {
       setPoOptions([]);
       setPoId("NONE");
       return;
@@ -400,7 +416,7 @@ function NewDebitNoteDialog({
     return () => {
       alive = false;
     };
-  }, [open, activeFirmId, vendorId]);
+  }, [activeFirmId, vendorId]);
 
   // Recent POs first, flip with the sort toggle
   const sortedPoOptions = React.useMemo(() => {
@@ -413,21 +429,10 @@ function NewDebitNoteDialog({
     return arr;
   }, [poOptions, poSort]);
 
-  React.useEffect(() => {
-    if (!open) return;
-    setVendorId("NONE");
-    setPoId("NONE");
-    setPoOptions([]);
-    setPoSort("recent");
-    setSettlementMode("CREDIT");
-    setReturnDate(toISODate(new Date()));
-    setLines([]);
-  }, [open]);
-
   // Selecting a PO auto-loads its lines at the PO prices — every row
   // starts with damaged qty 0 (not returned) until typed in.
   React.useEffect(() => {
-    if (!open || poId === "NONE") return;
+    if (poId === "NONE") return;
     const po = poOptions.find((p) => p.id === poId);
     if (!po) return;
     setLines(
@@ -440,7 +445,7 @@ function NewDebitNoteDialog({
         fromPo: true,
       })),
     );
-  }, [poId, open]);
+  }, [poId]);
 
   const vendor = vendors.find((v) => v.id === vendorId);
   // No vendor → seller state falls back to the firm's own state (intra, per server)
@@ -522,7 +527,7 @@ function NewDebitNoteDialog({
         description: `Damaged stock reduced · ITC reversed · ${settleNote}`,
       });
       onSaved();
-      onOpenChange(false);
+      onClose();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Could not create debit note.";
       toast({
@@ -536,17 +541,41 @@ function NewDebitNoteDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-dmk-text-primary">New debit note — purchase return</DialogTitle>
-          <DialogDescription className="text-dmk-text-muted">
-            Pick a vendor PO to auto-load its products at the PO prices, then set the damaged qty per row (0 = not returned).
-            Quantities are drawn from the Damaged pool only — the server rejects returns larger than available damaged stock.
-          </DialogDescription>
-        </DialogHeader>
+    <div
+      ref={panelRef}
+      role="region"
+      aria-label="New debit note form"
+      className="dmk-card relative overflow-hidden dmk-enter"
+    >
+      {/* Accent strip */}
+      <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-dmk-blue via-dmk-info/50 to-transparent" />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="p-4 sm:p-5 space-y-4">
+        {/* Panel header */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="h-9 w-9 rounded-lg bg-dmk-info/12 border border-dmk-info/30 flex items-center justify-center shrink-0">
+              <Undo2 className="h-4 w-4 text-dmk-info" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-[15px] font-semibold text-dmk-text-primary">New debit note — purchase return</h2>
+              <p className="text-[11.5px] text-dmk-text-muted leading-snug">
+                Pick a vendor PO to auto-load its products at the PO prices, then set the damaged qty per row (0 = not returned).
+                Quantities are drawn from the Damaged pool only — the server rejects returns larger than available damaged stock.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close new debit note form"
+            className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md text-dmk-text-muted hover:text-dmk-text-primary hover:bg-dmk-hover transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
           <Field label="Vendor" hint="Optional — omit for stock-only write-back">
             <Select
               value={vendorId}
@@ -670,7 +699,7 @@ function NewDebitNoteDialog({
               {refPo ? "No product lines on this PO." : vendorId === "NONE" ? "Select a vendor (and optionally their PO) to begin, or add products manually." : "Pick a PO above to auto-load its products, or add products manually."}
             </p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
               {computed.map(({ line, product, taxable, gst, total, overStock }, i) => {
                 const overPo = line.poQty != null && num(line.qty) > (line.poQty ?? 0);
                 const inactive = !(num(line.qty) > 0);
@@ -821,17 +850,18 @@ function NewDebitNoteDialog({
           </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
+        {/* Panel footer actions */}
+        <div className="flex items-center justify-end gap-2 border-t border-dmk-border-subtle pt-3">
+          <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
             Cancel
           </Button>
           <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             {returnRows.length > 0 ? `Create debit note · ${returnRows.length} item${returnRows.length === 1 ? "" : "s"}` : "Create debit note"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
   );
 }
 

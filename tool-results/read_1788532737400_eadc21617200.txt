@@ -1,0 +1,1057 @@
+     1→"use client";
+     2→
+     3→// ═══════════════════════════════════════════════════════════════
+     4→// VIEW: Dashboard — executive cockpit
+     5→// KPIs · 7-day sales trend · AR aging · top products · low-stock rail
+     6→// Coded against actual GET /api/v1/dashboard response shape.
+     7→// ═══════════════════════════════════════════════════════════════
+     8→
+     9→import * as React from "react";
+    10→import {
+    11→  Area,
+    12→  AreaChart,
+    13→  Bar,
+    14→  BarChart,
+    15→  CartesianGrid,
+    16→  Cell,
+    17→  ResponsiveContainer,
+    18→  Tooltip,
+    19→  XAxis,
+    20→  YAxis,
+    21→} from "recharts";
+    22→import {
+    23→  AlertTriangle,
+    24→  ArrowRight,
+    25→  Banknote,
+    26→  Boxes,
+    27→  CalendarClock,
+    28→  CalendarDays,
+    29→  FileCheck2,
+    30→  HandCoins,
+    31→  IndianRupee,
+    32→  RefreshCw,
+    33→  ShieldCheck,
+    34→  ShoppingBag,
+    35→  TrendingUp,
+    36→  Truck,
+    37→  Wallet,
+    38→} from "lucide-react";
+    39→
+    40→import { PageHeader, KpiCard, Badge, Money, LoadingRows, ErrorText } from "../shared";
+    41→import { Button } from "@/components/ui/button";
+    42→import { Skeleton } from "@/components/ui/skeleton";
+    43→import { apiGet } from "@/lib/api-client";
+    44→import { formatINR, formatDate } from "@/lib/format";
+    45→import { useErpStore } from "@/store/erp-store";
+    46→import { requestAgingTab } from "@/lib/settle-bus";
+    47→import { cn } from "@/lib/utils";
+    48→import { DashboardAiChat } from "./dashboard-ai-chat";
+    49→
+    50→type BadgeTone = "success" | "warning" | "danger" | "info" | "dr" | "cr" | "neutral";
+    51→
+    52→// ─── Actual API response types ──────────────────────────────────
+    53→
+    54→interface DashboardResponse {
+    55→  firmId: string;
+    56→  firmName: string;
+    57→  todaySales: number;
+    58→  monthSales: number;
+    59→  receivables: number;
+    60→  receivablesAdvances: number;
+    61→  payables: number;
+    62→  payablesCredits: number;
+    63→  cash: number;
+    64→  bank: number;
+    65→  inventoryValue: number;
+    66→  damagedValue: number;
+    67→  lowStockCount: number;
+    68→  salesTrend: Array<{ date: string; total: number }>;
+    69→  monthTrend?: Array<{ date: string; total: number }>;
+    70→  topProducts: Array<{ productId: string; sku: string; name: string; qty: number; value: number }>;
+    71→  arAging: { d0_30: number; d31_60: number; d61_90: number; d90plus: number; total: number };
+    72→  recentTransactions: Array<{
+    73→    type: string;
+    74→    number: string;
+    75→    date: string;
+    76→    amount: number;
+    77→    party: string;
+    78→  }>;
+    79→}
+    80→
+    81→/** Slice of GET /ledger/aging-invoices used by the overdue-receivables pulse. */
+    82→interface OverduePulse {
+    83→  openInvoices: number;
+    84→  outstanding: number;
+    85→  overdueInvoices: number;
+    86→  overdue: number;
+    87→  worstOverdueDays: number;
+    88→  topOverdueParty: string | null;
+    89→  nextDueDate: string | null;
+    90→  unappliedReceipts: number;
+    91→}
+    92→
+    93→/** Slice of GET /ledger/aging-pos used by the overdue-payables pulse. */
+    94→interface ApOverduePulse {
+    95→  openPOs: number;
+    96→  outstanding: number;
+    97→  overduePOs: number;
+    98→  overdue: number;
+    99→  worstOverdueDays: number;
+   100→  topOverdueVendor: string | null;
+   101→  nextDueDate: string | null;
+   102→}
+   103→
+   104→interface LowStockMini {
+   105→  id: string;
+   106→  sku: string;
+   107→  name: string;
+   108→  stockQuantity: number;
+   109→  lowStockThreshold: number;
+   110→  shortfall: number;
+   111→  purchaseCost: number;
+   112→}
+   113→
+   114→interface Gstr2bPulse {
+   115→  period: string;
+   116→  records2b: number;
+   117→  matched: number;
+   118→  mismatches: number;
+   119→  missingInBooks: number;
+   120→  missingIn2b: number;
+   121→  itc2b: number;
+   122→  itcBooks: number;
+   123→  matchedItc: number;
+   124→  missingItc: number;
+   125→  extraTax: number;
+   126→  netItcRisk: number;
+   127→}
+   128→
+   129→function currentPeriod(): string {
+   130→  const d = new Date();
+   131→  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+   132→}
+   133→
+   134→// ─── Chart constants (Midnight Ledger palette) ──────────────────
+   135→
+   136→const CHART_BLUE = "#2563EB";
+   137→const AGING_COLORS = ["#2563EB", "#FFCC00", "#F59E0B", "#EF4444"];
+   138→
+   139→const TOOLTIP_STYLE: React.CSSProperties = {
+   140→  background: "var(--bg-tertiary)",
+   141→  border: "1px solid var(--border-medium)",
+   142→  borderRadius: 8,
+   143→  fontSize: 12,
+   144→  padding: "8px 10px",
+   145→  boxShadow: "0 8px 24px rgba(2,6,17,0.6)",
+   146→};
+   147→
+   148→const AXIS_TICK = { fill: "var(--text-muted)", fontSize: 11 };
+   149→
+   150→function compactINR(v: number): string {
+   151→  const abs = Math.abs(v);
+   152→  if (abs >= 10000000) return `₹${(v / 10000000).toFixed(1)}Cr`;
+   153→  if (abs >= 100000) return `₹${(v / 100000).toFixed(1)}L`;
+   154→  if (abs >= 1000) return `₹${(v / 1000).toFixed(0)}K`;
+   155→  return `₹${v.toFixed(0)}`;
+   156→}
+   157→
+   158→const TXN_TONE: Record<string, BadgeTone> = {
+   159→  INVOICE: "success",
+   160→  PURCHASE_ORDER: "info",
+   161→  CUSTOMER_RECEIPT: "dr",
+   162→  VENDOR_PAYMENT: "dr",
+   163→  CREDIT_NOTE: "warning",
+   164→  DEBIT_NOTE: "warning",
+   165→};
+   166→
+   167→const TXN_LABEL: Record<string, string> = {
+   168→  INVOICE: "SALES",
+   169→  PURCHASE_ORDER: "PURCHASE",
+   170→  CUSTOMER_RECEIPT: "RECEIPT",
+   171→  VENDOR_PAYMENT: "PAYMENT",
+   172→  CREDIT_NOTE: "CR NOTE",
+   173→  DEBIT_NOTE: "DR NOTE",
+   174→};
+   175→
+   176→export default function DashboardView() {
+   177→  const activeFirmId = useErpStore((s) => s.activeFirmId);
+   178→  const activeFirm = useErpStore((s) => s.firms.find((f) => f.id === s.activeFirmId));
+   179→  const setView = useErpStore((s) => s.setView);
+   180→
+   181→  const [data, setData] = React.useState<DashboardResponse | null>(null);
+   182→  const [lowStock, setLowStock] = React.useState<LowStockMini[]>([]);
+   183→  const [gstPulse, setGstPulse] = React.useState<Gstr2bPulse | null>(null);
+   184→  const [overduePulse, setOverduePulse] = React.useState<OverduePulse | null>(null);
+   185→  const [apPulse, setApPulse] = React.useState<ApOverduePulse | null>(null);
+   186→  const [loading, setLoading] = React.useState(true);
+   187→  const [error, setError] = React.useState<string | null>(null);
+   188→  const [refreshKey, setRefreshKey] = React.useState(0);
+   189→
+   190→  const load = React.useCallback(async () => {
+   191→    if (!activeFirmId) return;
+   192→    setLoading(true);
+   193→    setError(null);
+   194→    try {
+   195→      const [dash, low, gst, aging, ap] = await Promise.all([
+   196→        apiGet<DashboardResponse>("/api/v1/dashboard", { firmId: activeFirmId }),
+   197→        apiGet<LowStockMini[]>("/api/v1/inventory/low-stock", { firmId: activeFirmId }).catch(
+   198→          () => [] as LowStockMini[]
+   199→        ),
+   200→        apiGet<{ summary: Gstr2bPulse }>("/api/v1/gstr2b", {
+   201→          firmId: activeFirmId,
+   202→          period: currentPeriod(),
+   203→        })
+   204→          .then((r) => r.summary ?? null)
+   205→          .catch(() => null),
+   206→        apiGet<{
+   207→          totals: { openInvoices: number; outstanding: number; overdueInvoices: number; overdue: number };
+   208→          rows: Array<{ isOverdue: boolean; overdueDays: number; partyName: string; dueDate: string }>;
+   209→          reconciliation?: { unappliedReceipts: number };
+   210→        }>("/api/v1/ledger/aging-invoices", { firmId: activeFirmId }).catch(() => null),
+   211→        apiGet<{
+   212→          totals: { openPOs: number; outstanding: number; overduePOs: number; overdue: number };
+   213→          rows: Array<{ isOverdue: boolean; overdueDays: number; vendorName: string; dueDate: string }>;
+   214→        }>("/api/v1/ledger/aging-pos", { firmId: activeFirmId }).catch(() => null),
+   215→      ]);
+   216→      setData(dash);
+   217→      setLowStock(Array.isArray(low) ? low : []);
+   218→      setGstPulse(gst);
+   219→
+   220→      if (aging) {
+   221→        const overdueRows = aging.rows.filter((r) => r.isOverdue);
+   222→        setOverduePulse({
+   223→          openInvoices: aging.totals.openInvoices,
+   224→          outstanding: aging.totals.outstanding,
+   225→          overdueInvoices: aging.totals.overdueInvoices,
+   226→          overdue: aging.totals.overdue,
+   227→          worstOverdueDays: overdueRows.reduce((m, r) => Math.max(m, r.overdueDays), 0),
+   228→          topOverdueParty:
+   229→            overdueRows.length > 0
+   230→              ? [...overdueRows].sort((a, b) => b.overdueDays - a.overdueDays)[0]?.partyName ?? null
+   231→              : null,
+   232→          nextDueDate:
+   233→            aging.rows.length > 0 ? aging.rows.map((r) => r.dueDate).sort()[0] ?? null : null,
+   234→          unappliedReceipts: aging.reconciliation?.unappliedReceipts ?? 0,
+   235→        });
+   236→      } else {
+   237→        setOverduePulse(null);
+   238→      }
+   239→
+   240→      // AP pulse — mirror of the AR pulse from the PO-wise aging
+   241→      if (ap) {
+   242→        const apOverdueRows = ap.rows.filter((r) => r.isOverdue);
+   243→        const upcoming = ap.rows
+   244→          .map((r) => r.dueDate)
+   245→          .filter(Boolean)
+   246→          .sort();
+   247→        setApPulse({
+   248→          openPOs: ap.totals.openPOs,
+   249→          outstanding: ap.totals.outstanding,
+   250→          overduePOs: ap.totals.overduePOs,
+   251→          overdue: ap.totals.overdue,
+   252→          worstOverdueDays: apOverdueRows.reduce((m, r) => Math.max(m, r.overdueDays), 0),
+   253→          topOverdueVendor:
+   254→            apOverdueRows.length > 0
+   255→              ? [...apOverdueRows].sort((a, b) => b.overdueDays - a.overdueDays)[0]?.vendorName ?? null
+   256→              : null,
+   257→          nextDueDate: upcoming[0] ?? null,
+   258→        });
+   259→      } else {
+   260→        setApPulse(null);
+   261→      }
+   262→    } catch (e) {
+   263→      setError(e instanceof Error ? e.message : "Failed to load dashboard");
+   264→    } finally {
+   265→      setLoading(false);
+   266→    }
+   267→  }, [activeFirmId]);
+   268→
+   269→  React.useEffect(() => {
+   270→    void load();
+   271→  }, [load, refreshKey]);
+   272→
+   273→  const trendData = React.useMemo(
+   274→    () =>
+   275→      (data?.salesTrend ?? []).map((p) => ({
+   276→        label: new Date(`${p.date}T00:00:00`).toLocaleDateString("en-IN", {
+   277→          day: "2-digit",
+   278→          month: "short",
+   279→        }),
+   280→        total: p.total,
+   281→      })),
+   282→    [data]
+   283→  );
+   284→
+   285→  const agingRows = React.useMemo(() => {
+   286→    const a = data?.arAging;
+   287→    if (!a) return [];
+   288→    return [
+   289→      { bucket: "0-30", amount: a.d0_30 },
+   290→      { bucket: "31-60", amount: a.d31_60 },
+   291→      { bucket: "61-90", amount: a.d61_90 },
+   292→      { bucket: "90+", amount: a.d90plus },
+   293→    ];
+   294→  }, [data]);
+   295→
+   296→  // Sparkline series for the sales KPI cards
+   297→  const trendSpark = React.useMemo(
+   298→    () => (data?.salesTrend ?? []).map((p) => p.total),
+   299→    [data]
+   300→  );
+   301→  const monthSpark = React.useMemo(
+   302→    () => (data?.monthTrend ?? []).map((p) => p.total),
+   303→    [data]
+   304→  );
+   305→
+   306→  const lowStockRail = lowStock.slice(0, 5);
+   307→
+   308→  return (
+   309→    <div className="space-y-4">
+   310→      <PageHeader
+   311→        title="Dashboard"
+   312→        subtitle={`${activeFirm?.firmName ?? data?.firmName ?? "—"} · Executive cockpit`}
+   313→        actions={
+   314→          <Button
+   315→            variant="outline"
+   316→            size="sm"
+   317→            onClick={() => setRefreshKey((k) => k + 1)}
+   318→            disabled={loading}
+   319→            className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
+   320→          >
+   321→            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+   322→            Refresh
+   323→          </Button>
+   324→        }
+   325→      />
+   326→
+   327→      {error && <ErrorText>{error}</ErrorText>}
+   328→
+   329→      {!data && loading ? (
+   330→        <div className="space-y-4">
+   331→          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+   332→            {Array.from({ length: 6 }).map((_, i) => (
+   333→              <Skeleton key={i} className="h-[92px] rounded-[10px] bg-dmk-input-well" />
+   334→            ))}
+   335→          </div>
+   336→          <LoadingRows rows={5} />
+   337→        </div>
+   338→      ) : data ? (
+   339→        <>
+   340→          {/* ── KPI row (click to drill down) ───────────── */}
+   341→          <div className="dmk-enter-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+   342→            <KpiCard label="Today's Sales" value={formatINR(data.todaySales)} tone="orange" icon={IndianRupee}
+   343→              spark={trendSpark} sparkColor="#FF6B00"
+   344→              onClick={() => setView("sales/invoices")} drillHint="Invoice Register" />
+   345→            <KpiCard label="Month Sales" value={formatINR(data.monthSales)} tone="blue" icon={CalendarDays}
+   346→              spark={monthSpark} sparkColor="#2563EB"
+   347→              onClick={() => setView("reports")} drillHint="Sales Report" />
+   348→            <KpiCard
+   349→              label="Receivables"
+   350→              value={formatINR(data.receivables)}
+   351→              tone="orange"
+   352→              sub={data.receivablesAdvances > 0.009 ? `Net · incl. ${formatINR(data.receivablesAdvances)} advances` : "Dr — owed by customers"}
+   353→              icon={HandCoins}
+   354→              onClick={() => setView("finance/aging")}
+   355→              drillHint="AR Aging"
+   356→            />
+   357→            <KpiCard
+   358→              label="Payables"
+   359→              value={formatINR(data.payables)}
+   360→              tone="info"
+   361→              sub={data.payablesCredits > 0.009 ? `Net · incl. ${formatINR(data.payablesCredits)} credits` : "Cr — owed to vendors"}
+   362→              icon={Banknote}
+   363→              onClick={() => setView("finance/aging")}
+   364→              drillHint="AP Aging"
+   365→            />
+   366→            <KpiCard
+   367→              label="Cash + Bank"
+   368→              value={formatINR(data.cash + data.bank)}
+   369→              tone="success"
+   370→              sub={`Cash ${formatINR(data.cash)} · Bank ${formatINR(data.bank)}`}
+   371→              icon={Wallet}
+   372→              onClick={() => setView("finance/daybook")}
+   373→              drillHint="Day Book"
+   374→            />
+   375→            <KpiCard
+   376→              label="Inventory Value"
+   377→              value={formatINR(data.inventoryValue)}
+   378→              tone="default"
+   379→              sub={`Damaged: ${formatINR(data.damagedValue)}`}
+   380→              icon={Boxes}
+   381→              onClick={() => setView("inventory/stock")}
+   382→              drillHint="Stock Levels"
+   383→            />
+   384→          </div>
+   385→
+   386→          {/* ── Compliance + collections pulses (GSTR-2B · overdue AR) ── */}
+   387→          {gstPulse && <GstPulseCard pulse={gstPulse} onDrill={() => setView("finance/gstr2b")} />}
+   388→          {overduePulse && (
+   389→            <OverduePulseCard
+   390→              pulse={overduePulse}
+   391→              onDrill={() => {
+   392→                requestAgingTab("inv");
+   393→                setView("finance/aging");
+   394→              }}
+   395→            />
+   396→          )}
+   397→          {apPulse && (
+   398→            <ApOverduePulseCard
+   399→              pulse={apPulse}
+   400→              onDrill={() => {
+   401→                requestAgingTab("po");
+   402→                setView("finance/aging");
+   403→              }}
+   404→            />
+   405→          )}
+   406→
+   407→          {/* ── Trend + AR aging ────────────────────────── */}
+   408→          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+   409→            <div className="dmk-card p-4 lg:col-span-2">
+   410→              <div className="flex items-center justify-between mb-3">
+   411→                <div>
+   412→                  <h2 className="text-[15px] font-semibold text-dmk-text-primary">Sales Trend</h2>
+   413→                  <p className="text-[11px] text-dmk-text-muted">Last 7 days · posted invoices</p>
+   414→                </div>
+   415→                <Badge tone="info">7 DAYS</Badge>
+   416→              </div>
+   417→              <div className="h-[260px]">
+   418→                <ResponsiveContainer width="100%" height="100%">
+   419→                  <AreaChart data={trendData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+   420→                    <defs>
+   421→                      <linearGradient id="dmkSalesGradient" x1="0" y1="0" x2="0" y2="1">
+   422→                        <stop offset="0%" stopColor="rgba(37,99,235,0.25)" />
+   423→                        <stop offset="100%" stopColor="rgba(37,99,235,0)" />
+   424→                      </linearGradient>
+   425→                    </defs>
+   426→                    <CartesianGrid stroke="#1E2D4A" strokeDasharray="3 3" vertical={false} />
+   427→                    <XAxis
+   428→                      dataKey="label"
+   429→                      tick={AXIS_TICK}
+   430→                      axisLine={{ stroke: "#1E2D4A" }}
+   431→                      tickLine={false}
+   432→                      dy={6}
+   433→                    />
+   434→                    <YAxis
+   435→                      tick={AXIS_TICK}
+   436→                      axisLine={false}
+   437→                      tickLine={false}
+   438→                      width={56}
+   439→                      tickFormatter={(v) => compactINR(Number(v))}
+   440→                    />
+   441→                    <Tooltip
+   442→                      contentStyle={TOOLTIP_STYLE}
+   443→                      labelStyle={{ color: "var(--text-secondary)", marginBottom: 4 }}
+   444→                      itemStyle={{ color: "var(--text-primary)", fontFamily: "var(--font-jetbrains)" }}
+   445→                      formatter={(value) => formatINR(Number(value))}
+   446→                      cursor={{ stroke: "#2A3F66", strokeDasharray: "3 3" }}
+   447→                    />
+   448→                    <Area
+   449→                      type="monotone"
+   450→                      dataKey="total"
+   451→                      name="Sales"
+   452→                      stroke="#2563EB"
+   453→                      strokeWidth={2}
+   454→                      fill="url(#dmkSalesGradient)"
+   455→                      activeDot={{ r: 4, fill: "#2563EB", stroke: "#0A0F1D", strokeWidth: 2 }}
+   456→                    />
+   457→                  </AreaChart>
+   458→                </ResponsiveContainer>
+   459→              </div>
+   460→            </div>
+   461→
+   462→            <div className="dmk-card p-4">
+   463→              <div className="flex items-center justify-between mb-3">
+   464→                <div>
+   465→                  <h2 className="text-[15px] font-semibold text-dmk-text-primary">AR Aging</h2>
+   466→                  <p className="text-[11px] text-dmk-text-muted">
+   467→                    Total outstanding {formatINR(data.arAging.total)}
+   468→                  </p>
+   469→                </div>
+   470→                <Badge tone="dr">Dr</Badge>
+   471→              </div>
+   472→              <div className="h-[260px]">
+   473→                <ResponsiveContainer width="100%" height="100%">
+   474→                  <BarChart data={agingRows} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+   475→                    <CartesianGrid stroke="#1E2D4A" strokeDasharray="3 3" horizontal={false} />
+   476→                    <XAxis
+   477→                      type="number"
+   478→                      tick={AXIS_TICK}
+   479→                      axisLine={false}
+   480→                      tickLine={false}
+   481→                      tickFormatter={(v) => compactINR(Number(v))}
+   482→                    />
+   483→                    <YAxis
+   484→                      type="category"
+   485→                      dataKey="bucket"
+   486→                      tick={AXIS_TICK}
+   487→                      axisLine={{ stroke: "#1E2D4A" }}
+   488→                      tickLine={false}
+   489→                      width={52}
+   490→                    />
+   491→                    <Tooltip
+   492→                      contentStyle={TOOLTIP_STYLE}
+   493→                      labelStyle={{ color: "var(--text-secondary)", marginBottom: 4 }}
+   494→                      itemStyle={{ color: "var(--text-primary)", fontFamily: "var(--font-jetbrains)" }}
+   495→                      formatter={(value) => formatINR(Number(value))}
+   496→                      cursor={{ fill: "rgba(37,99,235,0.08)" }}
+   497→                    />
+   498→                    <Bar dataKey="amount" name="Receivable" radius={[0, 4, 4, 0]} barSize={20}>
+   499→                      {agingRows.map((row, i) => (
+   500→                        <Cell key={row.bucket} fill={AGING_COLORS[i]} />
+   501→                      ))}
+   502→                    </Bar>
+   503→                  </BarChart>
+   504→                </ResponsiveContainer>
+   505→              </div>
+   506→            </div>
+   507→          </div>
+   508→
+   509→          {/* ── Top products + low-stock rail ───────────── */}
+   510→          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+   511→            <div className="dmk-card p-4">
+   512→              <div className="flex items-center justify-between mb-3">
+   513→                <div>
+   514→                  <h2 className="text-[15px] font-semibold text-dmk-text-primary">Top Products</h2>
+   515→                  <p className="text-[11px] text-dmk-text-muted">Last 30 days · by quantity sold</p>
+   516→                </div>
+   517→                <ShoppingBag className="h-4 w-4 text-dmk-text-muted" />
+   518→              </div>
+   519→              {data.topProducts.length === 0 ? (
+   520→                <p className="py-10 text-center text-[12.5px] text-dmk-text-muted">
+   521→                  No sales recorded in the last 30 days.
+   522→                </p>
+   523→              ) : (
+   524→                <ul className="max-h-[300px] overflow-y-auto space-y-1 pr-1">
+   525→                  {data.topProducts.map((p, i) => (
+   526→                    <li
+   527→                      key={p.productId}
+   528→                      className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-dmk-hover transition-colors"
+   529→                    >
+   530→                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-dmk-input-well border border-dmk-border-subtle font-money text-[11px] text-dmk-text-secondary">
+   531→                        {i + 1}
+   532→                      </span>
+   533→                      <div className="min-w-0 flex-1">
+   534→                        <p className="text-[13px] font-medium text-dmk-text-primary truncate">{p.name}</p>
+   535→                        <p className="text-[10.5px] text-dmk-text-muted font-money">{p.sku}</p>
+   536→                      </div>
+   537→                      <span className="shrink-0 text-[12px] text-dmk-text-secondary font-money">
+   538→                        ×{Number.isInteger(p.qty) ? p.qty : p.qty.toFixed(2)}
+   539→                      </span>
+   540→                      <Money value={p.value} className="shrink-0 text-[13px] text-dmk-text-primary" />
+   541→                    </li>
+   542→                  ))}
+   543→                </ul>
+   544→              )}
+   545→            </div>
+   546→
+   547→            <div className="dmk-card p-4 flex flex-col">
+   548→              <div className="flex items-center justify-between mb-3">
+   549→                <div>
+   550→                  <h2 className="text-[15px] font-semibold text-dmk-text-primary flex items-center gap-2">
+   551→                    Low Stock Alerts
+   552→                    {data.lowStockCount > 0 && <Badge tone="danger">{data.lowStockCount}</Badge>}
+   553→                  </h2>
+   554→                  <p className="text-[11px] text-dmk-text-muted">Products at or below reorder threshold</p>
+   555→                </div>
+   556→                <AlertTriangle
+   557→                  className={cn("h-4 w-4", data.lowStockCount > 0 ? "text-dmk-warning" : "text-dmk-text-muted")}
+   558→                />
+   559→              </div>
+   560→              {lowStockRail.length === 0 ? (
+   561→                <p className="py-10 text-center text-[12.5px] text-dmk-text-muted">
+   562→                  All stock levels healthy.
+   563→                </p>
+   564→              ) : (
+   565→                <ul className="space-y-1 flex-1">
+   566→                  {lowStockRail.map((item) => (
+   567→                    <li
+   568→                      key={item.id}
+   569→                      className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-dmk-hover transition-colors"
+   570→                    >
+   571→                      <div className="min-w-0 flex-1">
+   572→                        <p className="text-[13px] font-medium text-dmk-text-primary truncate">{item.name}</p>
+   573→                        <p className="text-[10.5px] text-dmk-text-muted font-money">
+   574→                          {item.sku} · stock {item.stockQuantity}/{item.lowStockThreshold}
+   575→                        </p>
+   576→                      </div>
+   577→                      <Badge tone="warning">−{item.shortfall}</Badge>
+   578→                      <Button
+   579→                        variant="outline"
+   580→                        size="sm"
+   581→                        className="h-7 px-2.5 text-[11.5px] border-dmk-border-subtle bg-dmk-input-well hover:bg-dmk-hover"
+   582→                        onClick={() => setView("inventory/low-stock")}
+   583→                      >
+   584→                        Reorder
+   585→                      </Button>
+   586→                    </li>
+   587→                  ))}
+   588→                </ul>
+   589→              )}
+   590→              {lowStock.length > 5 && (
+   591→                <button
+   592→                  onClick={() => setView("inventory/low-stock")}
+   593→                  className="mt-3 self-start text-[12px] font-medium text-dmk-blue hover:underline"
+   594→                >
+   595→                  View all {lowStock.length} alerts →
+   596→                </button>
+   597→              )}
+   598→            </div>
+   599→
+   600→            {/* AI chatbot — grounded on this firm's live data */}
+   601→            <DashboardAiChat />
+   602→          </div>
+   603→
+   604→          {/* ── Recent transactions ─────────────────────── */}
+   605→          <div className="dmk-card">
+   606→            <div className="flex items-center justify-between p-4 pb-3">
+   607→              <div>
+   608→                <h2 className="text-[15px] font-semibold text-dmk-text-primary">Recent Transactions</h2>
+   609→                <p className="text-[11px] text-dmk-text-muted">Latest 10 documents across the ledger</p>
+   610→              </div>
+   611→              <TrendingUp className="h-4 w-4 text-dmk-text-muted" />
+   612→            </div>
+   613→            {data.recentTransactions.length === 0 ? (
+   614→              <p className="pb-8 text-center text-[12.5px] text-dmk-text-muted">No transactions yet.</p>
+   615→            ) : (
+   616→              <ul className="max-h-[360px] overflow-y-auto border-t border-dmk-border-subtle">
+   617→                {data.recentTransactions.map((t, i) => (
+   618→                  <li
+   619→                    key={`${t.type}-${t.number}-${i}`}
+   620→                    className="flex items-center gap-3 px-4 py-2.5 border-b border-dmk-border-subtle last:border-0 hover:bg-dmk-hover transition-colors"
+   621→                  >
+   622→                    <Badge tone={TXN_TONE[t.type] ?? "neutral"}>{TXN_LABEL[t.type] ?? t.type}</Badge>
+   623→                    <div className="min-w-0 flex-1">
+   624→                      <p className="text-[13px] font-medium text-dmk-text-primary truncate font-money">
+   625→                        {t.number}
+   626→                      </p>
+   627→                      <p className="text-[11px] text-dmk-text-muted truncate">{t.party}</p>
+   628→                    </div>
+   629→                    <div className="text-right shrink-0">
+   630→                      <Money value={t.amount} className="text-[13px] text-dmk-text-primary" />
+   631→                      <p className="text-[10.5px] text-dmk-text-muted">{formatDate(t.date)}</p>
+   632→                    </div>
+   633→                  </li>
+   634→                ))}
+   635→              </ul>
+   636→            )}
+   637→          </div>
+   638→        </>
+   639→      ) : null}
+   640→    </div>
+   641→  );
+   642→}
+   643→
+   644→// ═══════════════════════════════════════════════════════════════
+   645→// GST compliance pulse — GSTR-2B vs books for the current period
+   646→// Status ribbon: clean → green, exceptions → amber/red, no data →
+   647→// neutral import prompt. Whole card drills into the recon view.
+   648→// ═══════════════════════════════════════════════════════════════
+   649→
+   650→function GstPulseCard({ pulse, onDrill }: { pulse: Gstr2bPulse; onDrill: () => void }) {
+   651→  const noData = pulse.records2b === 0 && pulse.missingIn2b === 0;
+   652→  const clean = !noData && pulse.netItcRisk <= 0.009 && pulse.missingInBooks === 0 && pulse.mismatches === 0;
+   653→  const atRisk = pulse.missingInBooks > 0 || pulse.netItcRisk > 0.009;
+   654→  const warn = !noData && !clean && !atRisk; // mismatches / books-only extras
+   655→
+   656→  const status = noData
+   657→    ? { label: "NO 2B DATA", tone: "neutral" as const, dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
+   658→    : clean
+   659→      ? { label: "CLEAN PERIOD", tone: "success" as const, dot: "bg-dmk-success", ring: "border-dmk-success/30" }
+   660→      : atRisk
+   661→        ? { label: "ITC AT RISK", tone: "danger" as const, dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
+   662→        : { label: "REVIEW EXCEPTIONS", tone: "warning" as const, dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
+   663→
+   664→  const matchRate = pulse.records2b > 0 ? Math.round((pulse.matched / pulse.records2b) * 100) : 0;
+   665→
+   666→  const stats = [
+   667→    { label: "ITC · Books", value: formatINR(pulse.itcBooks), cls: "text-dmk-text-primary" },
+   668→    { label: "ITC · 2B", value: formatINR(pulse.itc2b), cls: "text-dmk-text-primary" },
+   669→    { label: "Matched", value: `${pulse.matched}/${pulse.records2b} bills`, cls: "text-dmk-success" },
+   670→    {
+   671→      label: "At risk",
+   672→      value: formatINR(Math.max(0, pulse.netItcRisk)),
+   673→      cls: atRisk ? "text-dmk-danger" : "text-dmk-text-secondary",
+   674→    },
+   675→  ];
+   676→
+   677→  return (
+   678→    <div
+   679→      role="button"
+   680→      tabIndex={0}
+   681→      aria-label={`GST compliance ${status.label} — open GSTR-2B reconciliation`}
+   682→      onClick={onDrill}
+   683→      onKeyDown={(e) => {
+   684→        if (e.key === "Enter" || e.key === " ") {
+   685→          e.preventDefault();
+   686→          onDrill();
+   687→        }
+   688→      }}
+   689→      className={cn(
+   690→        "dmk-card p-4 dmk-kpi-clickable relative overflow-hidden border",
+   691→        status.ring,
+   692→        "dmk-enter"
+   693→      )}
+   694→    >
+   695→      <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+   696→        {/* Status block */}
+   697→        <div className="flex items-center gap-3 min-w-0 lg:w-[280px] shrink-0">
+   698→          <div className={cn(
+   699→            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border",
+   700→            noData
+   701→              ? "bg-dmk-input-well border-dmk-border-subtle"
+   702→              : clean
+   703→                ? "bg-[rgba(34,197,94,0.1)] border-dmk-success/30"
+   704→                : atRisk
+   705→                  ? "bg-[rgba(239,68,68,0.1)] border-dmk-danger/30"
+   706→                  : "bg-[rgba(245,158,11,0.1)] border-dmk-warning/30"
+   707→          )}>
+   708→            {noData ? (
+   709→              <FileCheck2 className="h-5 w-5 text-dmk-text-muted" strokeWidth={1.75} />
+   710→            ) : clean ? (
+   711→              <ShieldCheck className="h-5 w-5 text-dmk-success" strokeWidth={1.75} />
+   712→            ) : (
+   713→              <AlertTriangle className={cn("h-5 w-5", atRisk ? "text-dmk-danger" : "text-dmk-warning")} strokeWidth={1.75} />
+   714→            )}
+   715→          </div>
+   716→          <div className="min-w-0">
+   717→            <p className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+   718→              GST Compliance · GSTR-2B
+   719→            </p>
+   720→            <p className="text-[14.5px] font-bold text-dmk-text-primary flex items-center gap-2">
+   721→              <span className={cn("h-1.5 w-1.5 rounded-full animate-pulse", status.dot)} />
+   722→              {status.label}
+   723→            </p>
+   724→            <p className="text-[10.5px] text-dmk-text-muted font-money">Period {pulse.period}</p>
+   725→          </div>
+   726→        </div>
+   727→
+   728→        {/* Mini stats */}
+   729→        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 min-w-0">
+   730→          {stats.map((s) => (
+   731→            <div key={s.label} className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/50 px-3 py-2">
+   732→              <p className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">{s.label}</p>
+   733→              <p className={cn("font-money text-[14px] font-semibold mt-0.5 truncate", s.cls)}>{s.value}</p>
+   734→            </div>
+   735→          ))}
+   736→        </div>
+   737→
+   738→        {/* Match-rate meter + drill */}
+   739→        <div className="lg:w-[190px] shrink-0 flex flex-col gap-1.5">
+   740→          <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+   741→            <span>Match rate</span>
+   742→            <span className="font-money text-dmk-text-secondary">{matchRate}%</span>
+   743→          </div>
+   744→          <div className="h-1.5 w-full rounded-full bg-dmk-input-well overflow-hidden">
+   745→            <div
+   746→              className={cn(
+   747→                "h-full rounded-full transition-all duration-500",
+   748→                matchRate >= 100 ? "bg-dmk-success" : matchRate >= 60 ? "bg-dmk-warning" : "bg-dmk-danger"
+   749→              )}
+   750→              style={{ width: `${matchRate}%` }}
+   751→            />
+   752→          </div>
+   753→          <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-dmk-blue/80 mt-0.5">
+   754→            GSTR-2B Recon <ArrowRight className="h-3 w-3" />
+   755→          </span>
+   756→        </div>
+   757→      </div>
+   758→
+   759→      {noData && (
+   760→        <p className="mt-3 text-[11.5px] text-dmk-text-muted border-t border-dmk-border-subtle pt-2.5">
+   761→          No 2B records imported for the current period — import the portal CSV to verify input tax credit before filing.
+   762→        </p>
+   763→      )}
+   764→    </div>
+   765→  );
+   766→}
+   767→
+   768→// ═══════════════════════════════════════════════════════════════
+   769→// Overdue receivables pulse — mirror of the GST compliance pulse.
+   770→// Answers "who owes me past their credit terms, how much, how
+   771→// late?" at a glance. Drills into the invoice-wise AR aging tab.
+   772→// ═══════════════════════════════════════════════════════════════
+   773→
+   774→function OverduePulseCard({ pulse, onDrill }: { pulse: OverduePulse; onDrill: () => void }) {
+   775→  const noOpen = pulse.openInvoices === 0;
+   776→  const allClean = !noOpen && pulse.overdueInvoices === 0;
+   777→  // ≥40% of the open book overdue → red, otherwise amber
+   778→  const overdueShare = pulse.outstanding > 0 ? pulse.overdue / pulse.outstanding : 0;
+   779→  const severe = overdueShare >= 0.4;
+   780→
+   781→  const status = noOpen
+   782→    ? { label: "NO OPEN INVOICES", tone: "neutral" as const, dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
+   783→    : allClean
+   784→      ? { label: "ALL WITHIN TERMS", tone: "success" as const, dot: "bg-dmk-success", ring: "border-dmk-success/30" }
+   785→      : severe
+   786→        ? { label: `${pulse.overdueInvoices} OVERDUE`, tone: "danger" as const, dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
+   787→        : { label: `${pulse.overdueInvoices} OVERDUE`, tone: "warning" as const, dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
+   788→
+   789→  const stats = [
+   790→    { label: "Open book", value: formatINR(pulse.outstanding), cls: "text-dmk-text-primary" },
+   791→    {
+   792→      label: "Overdue",
+   793→      value: formatINR(pulse.overdue),
+   794→      cls: pulse.overdueInvoices > 0 ? "text-dmk-danger" : "text-dmk-success",
+   795→    },
+   796→    { label: "Open invoices", value: String(pulse.openInvoices), cls: "text-dmk-text-primary" },
+   797→    {
+   798→      label: pulse.overdueInvoices > 0 ? "Worst past due" : "Next due",
+   799→      value:
+   800→        pulse.overdueInvoices > 0
+   801→          ? `${pulse.worstOverdueDays}d${pulse.topOverdueParty ? ` · ${pulse.topOverdueParty.split(" ")[0]}` : ""}`
+   802→          : pulse.nextDueDate
+   803→            ? formatDate(pulse.nextDueDate)
+   804→            : "—",
+   805→      cls: pulse.overdueInvoices > 0 ? "text-dmk-warning" : "text-dmk-text-secondary",
+   806→    },
+   807→  ];
+   808→
+   809→  const meterPct = Math.min(100, Math.round(overdueShare * 100));
+   810→
+   811→  return (
+   812→    <div
+   813→      role="button"
+   814→      tabIndex={0}
+   815→      aria-label={`Collections ${status.label} — open invoice-wise receivables aging`}
+   816→      onClick={onDrill}
+   817→      onKeyDown={(e) => {
+   818→        if (e.key === "Enter" || e.key === " ") {
+   819→          e.preventDefault();
+   820→          onDrill();
+   821→        }
+   822→      }}
+   823→      className={cn(
+   824→        "dmk-card p-4 dmk-kpi-clickable relative overflow-hidden border",
+   825→        status.ring,
+   826→        "dmk-enter"
+   827→      )}
+   828→    >
+   829→      <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+   830→        {/* Status block */}
+   831→        <div className="flex items-center gap-3 min-w-0 lg:w-[280px] shrink-0">
+   832→          <div className={cn(
+   833→            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border",
+   834→            noOpen
+   835→              ? "bg-dmk-input-well border-dmk-border-subtle"
+   836→              : allClean
+   837→                ? "bg-[rgba(34,197,94,0.1)] border-dmk-success/30"
+   838→                : severe
+   839→                  ? "bg-[rgba(239,68,68,0.1)] border-dmk-danger/30"
+   840→                  : "bg-[rgba(245,158,11,0.1)] border-dmk-warning/30"
+   841→          )}>
+   842→            {noOpen ? (
+   843→              <HandCoins className="h-5 w-5 text-dmk-text-muted" strokeWidth={1.75} />
+   844→            ) : allClean ? (
+   845→              <CalendarClock className="h-5 w-5 text-dmk-success" strokeWidth={1.75} />
+   846→            ) : (
+   847→              <CalendarClock className={cn("h-5 w-5", severe ? "text-dmk-danger" : "text-dmk-warning")} strokeWidth={1.75} />
+   848→            )}
+   849→          </div>
+   850→          <div className="min-w-0">
+   851→            <p className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+   852→              Collections · Receivables
+   853→            </p>
+   854→            <p className="text-[14.5px] font-bold text-dmk-text-primary flex items-center gap-2">
+   855→              <span className={cn("h-1.5 w-1.5 rounded-full animate-pulse", status.dot)} />
+   856→              {status.label}
+   857→            </p>
+   858→            <p className="text-[10.5px] text-dmk-text-muted truncate">
+   859→              {allClean && pulse.nextDueDate
+   860→                ? `Next payment due ${formatDate(pulse.nextDueDate)}`
+   861→                : "Aged against posted credit invoices & credit terms"}
+   862→            </p>
+   863→          </div>
+   864→        </div>
+   865→
+   866→        {/* Mini stats */}
+   867→        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 min-w-0">
+   868→          {stats.map((s) => (
+   869→            <div key={s.label} className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/50 px-3 py-2">
+   870→              <p className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">{s.label}</p>
+   871→              <p className={cn("font-money text-[14px] font-semibold mt-0.5 truncate", s.cls)}>{s.value}</p>
+   872→            </div>
+   873→          ))}
+   874→        </div>
+   875→
+   876→        {/* Overdue-share meter + drill */}
+   877→        <div className="lg:w-[190px] shrink-0 flex flex-col gap-1.5">
+   878→          <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+   879→            <span>Overdue share</span>
+   880→            <span className="font-money text-dmk-text-secondary">{meterPct}%</span>
+   881→          </div>
+   882→          <div className="h-1.5 w-full rounded-full bg-dmk-input-well overflow-hidden">
+   883→            <div
+   884→              className={cn(
+   885→                "h-full rounded-full transition-all duration-500",
+   886→                meterPct === 0 ? "bg-dmk-success" : meterPct < 40 ? "bg-dmk-warning" : "bg-dmk-danger"
+   887→              )}
+   888→              style={{ width: `${Math.max(meterPct, meterPct === 0 ? 0 : 4)}%` }}
+   889→            />
+   890→          </div>
+   891→          <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-dmk-blue/80 mt-0.5">
+   892→            Invoice-wise Aging <ArrowRight className="h-3 w-3" />
+   893→          </span>
+   894→        </div>
+   895→      </div>
+   896→
+   897→      {allClean && (
+   898→        <p className="mt-3 text-[11.5px] text-dmk-text-muted border-t border-dmk-border-subtle pt-2.5">
+   899→          Every open credit invoice is inside its customer's credit terms — collections healthy.
+   900→          {pulse.unappliedReceipts > 0.009 && (
+   901→            <> of which <span className="font-money text-dmk-info">{formatINR(pulse.unappliedReceipts)}</span> sits as on-account receipts awaiting allocation.</>
+   902→          )}
+   903→        </p>
+   904→      )}
+   905→      {severe && (
+   906→        <p className="mt-3 text-[11.5px] text-dmk-warning border-t border-dmk-border-subtle pt-2.5">
+   907→          {Math.round(overdueShare * 100)}% of the open receivables book is past credit terms — chase{" "}
+   908→          {pulse.topOverdueParty ?? "the oldest invoices"} first.
+   909→        </p>
+   910→      )}
+   911→    </div>
+   912→  );
+   913→}
+   914→
+   915→// ═══════════════════════════════════════════════════════════════
+   916→// Overdue payables pulse — mirror of the receivables pulse.
+   917→// Answers "who do I owe past vendor terms, how much, how late?"
+   918→// from the precise PO-wise AP aging. Drills into the PO aging tab.
+   919→// ═══════════════════════════════════════════════════════════════
+   920→
+   921→function ApOverduePulseCard({ pulse, onDrill }: { pulse: ApOverduePulse; onDrill: () => void }) {
+   922→  const noOpen = pulse.openPOs === 0;
+   923→  const allClean = !noOpen && pulse.overduePOs === 0;
+   924→  const overdueShare = pulse.outstanding > 0 ? pulse.overdue / pulse.outstanding : 0;
+   925→  const severe = overdueShare >= 0.4;
+   926→
+   927→  const status = noOpen
+   928→    ? { label: "NO OPEN BILLS", dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
+   929→    : allClean
+   930→      ? { label: "ALL WITHIN TERMS", dot: "bg-dmk-success", ring: "border-dmk-success/30" }
+   931→      : severe
+   932→        ? { label: `${pulse.overduePOs} OVERDUE`, dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
+   933→        : { label: `${pulse.overduePOs} OVERDUE`, dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
+   934→
+   935→  const stats = [
+   936→    { label: "Open payables", value: formatINR(pulse.outstanding), cls: "text-dmk-text-primary" },
+   937→    {
+   938→      label: "Past terms",
+   939→      value: formatINR(pulse.overdue),
+   940→      cls: pulse.overduePOs > 0 ? "text-dmk-danger" : "text-dmk-success",
+   941→    },
+   942→    { label: "Open POs", value: String(pulse.openPOs), cls: "text-dmk-text-primary" },
+   943→    {
+   944→      label: pulse.overduePOs > 0 ? "Worst past due" : "Next payment due",
+   945→      value:
+   946→        pulse.overduePOs > 0
+   947→          ? `${pulse.worstOverdueDays}d${pulse.topOverdueVendor ? ` · ${pulse.topOverdueVendor.split(" ")[0]}` : ""}`
+   948→          : pulse.nextDueDate
+   949→            ? formatDate(pulse.nextDueDate)
+   950→            : "—",
+   951→      cls: pulse.overduePOs > 0 ? "text-dmk-warning" : "text-dmk-text-secondary",
+   952→    },
+   953→  ];
+   954→
+   955→  const meterPct = Math.min(100, Math.round(overdueShare * 100));
+   956→
+   957→  return (
+   958→    <div
+   959→      role="button"
+   960→      tabIndex={0}
+   961→      aria-label={`Payables ${status.label} — open PO-wise payables aging`}
+   962→      onClick={onDrill}
+   963→      onKeyDown={(e) => {
+   964→        if (e.key === "Enter" || e.key === " ") {
+   965→          e.preventDefault();
+   966→          onDrill();
+   967→        }
+   968→      }}
+   969→      className={cn(
+   970→        "dmk-card p-4 dmk-kpi-clickable relative overflow-hidden border",
+   971→        status.ring,
+   972→        "dmk-enter"
+   973→      )}
+   974→    >
+   975→      <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+   976→        {/* Status block */}
+   977→        <div className="flex items-center gap-3 min-w-0 lg:w-[280px] shrink-0">
+   978→          <div className={cn(
+   979→            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border",
+   980→            noOpen
+   981→              ? "bg-dmk-input-well border-dmk-border-subtle"
+   982→              : allClean
+   983→                ? "bg-[rgba(34,197,94,0.1)] border-dmk-success/30"
+   984→                : severe
+   985→                  ? "bg-[rgba(239,68,68,0.1)] border-dmk-danger/30"
+   986→                  : "bg-[rgba(245,158,11,0.1)] border-dmk-warning/30"
+   987→          )}>
+   988→            <Truck
+   989→              className={cn(
+   990→                "h-5 w-5",
+   991→                noOpen ? "text-dmk-text-muted" : allClean ? "text-dmk-success" : severe ? "text-dmk-danger" : "text-dmk-warning"
+   992→              )}
+   993→              strokeWidth={1.75}
+   994→            />
+   995→          </div>
+   996→          <div className="min-w-0">
+   997→            <p className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+   998→              Payments · Payables
+   999→            </p>
+  1000→            <p className="text-[14.5px] font-bold text-dmk-text-primary flex items-center gap-2">
+  1001→              <span className={cn("h-1.5 w-1.5 rounded-full animate-pulse", status.dot)} />
+  1002→              {status.label}
+  1003→            </p>
+  1004→            <p className="text-[10.5px] text-dmk-text-muted truncate">
+  1005→              {allClean && pulse.nextDueDate
+  1006→                ? `Next vendor payment due ${formatDate(pulse.nextDueDate)}`
+  1007→                : "Aged against confirmed POs & vendor payment terms"}
+  1008→            </p>
+  1009→          </div>
+  1010→        </div>
+  1011→
+  1012→        {/* Mini stats */}
+  1013→        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 min-w-0">
+  1014→          {stats.map((s) => (
+  1015→            <div key={s.label} className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/50 px-3 py-2">
+  1016→              <p className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">{s.label}</p>
+  1017→              <p className={cn("font-money text-[14px] font-semibold mt-0.5 truncate", s.cls)}>{s.value}</p>
+  1018→            </div>
+  1019→          ))}
+  1020→        </div>
+  1021→
+  1022→        {/* Overdue-share meter + drill */}
+  1023→        <div className="lg:w-[190px] shrink-0 flex flex-col gap-1.5">
+  1024→          <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+  1025→            <span>Past-terms share</span>
+  1026→            <span className="font-money text-dmk-text-secondary">{meterPct}%</span>
+  1027→          </div>
+  1028→          <div className="h-1.5 w-full rounded-full bg-dmk-input-well overflow-hidden">
+  1029→            <div
+  1030→              className={cn(
+  1031→                "h-full rounded-full transition-all duration-500",
+  1032→                meterPct === 0 ? "bg-dmk-success" : meterPct < 40 ? "bg-dmk-warning" : "bg-dmk-danger"
+  1033→              )}
+  1034→              style={{ width: `${Math.max(meterPct, meterPct === 0 ? 0 : 4)}%` }}
+  1035→            />
+  1036→          </div>
+  1037→          <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-dmk-blue/80 mt-0.5">
+  1038→            PO-wise Aging <ArrowRight className="h-3 w-3" />
+  1039→          </span>
+  1040→        </div>
+  1041→      </div>
+  1042→
+  1043→      {allClean && (
+  1044→        <p className="mt-3 text-[11.5px] text-dmk-text-muted border-t border-dmk-border-subtle pt-2.5">
+  1045→          Every confirmed PO is inside its vendor's payment terms — payables healthy.
+  1046→        </p>
+  1047→      )}
+  1048→      {severe && (
+  1049→        <p className="mt-3 text-[11.5px] text-dmk-warning border-t border-dmk-border-subtle pt-2.5">
+  1050→          {Math.round(overdueShare * 100)}% of the open payables book is past vendor terms — settle{" "}
+  1051→          {pulse.topOverdueVendor ?? "the oldest bills"} first to protect credit supply.
+  1052→        </p>
+  1053→      )}
+  1054→    </div>
+  1055→  );
+  1056→}
+  1057→
