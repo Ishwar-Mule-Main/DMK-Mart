@@ -318,6 +318,7 @@ model SalesReturnItem {
   gstRate     Float   @default(18)
   totalAmount Float   @default(0)
   defectType  String  @default("Damaged") // Damaged|Broken|Defective|Wrong Item
+  sentToVendorQty Float @default(0) // qty of this line already recovered to the vendor via purchase returns
 }
 
 // ─── PURCHASE RETURNS (Debit Note ← DAMAGED stock) ───────────────

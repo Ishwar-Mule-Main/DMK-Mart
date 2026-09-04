@@ -1,23 +1,32 @@
 // ═══════════════════════════════════════════════════════════════
-// /api/v1/sales-returns/send-to-purchase — ONE-CLICK bulk recovery
-// Sends EVERY sales-return line (all credit notes) back to the
-// vendor as purchase-return debit notes:
-//   · lines grouped by the vendor the product was last bought from
-//     (latest CONFIRMED PO per product; fallback = no vendor)
-//   · qty capped by the product's available DAMAGED pool —
-//     lines that cannot be covered are skipped, never negative stock
-//   · per vendor group: DAMAGED stock ↓, vendor payable ↓,
-//     DEBIT_NOTE journal — the same pipeline as a manual debit note
-// Body: { firmId, returnDate? }
+// /api/v1/sales-returns/send-to-purchase — selective recovery
+//
+//   GET  → preview: every sales-return line NOT yet sent to the
+//          vendor (eligibleQty = damagedQty − sentToVendorQty),
+//          capped by the product's available damaged pool, with a
+//          per-vendor value estimate. Powers the selection dialog —
+//          the user sees and picks exactly what will be sent.
+//   POST → body { firmId, returnDate?, itemIds? }:
+//          · plans ONLY from the selected unsent lines (nothing is
+//            swept from leftover damaged-pool stock on its own)
+//          · lines grouped by the vendor the product was last
+//            bought from (latest CONFIRMED PO; fallback no vendor)
+//          · per vendor group: DEBIT_NOTE, DAMAGED stock ↓, vendor
+//            payable ↓, and each source SalesReturnItem is marked
+//            sentToVendorQty += qty INSIDE the same transaction so
+//            a line can never be recovered twice
+//          · if every line is already recovered → 409, nothing is
+//            created
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { ACC, nextDocNumber, postJournal } from "@/lib/journal";
-import { calculateGST, round2, sumGstSplits } from "@/lib/gst";
+import { round2 } from "@/lib/gst";
 import {
-  BusinessError,
   asRecord,
+  asStringArray,
+  BusinessError,
   getDate,
   getStr,
   handleApiError,
@@ -30,117 +39,69 @@ import {
   recordMovement,
   updateVendorBalance,
 } from "@/app/api/v1/_lib/party";
+import { planGstSplits, planSendToPurchase } from "@/app/api/v1/_lib/sendToPurchase";
 
-interface PlannedLine {
-  productId: string;
-  damagedQty: number;
-  unitCost: number;
-  gstRate: number;
-  reason: string;
-  creditNotes: string[];
-  vendorId: string | null;
+// ─── GET — preview what CAN be sent (no side effects) ───────────
+export async function GET(request: NextRequest) {
+  try {
+    const sp = request.nextUrl.searchParams;
+    const firm = await resolveFirm(getStr(sp.get("firmId")));
+    const plan = await planSendToPurchase(firm.id, firm.stateCode);
+
+    return ok({
+      lines: plan.lines.map((l) => ({ ...l, returnDate: l.returnDate.toISOString() })),
+      skipped: plan.skipped,
+      totals: plan.totals,
+      fullySentCount: plan.fullySentCount,
+      allRecovered: plan.allRecovered,
+      message: plan.allRecovered
+        ? "Every sales-return quantity has already been sent to vendors — nothing left to recover."
+        : plan.lines.length === 0
+          ? "No sales returns recorded yet."
+          : `${plan.lines.length} sales-return line${plan.lines.length === 1 ? "" : "s"} pending vendor recovery.`,
+    });
+  } catch (e) {
+    return handleApiError(e);
+  }
 }
 
+// ─── POST — execute the selected lines only ─────────────────────
 export async function POST(request: NextRequest) {
   try {
     const body = asRecord(await request.json().catch(() => ({})));
     const firm = await resolveFirm(getStr(body.firmId));
     const returnDate = getDate(body.returnDate);
+    const itemIds = asStringArray(body.itemIds);
 
-    // ── 1. Every sales return of this firm, newest first ──────────
-    const salesReturns = await db.salesReturn.findMany({
-      where: { firmId: firm.id },
-      include: { items: true },
-      orderBy: { returnDate: "desc" },
+    const plan = await planSendToPurchase(firm.id, firm.stateCode, {
+      selectedItemIds: itemIds.length > 0 ? itemIds : undefined,
     });
-    if (salesReturns.length === 0) {
-      throw new BusinessError("ERR_EMPTY_ITEMS", "No sales returns to send back to vendors", 400);
-    }
 
-    const products = await db.product.findMany({ where: { firmId: firm.id } });
-    const productMap = new Map(products.map((p) => [p.id, p]));
-
-    // ── 2. Vendor per product: vendor of the latest CONFIRMED PO ──
-    const confirmedPos = await db.purchaseOrder.findMany({
-      where: { firmId: firm.id, status: "CONFIRMED" },
-      orderBy: { poDate: "desc" },
-      select: {
-        id: true,
-        poNumber: true,
-        vendorId: true,
-        items: { select: { productId: true, unitCost: true } },
-      },
-    });
-    const vendorByProduct = new Map<string, { vendorId: string; unitCost: number; poNumber: string }>();
-    for (const po of confirmedPos) {
-      for (const pi of po.items) {
-        if (!vendorByProduct.has(pi.productId)) {
-          vendorByProduct.set(pi.productId, {
-            vendorId: po.vendorId,
-            unitCost: pi.unitCost,
-            poNumber: po.poNumber,
-          });
-        }
+    if (plan.groups.size === 0) {
+      if (plan.allRecovered) {
+        throw new BusinessError(
+          "ERR_NOTHING_TO_SEND",
+          "Every sales-return quantity has already been sent to vendors — nothing left to recover.",
+          409,
+        );
       }
-    }
-
-    // ── 3. Plan lines — cap by available damaged pool ─────────────
-    const pool = new Map<string, number>(); // productId → remaining damaged qty
-    const planned = new Map<string, Map<string, PlannedLine>>(); // vendorId → productId → line
-    const skipped: Array<{ sku: string; asked: number; available: number }> = [];
-
-    for (const sr of salesReturns) {
-      for (const item of sr.items) {
-        const product = productMap.get(item.productId);
-        if (!product) continue;
-        const available = pool.get(product.id) ?? product.damagedStock;
-        const qty = Math.min(item.damagedQty, available);
-        pool.set(product.id, available - qty);
-
-        if (qty <= 0) {
-          skipped.push({ sku: product.sku, asked: item.damagedQty, available });
-          continue;
-        }
-
-        const src = vendorByProduct.get(product.id) ?? null;
-        const groupKey = src?.vendorId ?? "__none__";
-        if (!planned.has(groupKey)) planned.set(groupKey, new Map());
-        const group = planned.get(groupKey)!;
-        const existing = group.get(product.id);
-        if (existing) {
-          existing.damagedQty = round2(existing.damagedQty + qty);
-          if (!existing.creditNotes.includes(sr.creditNoteNo)) existing.creditNotes.push(sr.creditNoteNo);
-        } else {
-          group.set(product.id, {
-            productId: product.id,
-            damagedQty: qty,
-            unitCost: src?.unitCost ?? product.purchaseCost,
-            gstRate: product.gstRate,
-            reason: `Sales return recovery (${item.defectType})`,
-            creditNotes: [sr.creditNoteNo],
-            vendorId: src?.vendorId ?? null,
-          });
-        }
+      if (plan.totals.qty <= 0) {
+        throw new BusinessError(
+          "ERR_NOTHING_TO_SEND",
+          "Damaged stock is empty for every pending line — those returned goods are no longer in the damaged pool (already recovered or written off).",
+          409,
+        );
       }
+      throw new BusinessError("ERR_NOTHING_TO_SEND", "Nothing selected to send to vendors", 409);
     }
 
-    if (planned.size === 0) {
-      throw new BusinessError(
-        "ERR_NOTHING_TO_SEND",
-        skipped.length > 0
-          ? "All returned qty has already been recovered — damaged pools are empty"
-          : "Nothing eligible to send",
-        409
-      );
-    }
-
-    const vendorIds = [...planned.keys()].filter((k) => k !== "__none__");
+    const vendorKeys = [...plan.groups.keys()].filter((k) => k !== "__none__");
     const vendors = await db.vendor.findMany({
-      where: { id: { in: vendorIds }, firmId: firm.id },
+      where: { id: { in: vendorKeys }, firmId: firm.id },
     });
     const vendorMap = new Map(vendors.map((v) => [v.id, v]));
 
-    // ── 4. One debit note per vendor group ─────────────────────────
+    // ── One debit note per vendor group ─────────────────────────────
     const created: Array<{
       debitNoteNo: string;
       vendorName: string | null;
@@ -149,28 +110,32 @@ export async function POST(request: NextRequest) {
       total: number;
     }> = [];
 
-    for (const [groupKey, linesMap] of planned) {
+    for (const [groupKey, linesMap] of plan.groups) {
       const lines = [...linesMap.values()];
       const vendor = groupKey === "__none__" ? null : vendorMap.get(groupKey) ?? null;
-      const sellerState = vendor?.stateCode ?? firm.stateCode;
 
-      const computed = lines.map((l) => {
-        const taxable = round2(l.damagedQty * l.unitCost);
-        const gst = calculateGST(taxable, l.gstRate, sellerState, firm.stateCode);
-        return { ...l, taxable, gst, total: round2(taxable + gst.cgst + gst.sgst + gst.igst) };
-      });
-      const subtotal = round2(computed.reduce((s, c) => s + c.taxable, 0));
-      const tax = sumGstSplits(computed.map((c) => ({ cgst: c.gst.cgst, sgst: c.gst.sgst, igst: c.gst.igst })));
+      const subtotal = round2(lines.reduce((s, l) => s + l.taxable, 0));
+      const tax = planGstSplits(lines);
       const totalTax = round2(tax.cgst + tax.sgst + tax.igst);
       const grandTotal = round2(subtotal + totalTax);
 
       const debitNoteNo = await nextDocNumber("DN", firm.id, firm.invoicePrefix, firm.financialYear);
-      const notes = `Auto: all sales returns sent to vendor — sources ${computed
-        .flatMap((c) => c.creditNotes)
-        .slice(0, 8)
-        .join(", ")}`;
+      const sourceCreditNotes = [
+        ...new Set(
+          plan.lines
+            .filter((l) => lines.some((pl) => pl.sources.some((s) => s.itemId === l.itemId)))
+            .map((l) => l.creditNoteNo),
+        ),
+      ];
+      const notes = `Auto: selected sales returns sent to vendor — sources ${sourceCreditNotes.slice(0, 8).join(", ")}`;
 
       const returnId = await db.$transaction(async (tx) => {
+        const products = await db.product.findMany({
+          where: { id: { in: lines.map((l) => l.productId) } },
+          select: { id: true, name: true, damagedStock: true },
+        });
+        const pmap = new Map(products.map((p) => [p.id, p]));
+
         const row = await tx.purchaseReturn.create({
           data: {
             firmId: firm.id,
@@ -183,33 +148,45 @@ export async function POST(request: NextRequest) {
             grandTotal,
             notes,
             items: {
-              create: computed.map((c) => ({
-                productId: c.productId,
-                damagedQty: c.damagedQty,
-                unitCost: c.unitCost,
-                gstRate: c.gstRate,
-                totalAmount: c.total,
-                reason: c.reason,
+              create: lines.map((l) => ({
+                productId: l.productId,
+                damagedQty: l.qty,
+                unitCost: l.unitCost,
+                gstRate: l.gstRate,
+                totalAmount: l.total,
+                reason: l.reason,
               })),
             },
           },
           select: { id: true },
         });
 
-        for (const c of computed) {
-          const product = productMap.get(c.productId)!;
-          await drawDamaged(tx, product, c.damagedQty);
+        for (const l of lines) {
+          const product = pmap.get(l.productId);
+          if (!product) continue;
+          await drawDamaged(tx, product, l.qty);
           await recordMovement(tx, {
             firmId: firm.id,
-            productId: c.productId,
+            productId: l.productId,
             movementType: "PURCHASE_RETURN_DAMAGE",
-            quantity: c.damagedQty,
+            quantity: l.qty,
             targetPool: "DAMAGED",
             direction: "OUT",
             referenceDocId: row.id,
             referenceNo: debitNoteNo,
-            notes: `Bulk sales-return recovery — ${debitNoteNo}`,
+            notes: `Sales-return recovery — ${debitNoteNo}`,
           });
+        }
+
+        // MARK the source lines as recovered — inside the same transaction,
+        // so a sales-return line can never be sent to the vendor twice
+        for (const l of lines) {
+          for (const s of l.sources) {
+            await tx.salesReturnItem.update({
+              where: { id: s.itemId },
+              data: { sentToVendorQty: { increment: s.qty } },
+            });
+          }
         }
 
         if (vendor) {
@@ -218,7 +195,7 @@ export async function POST(request: NextRequest) {
             entryDate: returnDate,
             voucherType: "DEBIT_NOTE",
             voucherNo: debitNoteNo,
-            particulars: `Bulk purchase return from sales returns — ${debitNoteNo}`,
+            particulars: `Purchase return from sales returns — ${debitNoteNo}`,
             debit: grandTotal,
             credit: 0,
           });
@@ -227,12 +204,13 @@ export async function POST(request: NextRequest) {
         return row.id;
       });
 
+      void returnId;
+
       await postJournal({
         firmId: firm.id,
         voucherType: "DEBIT_NOTE",
         postingDate: returnDate,
-        narration: `Debit note ${debitNoteNo} — bulk recovery of sales returns${vendor ? ` from ${vendor.vendorName}` : ""}`,
-        referenceDocId: returnId,
+        narration: `Debit note ${debitNoteNo} — recovery of sales returns${vendor ? ` from ${vendor.vendorName}` : ""}`,
         lines: [
           { accountCode: ACC.AP, entrySide: "DEBIT", amount: grandTotal },
           { accountCode: ACC.PURCHASES, entrySide: "CREDIT", amount: subtotal },
@@ -245,8 +223,8 @@ export async function POST(request: NextRequest) {
       created.push({
         debitNoteNo,
         vendorName: vendor?.vendorName ?? null,
-        items: computed.length,
-        qty: round2(computed.reduce((s, c) => s + c.damagedQty, 0)),
+        items: lines.length,
+        qty: round2(lines.reduce((s, l) => s + l.qty, 0)),
         total: grandTotal,
       });
     }
@@ -256,7 +234,7 @@ export async function POST(request: NextRequest) {
     return ok(
       {
         created,
-        skipped,
+        skipped: plan.skipped,
         totals: {
           debitNotes: created.length,
           items: created.reduce((s, c) => s + c.items, 0),
@@ -265,9 +243,9 @@ export async function POST(request: NextRequest) {
         },
         message:
           `${created.length} debit note${created.length === 1 ? "" : "s"} created — ` +
-          `damaged stock drawn down${skipped.length > 0 ? `, ${skipped.length} line(s) skipped (pool empty)` : ""}`,
+          `damaged stock drawn down${plan.skipped.length > 0 ? `, ${plan.skipped.length} line(s) short of damaged stock` : ""}`,
       },
-      201
+      201,
     );
   } catch (e) {
     return handleApiError(e);

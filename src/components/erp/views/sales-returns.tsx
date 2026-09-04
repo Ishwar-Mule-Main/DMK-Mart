@@ -11,6 +11,7 @@ import * as React from "react";
 import {
   AlertTriangle,
   ArrowRightLeft,
+  CheckCircle2,
   IndianRupee,
   Loader2,
   PackageX,
@@ -57,16 +58,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface ReturnItemRow {
   id: string;
@@ -76,6 +68,7 @@ interface ReturnItemRow {
   gstRate: number;
   totalAmount: number;
   defectType: string;
+  sentToVendorQty?: number; // qty already recovered to the vendor via purchase returns
   product?: { id: string; sku: string; name: string } | null;
 }
 
@@ -155,7 +148,6 @@ export default function SalesReturnsView() {
   const [view, setView] = React.useState<ReturnListRow | null>(null);
   const [newOpen, setNewOpen] = React.useState(false);
   const [sendOpen, setSendOpen] = React.useState(false);
-  const [sending, setSending] = React.useState(false);
 
   const load = React.useCallback(async () => {
     if (!activeFirmId) return;
@@ -171,34 +163,6 @@ export default function SalesReturnsView() {
   React.useEffect(() => {
     load();
   }, [load]);
-
-  /** ONE-CLICK: every sales-return line → purchase-return debit notes. */
-  async function sendAllToPurchaseReturn() {
-    setSending(true);
-    try {
-      const res = await apiPost<{
-        created: Array<{ debitNoteNo: string; vendorName: string | null; items: number; total: number }>;
-        skipped: Array<{ sku: string }>;
-        totals: { debitNotes: number; items: number; qty: number; value: number };
-        message: string;
-      }>("/api/v1/sales-returns/send-to-purchase", { firmId: activeFirmId });
-      toast({
-        title: `${res.totals.debitNotes} debit note${res.totals.debitNotes === 1 ? "" : "s"} created`,
-        description: `${res.message} · ${formatINR(res.totals.value)} recovered from vendors.`,
-      });
-      setSendOpen(false);
-      await load();
-      navigate("purchase/returns");
-    } catch (e) {
-      toast({
-        variant: "destructive",
-        title: "Could not send to Purchase Return",
-        description: e instanceof ApiError ? e.message : "Something went wrong.",
-      });
-    } finally {
-      setSending(false);
-    }
-  }
 
   if (!activeFirmId) {
     return <EmptyState icon={RotateCcw} title="No active firm" hint="Select a firm from the header switcher." />;
@@ -241,9 +205,9 @@ export default function SalesReturnsView() {
               className="h-9 border-dmk-info/40 bg-dmk-info/10 text-dmk-info hover:bg-dmk-info/20 hover:text-dmk-info font-semibold"
               disabled={list.length === 0}
               onClick={() => setSendOpen(true)}
-              title="Send every returned item back to the vendors as debit notes"
+              title="Pick exactly which returned lines to send to vendors — nothing is sent on its own"
             >
-              <ArrowRightLeft className="h-4 w-4" /> Send all to Purchase Return
+              <ArrowRightLeft className="h-4 w-4" /> Send to Purchase Return
             </Button>
             <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setNewOpen(true)}>
               <Plus className="h-4 w-4" /> New Return
@@ -384,19 +348,31 @@ export default function SalesReturnsView() {
                         <th>Defect</th>
                         <th className="text-right">Rate</th>
                         <th className="text-right">Amount</th>
+                        <th className="text-right">To vendor</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {view.items.map((it) => (
-                        <tr key={it.id}>
-                          <td className="font-money text-[11.5px] text-dmk-text-secondary">{it.product?.sku ?? "—"}</td>
-                          <td className="max-w-[180px] truncate text-[12.5px]">{it.product?.name ?? "—"}</td>
-                          <td className="num text-[12px]">{it.damagedQty}</td>
-                          <td><Badge tone={defectTone(it.defectType)}>{it.defectType}</Badge></td>
-                          <td className="num text-[12px]">{formatINR(Number(it.unitPrice))}</td>
-                          <td className="num text-[12px]">{formatINR(Number(it.totalAmount))}</td>
-                        </tr>
-                      ))}
+                      {view.items.map((it) => {
+                        const sent = Number(it.sentToVendorQty ?? 0);
+                        const fully = sent >= Number(it.damagedQty) - 0.001;
+                        return (
+                          <tr key={it.id}>
+                            <td className="font-money text-[11.5px] text-dmk-text-secondary">{it.product?.sku ?? "—"}</td>
+                            <td className="max-w-[180px] truncate text-[12.5px]">{it.product?.name ?? "—"}</td>
+                            <td className="num text-[12px]">{it.damagedQty}</td>
+                            <td><Badge tone={defectTone(it.defectType)}>{it.defectType}</Badge></td>
+                            <td className="num text-[12px]">{formatINR(Number(it.unitPrice))}</td>
+                            <td className="num text-[12px]">{formatINR(Number(it.totalAmount))}</td>
+                            <td className="num text-right">
+                              {fully ? (
+                                <Badge tone="success">recovered</Badge>
+                              ) : (
+                                <span className="font-money text-[11.5px] text-dmk-text-muted">{sent} / {it.damagedQty}</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -415,45 +391,10 @@ export default function SalesReturnsView() {
 
       <NewReturnDialog open={newOpen} onOpenChange={setNewOpen} onCreated={() => load()} firmStateCode={firm?.stateCode ?? ""} />
 
-      {/* ONE-CLICK bulk recovery — all sales returns → purchase returns */}
-      <AlertDialog open={sendOpen} onOpenChange={(o) => !sending && setSendOpen(o)}>
-        <AlertDialogContent className="dmk-elevated border-dmk-border-medium">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-dmk-text-primary">
-              <ArrowRightLeft className="h-5 w-5 text-dmk-info" /> Send all returns to Purchase Return?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-dmk-text-secondary">
-              Every line from <span className="font-semibold text-dmk-text-primary">all {list.length} credit note{list.length === 1 ? "" : "s"}</span>{" "}
-              ({totalItems} item{totalItems === 1 ? "" : "s"}, {formatINR(totalValue)} returned value) will be raised as
-              purchase-return debit notes against the vendor each product was bought from. Damaged stock is drawn down and
-              vendor payable reduces together — books stay balanced.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="dmk-well px-3 py-2.5 text-[11.5px] text-dmk-text-muted leading-relaxed">
-            Lines whose damaged quantity was already recovered are skipped automatically — stock can never go negative.
-            You will land in <span className="font-semibold text-dmk-text-secondary">Purchase Returns</span> to review the debit notes.
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              disabled={sending}
-              className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover"
-            >
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                void sendAllToPurchaseReturn();
-              }}
-              disabled={sending || list.length === 0}
-              className="bg-dmk-info text-white hover:bg-dmk-info/90"
-            >
-              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
-              {sending ? "Sending…" : "Send everything"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Selective vendor recovery — only lines NOT yet sent to vendors are
+          listed, and the user picks exactly what goes. Nothing is swept
+          from leftover damaged-pool stock on its own. */}
+      <SendToPurchaseDialog open={sendOpen} onOpenChange={setSendOpen} onSent={() => load()} />
     </div>
   );
 }
@@ -915,6 +856,300 @@ function NewReturnDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
           <Button onClick={submit} disabled={saving || returnRows.length === 0 || overQtyRows.length > 0} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
             {saving ? "Posting…" : returnRows.length > 0 ? `Create credit note · ${returnRows.length} item${returnRows.length === 1 ? "" : "s"}` : "Create credit note"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Send to Purchase Return — SELECTIVE vendor recovery
+// Only sales-return lines not yet sent to vendors are listed, and
+// the user ticks exactly which lines go. When everything has
+// already been recovered the dialog shows "Nothing pending" and
+// the API refuses to create anything — no phantom debit notes.
+// ═══════════════════════════════════════════════════════════════
+
+interface SendPreviewLine {
+  itemId: string;
+  creditNoteNo: string;
+  returnDate: string;
+  customerName: string | null;
+  productId: string;
+  sku: string;
+  productName: string;
+  damagedQty: number;
+  sentToVendorQty: number;
+  eligibleQty: number;
+  sendableQty: number;
+  poolQty: number;
+  vendorName: string | null;
+  unitCost: number;
+  estTotal: number;
+  poolBlocked: boolean;
+}
+
+function SendToPurchaseDialog({
+  open,
+  onOpenChange,
+  onSent,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onSent: () => void | Promise<void>;
+}) {
+  const { toast } = useToast();
+  const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const navigate = useErpStore((s) => s.setView);
+
+  const [loading, setLoading] = React.useState(false);
+  const [lines, setLines] = React.useState<SendPreviewLine[] | null>(null);
+  const [allRecovered, setAllRecovered] = React.useState(false);
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [sending, setSending] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open || !activeFirmId) return;
+    let alive = true;
+    setLoading(true);
+    apiGet<{ lines: SendPreviewLine[]; allRecovered: boolean }>("/api/v1/sales-returns/send-to-purchase", {
+      firmId: activeFirmId,
+    })
+      .then((res) => {
+        if (!alive) return;
+        setLines(res.lines);
+        setAllRecovered(res.allRecovered);
+        // every line that CAN be sent starts ticked — the user still sees and
+        // controls exactly what goes before confirming
+        setSelected(new Set(res.lines.filter((l) => l.sendableQty > 0).map((l) => l.itemId)));
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setLines([]);
+        if (e instanceof ApiError) toast({ variant: "destructive", title: "Could not load pending lines", description: e.message });
+      })
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [open, activeFirmId, toast]);
+
+  const list = lines ?? [];
+  const chosen = list.filter((l) => selected.has(l.itemId) && l.sendableQty > 0);
+  const chosenQty = round2(chosen.reduce((s, l) => s + l.sendableQty, 0));
+  const chosenValue = round2(chosen.reduce((s, l) => s + l.estTotal, 0));
+  const poolBlockedCount = list.filter((l) => l.poolBlocked && l.sendableQty === 0).length;
+  const partialCount = list.filter((l) => l.poolBlocked && l.sendableQty > 0).length;
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function send() {
+    if (!activeFirmId || chosen.length === 0) return;
+    setSending(true);
+    try {
+      const res = await apiPost<{
+        created: Array<{ debitNoteNo: string; vendorName: string | null; items: number; total: number }>;
+        totals: { debitNotes: number; items: number; qty: number; value: number };
+        message: string;
+      }>("/api/v1/sales-returns/send-to-purchase", {
+        firmId: activeFirmId,
+        itemIds: chosen.map((l) => l.itemId),
+      });
+      toast({
+        title: `${res.totals.debitNotes} debit note${res.totals.debitNotes === 1 ? "" : "s"} created`,
+        description: `${res.message} · ${formatINR(res.totals.value)} recovered from vendors.`,
+      });
+      onOpenChange(false);
+      await onSent();
+      navigate("purchase/returns");
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Could not send to Purchase Return",
+        description: e instanceof ApiError ? e.message : "Something went wrong.",
+      });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !sending && onOpenChange(o)}>
+      <DialogContent className="dmk-elevated max-w-2xl border-dmk-border-medium">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-dmk-text-primary">
+            <ArrowRightLeft className="h-5 w-5 text-dmk-info" /> Send returned products to Purchase Return
+          </DialogTitle>
+          <DialogDescription className="text-dmk-text-secondary">
+            Only sales-return quantities <span className="font-semibold text-dmk-text-primary">not yet sent to vendors</span> are
+            listed below. Tick exactly what goes — nothing is sent on its own.
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading || lines === null ? (
+          <div className="space-y-2">
+            <LoadingRows rows={4} />
+            <p className="text-center text-[11.5px] text-dmk-text-muted">Checking pending sales-return lines…</p>
+          </div>
+        ) : list.length === 0 ? (
+          <div className="dmk-well flex flex-col items-center gap-2 px-4 py-8 text-center">
+            <CheckCircle2 className="h-9 w-9 text-dmk-success" />
+            <p className="text-[14px] font-semibold text-dmk-text-primary">Nothing pending</p>
+            <p className="max-w-sm text-[12px] leading-relaxed text-dmk-text-muted">
+              {allRecovered
+                ? "Every sales-return quantity has already been sent to vendors — there is nothing left to recover, so no debit note will be created."
+                : "No sales returns recorded yet."}{" "}
+              A debit note can still be raised manually from the Purchase Returns section.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between px-0.5">
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
+                Pending lines · {list.length} not yet recovered
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set(list.filter((l) => l.sendableQty > 0).map((l) => l.itemId)))}
+                  className="text-[11px] font-medium text-dmk-info underline underline-offset-2 hover:text-dmk-text-primary"
+                >
+                  Select all
+                </button>
+                <span className="text-dmk-border-medium">·</span>
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set())}
+                  className="text-[11px] font-medium text-dmk-text-muted underline underline-offset-2 hover:text-dmk-text-primary"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+              {list.map((l) => {
+                const sendable = l.sendableQty > 0;
+                const checked = selected.has(l.itemId) && sendable;
+                return (
+                  <label
+                    key={l.itemId}
+                    className={cn(
+                      "dmk-well flex cursor-pointer items-start gap-2.5 rounded-md p-2.5 transition-colors",
+                      !sendable && "opacity-55",
+                      checked && "ring-1 ring-dmk-info/50",
+                    )}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      disabled={!sendable || sending}
+                      onCheckedChange={() => toggle(l.itemId)}
+                      className="mt-0.5"
+                      aria-label={`Select ${l.productName} from ${l.creditNoteNo}`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-[12.5px] font-medium text-dmk-text-primary">
+                          <span className="font-money text-[10.5px] text-dmk-text-muted mr-1.5">{l.sku}</span>
+                          {l.productName}
+                        </span>
+                        <span className="font-money shrink-0 text-[12.5px] font-semibold text-dmk-text-primary">
+                          {formatINR(l.estTotal)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] text-dmk-text-muted">
+                        <span className="font-money">{l.creditNoteNo}</span>
+                        <span>· {formatDate(l.returnDate)}</span>
+                        {l.customerName && <span className="truncate">· {l.customerName}</span>}
+                        <span>
+                          · returned <span className="font-money">{l.damagedQty}</span>
+                          {l.sentToVendorQty > 0 && (
+                            <>
+                              {" "}
+                              · already sent <span className="font-money text-dmk-success">{l.sentToVendorQty}</span>
+                            </>
+                          )}
+                        </span>
+                        {l.vendorName && <span className="truncate">· vendor {l.vendorName}</span>}
+                      </div>
+                      <div className="mt-1 flex items-center gap-2">
+                        {sendable ? (
+                          <Badge tone="info">
+                            send {l.sendableQty} · {formatINR(l.unitCost)}/unit
+                          </Badge>
+                        ) : (
+                          <Badge tone="warning">damaged stock empty — cannot send</Badge>
+                        )}
+                        {l.poolBlocked && sendable && (
+                          <span className="text-[10px] text-dmk-warning">
+                            only {l.sendableQty} of {l.eligibleQty} in damaged stock
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            {(poolBlockedCount > 0 || partialCount > 0) && (
+              <div className="rounded-md border border-dmk-warning/40 bg-dmk-warning/10 px-3 py-2 text-[11px] leading-relaxed text-dmk-warning">
+                {poolBlockedCount > 0 && (
+                  <span>
+                    {poolBlockedCount} line{poolBlockedCount === 1 ? "" : "s"} cannot be sent — the returned goods are no longer in
+                    the damaged pool (already recovered or written off).
+                  </span>
+                )}
+                {poolBlockedCount > 0 && partialCount > 0 && " "}
+                {partialCount > 0 && (
+                  <span>
+                    {partialCount} line{partialCount === 1 ? " is" : "s are"} only partially covered by damaged stock — the send is
+                    capped at what is available.
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between dmk-well px-3 py-2.5">
+              <span className="text-[11.5px] text-dmk-text-muted">
+                {chosen.length === 0
+                  ? "No lines selected — nothing will be sent"
+                  : `${chosen.length} line${chosen.length === 1 ? "" : "s"} · ${chosenQty} qty → debit notes per vendor`}
+              </span>
+              <span className="font-money text-[16px] text-dmk-yellow">{formatINR(chosenValue)}</span>
+            </div>
+          </>
+        )}
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={sending}
+            className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={send}
+            disabled={sending || loading || chosen.length === 0}
+            className="bg-dmk-info text-white hover:bg-dmk-info/90"
+            title={list.length === 0 ? "Nothing pending to send" : "Create the debit notes for the ticked lines"}
+          >
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
+            {sending
+              ? "Sending…"
+              : chosen.length === 0
+                ? "Send to vendors"
+                : `Send ${chosen.length} line${chosen.length === 1 ? "" : "s"} · ${formatINR(chosenValue)}`}
           </Button>
         </DialogFooter>
       </DialogContent>

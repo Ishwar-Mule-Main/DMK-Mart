@@ -39,6 +39,11 @@ export function asRecordArray(v: unknown): Record<string, unknown>[] {
   return v.map(asRecord);
 }
 
+export function asStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => getStr(x)).filter((s) => s !== "");
+}
+
 export function getStr(v: unknown, fallback = ""): string {
   if (typeof v === "string") return v.trim();
   if (typeof v === "number" && Number.isFinite(v)) return String(v);
