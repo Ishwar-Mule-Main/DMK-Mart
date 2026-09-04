@@ -2,11 +2,13 @@
 
 // ═══════════════════════════════════════════════════════════════
 // LOGIN GATE — two doors, two URLs, one brand.
-// · OWNER  → "/"                 (full ERP workspace, password per company)
-// · TEAM   → "/?portal=team"     (dedicated verification portal shell)
-// Each URL renders ONLY its own door — the two logins are never shown
-// together. A small cross-link hops between the addresses.
-// "New company account" creates a fully isolated firm from the owner URL.
+// · OWNER  → "/"      (full ERP workspace)  · TEAM  → "/team"
+// Each URL renders ONLY its own door — the two logins are never
+// shown together. A small cross-link hops between the addresses.
+//
+// OWNER IDENTITY: the username is always "Kunal" — on the login
+// card and on every new company account. The PASSWORD identifies
+// which company account opens (one password per company).
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
@@ -14,8 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Building2, Users, Lock, ShieldCheck, ArrowRight, Loader2, Plus } from "lucide-react";
+import { Building2, Users, Lock, ShieldCheck, ArrowRight, Loader2, Plus, CircleUser } from "lucide-react";
 import { useErpStore, type ErpSession } from "@/store/erp-store";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import type { Firm } from "@/types/erp";
@@ -23,8 +24,11 @@ import { cn } from "@/lib/utils";
 
 type Door = "owner" | "team";
 
-export const TEAM_LOGIN_URL = "/?portal=team";
+export const TEAM_LOGIN_URL = "/team";
 export const OWNER_LOGIN_URL = "/";
+
+/** The one fixed owner username across every company account. */
+export const OWNER_USERNAME = "Kunal";
 
 export function LoginGate({ door }: { door: Door }) {
   const { firms, setFirms, setSession, setActiveFirm } = useErpStore();
@@ -64,8 +68,8 @@ export function LoginGate({ door }: { door: Door }) {
                 isOwner ? "bg-dmk-yellow/15 text-dmk-yellow" : "bg-dmk-blue/15 text-dmk-blue"
               )}
             >
-              {isOwner ? <Building2 className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
-              {isOwner ? "Owner login" : "Verification team login"}
+              {isOwner ? <CircleUser className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+              {isOwner ? `Signed in as ${OWNER_USERNAME}` : "Verification team login"}
             </span>
           </div>
 
@@ -99,11 +103,10 @@ export function LoginGate({ door }: { door: Door }) {
   );
 }
 
-// ─── Owner door ───────────────────────────────────────────────────
+// ─── Owner door — username pinned to Kunal, password picks the account ──
 
 function OwnerDoor({
   firms,
-  firmsLoaded,
   onSignedIn,
   onPickFirm,
 }: {
@@ -112,25 +115,22 @@ function OwnerDoor({
   onSignedIn: (s: ErpSession) => void;
   onPickFirm: (id: string) => void;
 }) {
-  const [firmId, setFirmId] = React.useState<string>(firms[0]?.id ?? "");
   const [password, setPassword] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [registerOpen, setRegisterOpen] = React.useState(false);
 
-  React.useEffect(() => {
-    if (!firmId && firms.length > 0) setFirmId(firms[0].id);
-  }, [firms, firmId]);
-
   async function signIn(e: React.FormEvent) {
     e.preventDefault();
-    if (!firmId || !password) return;
+    if (!password) return;
     setBusy(true);
     setError(null);
     try {
       const res = await apiPost<{ firm: { id: string; firmName: string } }>("/api/v1/auth/owner-login", {
-        firmId,
+        username: OWNER_USERNAME,
         password,
+        // disambiguates legacy accounts that still share the default password
+        preferFirmId: useErpStore.getState().activeFirmId ?? firms[0]?.id ?? "",
       });
       onPickFirm(res.firm.id);
       onSignedIn({ role: "OWNER", firmId: res.firm.id, firmName: res.firm.firmName });
@@ -141,41 +141,63 @@ function OwnerDoor({
     }
   }
 
+  // Creating an account signs straight into the new company workspace.
+  async function handleCreated(firm: { id: string; firmName: string }, pw: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiPost<{ firm: { id: string; firmName: string } }>("/api/v1/auth/owner-login", {
+        username: OWNER_USERNAME,
+        password: pw,
+        preferFirmId: firm.id,
+      });
+      onPickFirm(res.firm.id);
+      onSignedIn({ role: "OWNER", firmId: res.firm.id, firmName: res.firm.firmName });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Account created — sign in with your new password.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <form onSubmit={signIn} className="mt-5 space-y-4">
       <div className="space-y-1.5">
-        <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Company</Label>
-        <Select value={firmId} onValueChange={setFirmId}>
-          <SelectTrigger className="w-full h-11 bg-dmk-input-well border-dmk-border-subtle text-[13.5px]">
-            <SelectValue placeholder={firmsLoaded ? "Select company" : "Loading…"} />
-          </SelectTrigger>
-          <SelectContent className="bg-dmk-bg-tertiary border-dmk-border-medium">
-            {firms.map((f) => (
-              <SelectItem key={f.id} value={f.id} className="text-[13px]">
-                {f.firmName} · {f.firmCode}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Label htmlFor="owner-username" className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">
+          Username
+        </Label>
+        <div className="relative">
+          <CircleUser className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-yellow" />
+          <Input
+            id="owner-username"
+            value={OWNER_USERNAME}
+            readOnly
+            aria-readonly="true"
+            className="pl-9 h-11 bg-dmk-input-well/60 border-dmk-border-subtle text-[14px] font-semibold text-dmk-text-primary cursor-default select-all"
+          />
+        </div>
+        <p className="text-[10.5px] text-dmk-text-muted">Every company account opens with this same username.</p>
       </div>
       <div className="space-y-1.5">
-        <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Owner password</Label>
+        <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Password</Label>
         <div className="relative">
           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted" />
           <Input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••"
+            placeholder="Company password"
             className="pl-9 h-11 bg-dmk-input-well border-dmk-border-subtle text-[14px] tracking-widest"
-            aria-label="Owner password"
+            aria-label="Company password"
+            autoFocus
           />
         </div>
+        <p className="text-[10.5px] text-dmk-text-muted">Your password identifies the company account that opens.</p>
       </div>
 
       {error && <p className="text-[12px] text-dmk-danger bg-dmk-danger/10 border border-dmk-danger/25 rounded-md px-3 py-2">{error}</p>}
 
-      <Button type="submit" disabled={busy || !firmId || !password} className="w-full h-11 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-bold text-[13.5px]">
+      <Button type="submit" disabled={busy || !password} className="w-full h-11 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-bold text-[13.5px]">
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
         Sign in to workspace
       </Button>
@@ -189,17 +211,11 @@ function OwnerDoor({
       </button>
 
       <p className="text-[10.5px] text-dmk-text-muted text-center leading-relaxed">
-        Default owner password is <span className="font-mono text-dmk-text-secondary">1234</span> · team members sign in at <span className="font-mono text-dmk-text-secondary">/?portal=team</span>
+        Default owner password is <span className="font-mono text-dmk-text-secondary">1234</span> · team members sign in at{" "}
+        <span className="font-mono text-dmk-text-secondary">/team</span>
       </p>
 
-      <RegisterFirmDialog
-        open={registerOpen}
-        onOpenChange={setRegisterOpen}
-        onCreated={(firm) => {
-          setFirmId(firm.id);
-          setPassword("");
-        }}
-      />
+      <RegisterFirmDialog open={registerOpen} onOpenChange={setRegisterOpen} onCreated={handleCreated} />
     </form>
   );
 }
@@ -284,7 +300,7 @@ function TeamDoor({ onSignedIn }: { onSignedIn: (s: ErpSession) => void }) {
   );
 }
 
-// ─── Create company account ───────────────────────────────────────
+// ─── Create company account — same username, new password ────────
 
 function RegisterFirmDialog({
   open,
@@ -293,26 +309,36 @@ function RegisterFirmDialog({
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  onCreated: (firm: { id: string; firmName: string }) => void;
+  onCreated: (firm: { id: string; firmName: string }, password: string) => void;
 }) {
   const { setFirms } = useErpStore();
-  const [form, setForm] = React.useState({ firmName: "", firmCode: "", password: "", gstin: "", phone: "" });
+  const [form, setForm] = React.useState({ firmName: "", firmCode: "", password: "", confirm: "", gstin: "", phone: "" });
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  const passwordsMatch = form.password.length >= 4 && form.password === form.confirm;
+  const canCreate = form.firmName.trim() !== "" && form.firmCode.trim() !== "" && passwordsMatch && !busy;
+
   async function create() {
+    if (!canCreate) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await apiPost<{ firm: { id: string; firmName: string; firmCode: string } }>("/api/v1/auth/register-firm", form);
+      const res = await apiPost<{ firm: { id: string; firmName: string; firmCode: string } }>("/api/v1/auth/register-firm", {
+        firmName: form.firmName.trim(),
+        firmCode: form.firmCode.trim(),
+        password: form.password,
+        gstin: form.gstin,
+        phone: form.phone,
+      });
       const list = await apiGet<Firm[]>("/api/v1/firms");
       setFirms(list ?? []);
-      onCreated(res.firm);
       onOpenChange(false);
-      setForm({ firmName: "", firmCode: "", password: "", gstin: "", phone: "" });
+      setForm({ firmName: "", firmCode: "", password: "", confirm: "", gstin: "", phone: "" });
+      onCreated(res.firm, form.password);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not create the company account.");
     } finally {
@@ -329,6 +355,16 @@ function RegisterFirmDialog({
             A fully isolated workspace — its own books, stock, team and owner password.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Fixed username banner — Kunal for every account */}
+        <div className="rounded-lg border border-dmk-yellow/30 bg-dmk-yellow/10 px-3 py-2.5 flex items-center gap-2">
+          <CircleUser className="h-4 w-4 text-dmk-yellow shrink-0" />
+          <p className="text-[11.5px] leading-relaxed text-dmk-text-secondary">
+            Username stays <span className="font-bold text-dmk-text-primary">{OWNER_USERNAME}</span> for every company account — only
+            the password changes.
+          </p>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2 space-y-1.5">
             <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Company name</Label>
@@ -339,8 +375,27 @@ function RegisterFirmDialog({
             <Input value={form.firmCode} onChange={set("firmCode")} placeholder="DMK" className="h-10 bg-dmk-input-well border-dmk-border-subtle text-[13px] uppercase" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Owner password</Label>
-            <Input type="password" value={form.password} onChange={set("password")} placeholder="min 4 chars" className="h-10 bg-dmk-input-well border-dmk-border-subtle text-[13px]" />
+            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Username</Label>
+            <Input value={OWNER_USERNAME} readOnly aria-readonly="true" className="h-10 bg-dmk-input-well/60 border-dmk-border-subtle text-[13px] font-semibold text-dmk-text-primary cursor-default" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">New password</Label>
+            <Input type="password" value={form.password} onChange={set("password")} placeholder="min 4 chars" className="h-10 bg-dmk-input-well border-dmk-border-subtle text-[13px]" autoComplete="new-password" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Confirm password</Label>
+            <Input
+              type="password"
+              value={form.confirm}
+              onChange={set("confirm")}
+              placeholder="repeat password"
+              className={cn(
+                "h-10 bg-dmk-input-well border-dmk-border-subtle text-[13px]",
+                form.confirm !== "" && !passwordsMatch && "border-dmk-danger/60"
+              )}
+              autoComplete="new-password"
+            />
+            {form.confirm !== "" && !passwordsMatch && <p className="text-[10.5px] text-dmk-danger">Passwords don&apos;t match yet.</p>}
           </div>
           <div className="space-y-1.5">
             <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">GSTIN (optional)</Label>
@@ -352,9 +407,9 @@ function RegisterFirmDialog({
           </div>
         </div>
         {error && <p className="text-[12px] text-dmk-danger bg-dmk-danger/10 border border-dmk-danger/25 rounded-md px-3 py-2 mt-3">{error}</p>}
-        <Button onClick={create} disabled={busy || !form.firmName || !form.firmCode || !form.password} className="w-full h-10 mt-2 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-bold">
+        <Button onClick={create} disabled={!canCreate} className="w-full h-10 mt-2 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-bold">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          Create company & set password
+          Create company &amp; open workspace
         </Button>
       </DialogContent>
     </Dialog>

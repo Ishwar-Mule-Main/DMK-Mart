@@ -137,7 +137,7 @@ export function VerificationPortal() {
             onClick={() => {
               // Team members always land back on the TEAM login address.
               logout();
-              window.location.assign("/?portal=team");
+              window.location.assign("/team");
             }}
             className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:text-dmk-danger hover:border-dmk-danger/50"
           >

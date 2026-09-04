@@ -11,6 +11,11 @@ import {
   handleApiError,
   ok,
 } from "@/app/api/v1/_lib/api";
+import {
+  hashPasswordAsync,
+  verifyPasswordAsync,
+  assertPasswordAvailable,
+} from "@/app/api/v1/_lib/verification";
 
 export async function GET(
   _request: NextRequest,
@@ -29,8 +34,10 @@ export async function GET(
       db.purchaseOrder.count({ where: { firmId: id } }),
     ]);
 
+    // ownerPassword hash never leaves the server
+    const { ownerPassword: _omit, ...safeFirm } = firm;
     return ok({
-      firm,
+      firm: safeFirm,
       counts: { products, customers, vendors, invoices, purchaseOrders },
     });
   } catch (e) {
@@ -75,8 +82,32 @@ export async function PATCH(
       data.stateCode = data.gstin.slice(0, 2);
     }
 
+    // ── Owner password change (Settings → Owner Account) ──
+    // Requires the current password; the new one must not collide with
+    // another company account (passwords identify accounts).
+    const newPassword = getStr(body.newPassword);
+    if (newPassword) {
+      const currentPassword = getStr(body.currentPassword);
+      if (!currentPassword) {
+        throw new BusinessError("ERR_VALIDATION", "Current password is required to change the password", 400);
+      }
+      if (!(await verifyPasswordAsync(currentPassword, firm.ownerPassword))) {
+        throw new BusinessError("ERR_INVALID_CREDENTIALS", "Current password is incorrect", 401);
+      }
+      if (newPassword.length < 4) {
+        throw new BusinessError("ERR_VALIDATION", "New password must be at least 4 characters", 400);
+      }
+      if (newPassword === currentPassword) {
+        throw new BusinessError("ERR_VALIDATION", "New password must be different from the current password", 400);
+      }
+      await assertPasswordAvailable(newPassword, id);
+      data.ownerPassword = await hashPasswordAsync(newPassword);
+    }
+
     const updated = await db.firm.update({ where: { id }, data });
-    return ok(updated);
+    // ownerPassword hash never leaves the server
+    const { ownerPassword: _omit, ...safeFirm } = updated;
+    return ok(safeFirm);
   } catch (e) {
     return handleApiError(e);
   }

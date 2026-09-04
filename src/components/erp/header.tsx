@@ -33,6 +33,7 @@ import { apiGet, apiPost } from "@/lib/api-client";
 import { requestAgingTab } from "@/lib/settle-bus";
 import { formatINR } from "@/lib/format";
 import type { Firm, LowStockItem } from "@/types/erp";
+import { OWNER_USERNAME } from "@/components/auth/login-gate";
 import { cn } from "@/lib/utils";
 
 const FYS = ["2025-26", "2026-27", "2027-28"];
@@ -376,8 +377,11 @@ export function Header() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 bg-dmk-bg-tertiary border-dmk-border-medium">
-            <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-dmk-text-muted">
-              {firm?.firmName ?? "Owner"} · signed in
+            <DropdownMenuLabel className="px-2 py-1.5">
+              <span className="block text-[13px] font-bold tracking-normal text-dmk-text-primary">{OWNER_USERNAME}</span>
+              <span className="block text-[10px] uppercase tracking-widest text-dmk-text-muted mt-0.5 truncate">
+                {firm?.firmName ?? "Owner"} · owner account
+              </span>
             </DropdownMenuLabel>
             <DropdownMenuItem
               onClick={() => {

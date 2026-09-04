@@ -12,9 +12,11 @@ import {
   CalendarRange,
   Check,
   CheckCircle2,
+  CircleUser,
   DatabaseBackup,
   ArchiveRestore,
   FileJson2,
+  KeyRound,
   Loader2,
   Pencil,
   Plus,
@@ -51,6 +53,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api-client";
 import { formatINR } from "@/lib/format";
 import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
+import { OWNER_USERNAME } from "@/components/auth/login-gate";
 import type { Firm } from "@/types/erp";
 import { cn } from "@/lib/utils";
 import { AutomationCard } from "./settings-automation";
@@ -155,6 +158,7 @@ export default function SettingsView() {
   const [editOpen, setEditOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Firm | null>(null);
   const [fySaving, setFySaving] = React.useState(false);
+  const [passwordOpen, setPasswordOpen] = React.useState(false);
 
   const activeFirm = firms.find((f) => f.id === activeFirmId);
 
@@ -252,6 +256,62 @@ export default function SettingsView() {
           </>
         }
       />
+
+      {/* ── Owner account — fixed username + per-company password ── */}
+      {activeFirm && (
+        <div className="dmk-card p-5">
+          <div className="flex flex-wrap items-center gap-2.5 mb-4">
+            <CircleUser className="h-4 w-4 text-dmk-yellow" />
+            <h2 className="text-[15px] font-semibold text-dmk-text-primary">Owner Account</h2>
+            <Badge tone="info">USERNAME {OWNER_USERNAME.toUpperCase()} · EVERY COMPANY</Badge>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-lg border border-dmk-yellow/30 bg-dmk-yellow/5 px-4 py-3">
+              <p className="text-[10px] uppercase tracking-widest text-dmk-text-muted font-semibold">Username</p>
+              <p className="text-[17px] font-black text-dmk-text-primary mt-1">{OWNER_USERNAME}</p>
+              <p className="text-[10.5px] text-dmk-text-muted mt-0.5">Fixed — even for new company accounts</p>
+            </div>
+            <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-4 py-3 min-w-0">
+              <p className="text-[10px] uppercase tracking-widest text-dmk-text-muted font-semibold">Company on this account</p>
+              <p className="text-[14px] font-bold text-dmk-text-primary mt-1 truncate">{activeFirm.firmName}</p>
+              <p className="text-[10.5px] text-dmk-text-muted mt-0.5 font-money truncate">
+                {activeFirm.firmCode} · opens with this account&apos;s password
+              </p>
+            </div>
+            <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-4 py-3 flex flex-col justify-between gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-dmk-text-muted font-semibold">Password</p>
+                <p className="text-[14px] font-bold text-dmk-text-secondary mt-1 tracking-[0.3em]">••••••</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 border-dmk-border-subtle bg-dmk-bg-primary text-[12px] hover:bg-dmk-hover"
+                  onClick={() => setPasswordOpen(true)}
+                >
+                  <KeyRound className="h-3.5 w-3.5" /> Change password
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 border-dmk-border-subtle bg-dmk-bg-primary text-[12px] hover:bg-dmk-hover"
+                  onClick={() => {
+                    setEditing(activeFirm);
+                    setEditOpen(true);
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Company details
+                </Button>
+              </div>
+            </div>
+          </div>
+          <p className="text-[11px] text-dmk-text-muted mt-3">
+            The username is the same on every company account — the password decides which company opens. Change account
+            details (name, GSTIN, bank, address) from Company details; change this account&apos;s password from Change password.
+          </p>
+        </div>
+      )}
 
       {/* ── Firms list ──────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -459,7 +519,111 @@ export default function SettingsView() {
           toast({ title: "Firm profile updated", description: "Changes apply to invoices and GST docs immediately." });
         }}
       />
+
+      {/* ── Change owner password dialog ───────────────── */}
+      <ChangePasswordDialog
+        open={passwordOpen}
+        onOpenChange={setPasswordOpen}
+        firm={activeFirm ?? null}
+        onSaved={() => void refreshFirms()}
+      />
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OWNER ACCOUNT — change the password of the active company account.
+// Username is fixed (Kunal); PATCH /api/v1/firms/[id] verifies the
+// current password and enforces cross-account password uniqueness.
+// ═══════════════════════════════════════════════════════════════
+
+function ChangePasswordDialog({
+  open,
+  onOpenChange,
+  firm,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  firm: Firm | null;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [form, setForm] = React.useState({ current: "", next: "", confirm: "" });
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  React.useEffect(() => {
+    if (open) {
+      setForm({ current: "", next: "", confirm: "" });
+      setError(null);
+    }
+  }, [open]);
+
+  const mismatch = form.confirm !== "" && form.next !== form.confirm;
+  const canSave = !!firm && !busy && form.current !== "" && form.next.length >= 4 && form.next === form.confirm;
+
+  async function save() {
+    if (!firm || !canSave) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPatch(`/api/v1/firms/${firm.id}`, {
+        currentPassword: form.current,
+        newPassword: form.next,
+      });
+      toast({
+        title: "Password updated",
+        description: `The ${firm.firmName} account now opens with the new password — sign in with ${OWNER_USERNAME} + it next time.`,
+      });
+      onOpenChange(false);
+      onSaved();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not change the password.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="dmk-card max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle className="text-[15px] font-bold text-dmk-text-primary">Change owner password</DialogTitle>
+          <DialogDescription className="text-[12px] text-dmk-text-muted">
+            Updates the password for <span className="font-semibold text-dmk-text-secondary">{firm?.firmName ?? "this account"}</span>.
+            Username stays <span className="font-semibold text-dmk-text-secondary">{OWNER_USERNAME}</span>.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Field label="Current password *">
+            <Input type="password" value={form.current} onChange={set("current")} placeholder="verify it's you" className={inputCls} autoComplete="current-password" />
+          </Field>
+          <Field label="New password *" hint="Minimum 4 characters — must be unique across company accounts">
+            <Input type="password" value={form.next} onChange={set("next")} placeholder="new password" className={inputCls} autoComplete="new-password" />
+          </Field>
+          <Field label="Confirm new password *">
+            <Input
+              type="password"
+              value={form.confirm}
+              onChange={set("confirm")}
+              placeholder="repeat new password"
+              className={cn(inputCls, mismatch && "border-dmk-danger/60")}
+              autoComplete="new-password"
+            />
+            {mismatch && <span className="text-[10.5px] text-dmk-danger">Passwords don&apos;t match yet.</span>}
+          </Field>
+          {error && <ErrorText>{error}</ErrorText>}
+        </div>
+        <Button onClick={save} disabled={!canSave} className="w-full h-10 mt-1 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-bold">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+          Update password
+        </Button>
+      </DialogContent>
+    </Dialog>
   );
 }
 

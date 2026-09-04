@@ -1,31 +1,48 @@
 // ═══════════════════════════════════════════════════════════════
 // POST /api/v1/auth/owner-login — owner portal login.
-// Body: { firmId, password } — default password is 1234.
+// The owner identity is a single fixed username ("Kunal") shared by
+// every company account; the PASSWORD identifies the account.
+// Body: { username?, password, preferFirmId? }
+//   · username is validated but always "Kunal" (UI pins it)
+//   · preferFirmId = last firm this browser used (disambiguates
+//     legacy accounts that still share the default password 1234)
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { BusinessError, asRecord, getStr, handleApiError, ok } from "@/app/api/v1/_lib/api";
-import { verifyPasswordAsync } from "@/app/api/v1/_lib/verification";
+import { verifyPasswordAsync, OWNER_USERNAME } from "@/app/api/v1/_lib/verification";
 
 export async function POST(request: NextRequest) {
   try {
     const body = asRecord(await request.json().catch(() => ({})));
-    const firmId = getStr(body.firmId);
+    const username = getStr(body.username).trim();
     const password = getStr(body.password);
-    if (!firmId || !password) {
-      throw new BusinessError("ERR_VALIDATION", "Company and password are required", 400);
+    const preferFirmId = getStr(body.preferFirmId);
+
+    if (!password) {
+      throw new BusinessError("ERR_VALIDATION", "Password is required", 400);
+    }
+    if (username && username.toLowerCase() !== OWNER_USERNAME.toLowerCase()) {
+      throw new BusinessError("ERR_INVALID_CREDENTIALS", `Unknown owner username — the owner username is ${OWNER_USERNAME}`, 401);
     }
 
-    const firm = await db.firm.findUnique({
-      where: { id: firmId },
+    const firms = await db.firm.findMany({
+      orderBy: { createdAt: "asc" },
       select: { id: true, firmName: true, firmCode: true, ownerPassword: true, logoUrl: true, financialYear: true },
     });
-    if (!firm) throw new BusinessError("ERR_NOT_FOUND", "Company not found", 404);
 
-    if (!(await verifyPasswordAsync(password, firm.ownerPassword))) {
-      throw new BusinessError("ERR_INVALID_CREDENTIALS", "Incorrect owner password", 401);
+    // Password-matched sign-in — no company picker, the password IS the pick.
+    const matches: typeof firms = [];
+    for (const firm of firms) {
+      if (await verifyPasswordAsync(password, firm.ownerPassword)) matches.push(firm);
     }
+    if (matches.length === 0) {
+      throw new BusinessError("ERR_INVALID_CREDENTIALS", "No company account matches this password", 401);
+    }
+
+    // Deterministic: prefer the firm this browser last used, else the oldest.
+    const firm = matches.find((f) => f.id === preferFirmId) ?? matches[0];
 
     return ok({
       firm: {

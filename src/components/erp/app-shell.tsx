@@ -16,13 +16,11 @@ import { LoginGate } from "@/components/auth/login-gate";
 import { VerificationPortal } from "@/components/verify/verification-portal";
 
 /**
- * Portal address — the two logins live at different URLs and are never
- * shown together: owner door at "/", verification team door at "/?portal=team".
+ * Portal addresses — the two logins live at different URLs and are never
+ * shown together: owner door at "/", verification team door at "/team".
+ * Each page passes its door explicitly (no query parsing), and sessions
+ * are bounced to their own address if they land on the wrong one.
  */
-function currentPortal(): "owner" | "team" {
-  if (typeof window === "undefined") return "owner";
-  return window.location.search.includes("portal=team") ? "team" : "owner";
-}
 
 import DashboardView from "./views/dashboard";
 import ProductsView from "./views/products";
@@ -90,20 +88,33 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   settings: SettingsView,
 };
 
-export function AppShell() {
+export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
   const { view, firms, activeFirmId, setFirms, session } = useErpStore();
   const sidebarOpen = useErpStore((s) => s.sidebarOpen);
   const [mounted, setMounted] = React.useState(false);
   const [booting, setBooting] = React.useState(true);
   const [bootError, setBootError] = React.useState<string | null>(null);
-  const [portal, setPortal] = React.useState<"owner" | "team">("owner");
+  const door: "owner" | "team" = forcedDoor ?? "owner";
 
   // Persisted session (zustand) only exists client-side — render nothing
   // brand-specific until mounted to keep SSR hydration exact.
   React.useEffect(() => {
     setMounted(true);
-    setPortal(currentPortal());
+    // Legacy bookmark compat: "/?portal=team" now lives at "/team".
+    if (typeof window !== "undefined" && window.location.search.includes("portal=team")) {
+      window.location.replace("/team");
+      return;
+    }
   }, []);
+
+  // URL separation is enforced both ways: a team session opening "/" is
+  // bounced to /team, an owner session opening /team is bounced to "/".
+  const crossDoorBounce =
+    mounted && !!session && ((door === "owner" && session.role === "TEAM") || (door === "team" && session.role === "OWNER"));
+  React.useEffect(() => {
+    if (!crossDoorBounce) return;
+    window.location.replace(door === "owner" ? "/team" : "/");
+  }, [crossDoorBounce, door]);
 
   // Boot sequence: ensure seed exists → load firms
   React.useEffect(() => {
@@ -133,8 +144,19 @@ export function AppShell() {
       </div>
     );
   }
+  if (crossDoorBounce) {
+    // Wrong address for this persona — hopping to the correct portal URL.
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-dmk-bg-primary">
+        <img src="/dmk-logo.png" alt="DMK Mart logo" width={56} height={56} className="rounded-full animate-pulse" />
+        <p className="text-[12px] text-dmk-text-muted">
+          {door === "owner" ? "Team session — opening the verification portal…" : "Owner session — opening the workspace…"}
+        </p>
+      </div>
+    );
+  }
   if (!session) {
-    return <LoginGate door={portal} />;
+    return <LoginGate door={door} />;
   }
   if (session.role === "TEAM") {
     return <VerificationPortal />;

@@ -16,7 +16,7 @@ import {
   handleApiError,
   ok,
 } from "@/app/api/v1/_lib/api";
-import { hashPasswordAsync } from "@/app/api/v1/_lib/verification";
+import { hashPasswordAsync, assertPasswordAvailable } from "@/app/api/v1/_lib/verification";
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,6 +36,10 @@ export async function POST(request: NextRequest) {
     if (existing) {
       throw new BusinessError("ERR_DUPLICATE_FIRM_CODE", `Firm code "${firmCode}" is already in use`, 409);
     }
+
+    // Passwords identify accounts (username is always Kunal) — no two
+    // company accounts may share the same owner password.
+    await assertPasswordAvailable(password);
 
     const gstin = getStr(body.gstin);
     const stateCode = getStr(body.stateCode) || (/^\d{2}/.test(gstin) ? gstin.slice(0, 2) : "27");

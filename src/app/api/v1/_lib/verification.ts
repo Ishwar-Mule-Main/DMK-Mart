@@ -32,6 +32,30 @@ export async function verifyPasswordAsync(pw: string, hash: string): Promise<boo
   return hashed === hash || legacyPlain;
 }
 
+/**
+ * Passwords identify company accounts (the owner username "Kunal" is
+ * shared by every account), so a new/existing password must not collide
+ * with another firm's password. Throws 409 BusinessError on collision.
+ */
+export async function assertPasswordAvailable(pw: string, excludeFirmId?: string): Promise<void> {
+  const firms = await db.firm.findMany({
+    where: excludeFirmId ? { id: { not: excludeFirmId } } : undefined,
+    select: { id: true, firmName: true, ownerPassword: true },
+  });
+  for (const firm of firms) {
+    if (await verifyPasswordAsync(pw, firm.ownerPassword)) {
+      throw new BusinessError(
+        "ERR_PASSWORD_IN_USE",
+        `This password is already used by the "${firm.firmName}" account — each company needs its own password`,
+        409
+      );
+    }
+  }
+}
+
+/** The one fixed owner username across every company account. */
+export const OWNER_USERNAME = "Kunal";
+
 // ─── Realtime bridge (fire-and-forget — never blocks ERP APIs) ────
 // The socket.io mini-service listens on 127.0.0.1:3011 /emit and
 // fans events out to both portals on firm rooms. If it is down the
