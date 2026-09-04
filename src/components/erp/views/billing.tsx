@@ -317,9 +317,10 @@ export default function BillingView() {
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-4 items-start">
-        {/* ══════════ LEFT — CART ══════════ */}
-        <div className="space-y-4 min-w-0">
+      {/* ── 30/70 billing layout — LEFT 30%: customer (top) + payment summary (bottom) · RIGHT 70%: product search (top) + cart (below) ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,30%)_1fr] gap-4 items-start">
+        {/* ══════════ LEFT 30% — CUSTOMER (top) + PAYMENT SUMMARY (bottom) ══════════ */}
+        <div className="space-y-4 min-w-0 lg:sticky lg:top-20">
           {/* Customer picker */}
           <div className="dmk-card p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
@@ -394,6 +395,92 @@ export default function BillingView() {
             )}
           </div>
 
+          {/* Payment summary — bottom of the LEFT 30% pane (below customer) */}
+          <div className="dmk-elevated p-5 space-y-4">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Invoice summary</span>
+
+            <div className="space-y-2">
+              <div className="flex justify-between text-[13px]">
+                <span className="text-dmk-text-secondary">Subtotal (tier prices)</span>
+                <span className="font-money text-dmk-text-primary">{formatINR(totals.baseSubtotal)}</span>
+              </div>
+              <div className="flex justify-between text-[13px]">
+                <span className="text-dmk-text-secondary">Bulk + manual discounts</span>
+                <span className="font-money text-dmk-gold">{totals.savings > 0 ? `−${formatINR(totals.savings)}` : formatINR(0)}</span>
+              </div>
+              <div className="flex justify-between text-[13px] border-t border-dmk-border-subtle pt-2">
+                <span className="text-dmk-text-secondary">Taxable value</span>
+                <span className="font-money text-dmk-text-primary">{formatINR(totals.taxable)}</span>
+              </div>
+              {totals.intra ? (
+                <>
+                  <div className="flex justify-between text-[13px]">
+                    <span className="text-dmk-text-secondary">CGST</span>
+                    <span className="font-money text-dmk-text-primary">{formatINR(totals.cgst)}</span>
+                  </div>
+                  <div className="flex justify-between text-[13px]">
+                    <span className="text-dmk-text-secondary">SGST</span>
+                    <span className="font-money text-dmk-text-primary">{formatINR(totals.sgst)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-between text-[13px]">
+                  <span className="text-dmk-text-secondary">IGST</span>
+                  <span className="font-money text-dmk-text-primary">{formatINR(totals.igst)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-[12px] text-dmk-text-muted">
+                <span>Round-off</span>
+                <span className="font-money">{totals.roundOff !== 0 ? formatINR(totals.roundOff) : "—"}</span>
+              </div>
+            </div>
+
+            <div className="border-t border-dmk-border-medium pt-3 flex items-end justify-between">
+              <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">Grand Total</span>
+              <span className="font-money text-[28px] font-bold leading-none text-dmk-yellow">{formatINR(totals.grand)}</span>
+            </div>
+            <p className="text-[11.5px] italic text-dmk-text-muted">{amountInWords(totals.grand)}</p>
+
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+              <Field label="Payment mode">
+                <Select value={paymentMode} onValueChange={(v) => setPaymentMode(v as (typeof PAYMENT_MODES)[number])}>
+                  <SelectTrigger className={cn(inputCls, "w-full")}>
+                    <SelectValue placeholder="Mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAYMENT_MODES.map((m) => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Invoice date">
+                <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className={inputCls} aria-label="Invoice date" />
+              </Field>
+            </div>
+
+            {creditWarning && (
+              <div className="flex items-start gap-2 rounded-md border border-dmk-warning/30 bg-[rgba(245,158,11,0.08)] px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-dmk-warning shrink-0 mt-0.5" />
+                <p className="text-[11.5px] text-dmk-warning leading-snug">{creditWarning}</p>
+              </div>
+            )}
+
+            <Button
+              className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+              onClick={confirmSale}
+              disabled={!customer || lines.length === 0 || submitting}
+            >
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {submitting ? "Posting invoice…" : "Confirm Sale"}
+            </Button>
+            {!customer && <p className="text-[11px] text-dmk-text-muted text-center">Select a B2B customer to enable billing</p>}
+          </div>
+
+        </div>
+
+        {/* ══════════ RIGHT 70% — PRODUCT SEARCH (top) + CART (below) ══════════ */}
+        <div className="space-y-4 min-w-0">
           {/* Product typeahead */}
           <div className="dmk-card p-4 space-y-3">
             <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Add products</span>
@@ -464,7 +551,7 @@ export default function BillingView() {
                   hint="Search a product above (SKU or name) and press Enter to add the first match. Quantity unlocks automatic bulk discounts."
                 />
               ) : (
-                <table className="dmk-table min-w-[860px]">
+                <table className="dmk-table min-w-[860px] [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
                   <thead>
                     <tr>
                       <th>SKU</th>
@@ -486,10 +573,12 @@ export default function BillingView() {
                       const bp = calculateBulkPricing(tp, l.qty, l.manualDiscPct);
                       return (
                         <tr key={l.product.id}>
-                          <td className="font-money text-[12px] text-dmk-text-secondary">{l.product.sku}</td>
-                          <td className="max-w-[220px]">
-                            <p className="truncate text-[13px]">{l.product.name}</p>
-                            <p className="text-[10.5px] text-dmk-text-muted">{l.product.unit} · stock {l.product.stockQuantity}</p>
+                          <td className="font-money text-[11px] text-dmk-text-secondary">{l.product.sku}</td>
+                          <td className="whitespace-nowrap">
+                            <p className="text-[12px] text-dmk-text-primary">
+                              {l.product.name}{" "}
+                              <span className="text-[10.5px] text-dmk-text-muted">· {l.product.unit} · stock {l.product.stockQuantity}</span>
+                            </p>
                           </td>
                           <td className="text-right">
                             <Input
@@ -548,89 +637,6 @@ export default function BillingView() {
           </div>
         </div>
 
-        {/* ══════════ RIGHT — SUMMARY (sticky) ══════════ */}
-        <div className="lg:sticky lg:top-20 space-y-4">
-          <div className="dmk-elevated p-5 space-y-4">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Invoice summary</span>
-
-            <div className="space-y-2">
-              <div className="flex justify-between text-[13px]">
-                <span className="text-dmk-text-secondary">Subtotal (tier prices)</span>
-                <span className="font-money text-dmk-text-primary">{formatINR(totals.baseSubtotal)}</span>
-              </div>
-              <div className="flex justify-between text-[13px]">
-                <span className="text-dmk-text-secondary">Bulk + manual discounts</span>
-                <span className="font-money text-dmk-gold">{totals.savings > 0 ? `−${formatINR(totals.savings)}` : formatINR(0)}</span>
-              </div>
-              <div className="flex justify-between text-[13px] border-t border-dmk-border-subtle pt-2">
-                <span className="text-dmk-text-secondary">Taxable value</span>
-                <span className="font-money text-dmk-text-primary">{formatINR(totals.taxable)}</span>
-              </div>
-              {totals.intra ? (
-                <>
-                  <div className="flex justify-between text-[13px]">
-                    <span className="text-dmk-text-secondary">CGST</span>
-                    <span className="font-money text-dmk-text-primary">{formatINR(totals.cgst)}</span>
-                  </div>
-                  <div className="flex justify-between text-[13px]">
-                    <span className="text-dmk-text-secondary">SGST</span>
-                    <span className="font-money text-dmk-text-primary">{formatINR(totals.sgst)}</span>
-                  </div>
-                </>
-              ) : (
-                <div className="flex justify-between text-[13px]">
-                  <span className="text-dmk-text-secondary">IGST</span>
-                  <span className="font-money text-dmk-text-primary">{formatINR(totals.igst)}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-[12px] text-dmk-text-muted">
-                <span>Round-off</span>
-                <span className="font-money">{totals.roundOff !== 0 ? formatINR(totals.roundOff) : "—"}</span>
-              </div>
-            </div>
-
-            <div className="border-t border-dmk-border-medium pt-3 flex items-end justify-between">
-              <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">Grand Total</span>
-              <span className="font-money text-[28px] font-bold leading-none text-dmk-yellow">{formatINR(totals.grand)}</span>
-            </div>
-            <p className="text-[11.5px] italic text-dmk-text-muted">{amountInWords(totals.grand)}</p>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Payment mode">
-                <Select value={paymentMode} onValueChange={(v) => setPaymentMode(v as (typeof PAYMENT_MODES)[number])}>
-                  <SelectTrigger className={cn(inputCls, "w-full")}>
-                    <SelectValue placeholder="Mode" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAYMENT_MODES.map((m) => (
-                      <SelectItem key={m} value={m}>{m}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Invoice date">
-                <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className={inputCls} aria-label="Invoice date" />
-              </Field>
-            </div>
-
-            {creditWarning && (
-              <div className="flex items-start gap-2 rounded-md border border-dmk-warning/30 bg-[rgba(245,158,11,0.08)] px-3 py-2">
-                <AlertTriangle className="h-4 w-4 text-dmk-warning shrink-0 mt-0.5" />
-                <p className="text-[11.5px] text-dmk-warning leading-snug">{creditWarning}</p>
-              </div>
-            )}
-
-            <Button
-              className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
-              onClick={confirmSale}
-              disabled={!customer || lines.length === 0 || submitting}
-            >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {submitting ? "Posting invoice…" : "Confirm Sale"}
-            </Button>
-            {!customer && <p className="text-[11px] text-dmk-text-muted text-center">Select a B2B customer to enable billing</p>}
-          </div>
-        </div>
       </div>
 
       {/* Success dialog */}

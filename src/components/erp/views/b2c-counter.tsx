@@ -78,6 +78,7 @@ export default function B2CCounterView() {
   // ── Buyer picker ─────────────────────────────────────────────
   const [buyerQuery, setBuyerQuery] = React.useState("");
   const [buyerResults, setBuyerResults] = React.useState<Customer[]>([]);
+  const [buyerSearching, setBuyerSearching] = React.useState(false);
   const [buyerOpen, setBuyerOpen] = React.useState(false);
   const [buyer, setBuyer] = React.useState<Customer | null>(null);
   const [newBuyerOpen, setNewBuyerOpen] = React.useState(false);
@@ -126,11 +127,15 @@ export default function B2CCounterView() {
     }
     const t = setTimeout(async () => {
       try {
+        setBuyerSearching(true);
         const res = await apiGet<Customer[]>("/api/v1/customers", { firmId: activeFirmId, type: "B2C_COUNTER", search: q });
         setBuyerResults(res.slice(0, 8));
-        setBuyerOpen(res.length > 0);
+        // No match → keep the dropdown open so the inline "create buyer" affordance shows
+        setBuyerOpen(true);
       } catch (e) {
         if (e instanceof ApiError) toast({ variant: "destructive", title: "Buyer search failed", description: e.message });
+      } finally {
+        setBuyerSearching(false);
       }
     }, 220);
     return () => clearTimeout(t);
@@ -325,6 +330,27 @@ export default function B2CCounterView() {
                               <div className="text-[11px] text-dmk-text-muted mt-0.5 font-money">{c.phone || "—"} · {c.visitCount} visits</div>
                             </button>
                           ))}
+                        </div>
+                      )}
+                      {/* Search miss → offer to create this buyer on the spot */}
+                      {buyerOpen && !buyerSearching && buyerQuery.trim().length > 0 && buyerResults.length === 0 && (
+                        <div className="absolute z-30 mt-1 w-full dmk-elevated overflow-hidden">
+                          <button
+                            onClick={() => {
+                              const q = buyerQuery.trim();
+                              const isPhone = /^[+\d][\d\s-]{6,}$/.test(q);
+                              if (isPhone) setWalkInPhone(q); else setWalkInName(q);
+                              setBuyerQuery("");
+                              setBuyerOpen(false);
+                              toast({ title: "New counter buyer", description: isPhone ? "Phone pre-filled — add the buyer's name, then bill." : "Name pre-filled — add a phone (optional), then bill. The buyer joins the counter list automatically." });
+                            }}
+                            className="w-full text-left px-3 py-2.5 hover:bg-dmk-hover transition-colors flex items-center gap-2"
+                          >
+                            <UserPlus className="h-4 w-4 text-dmk-yellow shrink-0" />
+                            <span className="text-[12.5px] text-dmk-text-secondary">
+                              No buyer found for <span className="font-semibold text-dmk-text-primary">&ldquo;{buyerQuery.trim()}&rdquo;</span> — create as new counter buyer
+                            </span>
+                          </button>
                         </div>
                       )}
                     </div>

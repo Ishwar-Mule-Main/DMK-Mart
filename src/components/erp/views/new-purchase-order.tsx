@@ -293,9 +293,10 @@ export default function NewPurchaseOrderView() {
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-4 items-start">
-        {/* ══════════ LEFT — VENDOR + PICKER + LINES ══════════ */}
-        <div className="space-y-4 min-w-0">
+      {/* 30/70 layout mirroring Sales billing — LEFT 30%: vendor (top) + PO summary (bottom) · RIGHT 70%: product search (top) + lines (below) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,30%)_1fr] gap-4 items-start">
+        {/* ══════════ LEFT 30% — VENDOR (top) + PO SUMMARY (bottom) · sticky ══════════ */}
+        <div className="space-y-4 min-w-0 lg:sticky lg:top-20">
           {/* Vendor picker */}
           <div className="dmk-card p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
@@ -389,6 +390,78 @@ export default function NewPurchaseOrderView() {
             )}
           </div>
 
+          {/* PO summary — bottom of the LEFT 30% pane (below vendor) */}
+          <div className="dmk-elevated p-5 space-y-4">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">PO summary</span>
+
+            <div className="space-y-2">
+              <div className="flex justify-between text-[13px]">
+                <span className="text-dmk-text-secondary">Taxable value</span>
+                <span className="font-money text-dmk-text-primary">{formatINR(totals.taxable)}</span>
+              </div>
+              {intra ? (
+                <>
+                  <div className="flex justify-between text-[13px]">
+                    <span className="text-dmk-text-secondary">CGST</span>
+                    <span className="font-money text-dmk-text-primary">{formatINR(totals.cgst)}</span>
+                  </div>
+                  <div className="flex justify-between text-[13px]">
+                    <span className="text-dmk-text-secondary">SGST</span>
+                    <span className="font-money text-dmk-text-primary">{formatINR(totals.sgst)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-between text-[13px]">
+                  <span className="text-dmk-text-secondary">IGST</span>
+                  <span className="font-money text-dmk-text-primary">{formatINR(totals.igst)}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-dmk-border-medium pt-3 flex items-end justify-between">
+              <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">PO value</span>
+              <span className="font-money text-[28px] font-bold leading-none text-dmk-yellow">{formatINR(totals.grand)}</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+              <Field label="PO date">
+                <Input type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} className={inputCls} aria-label="PO date" />
+              </Field>
+              <Field label="Vendor bill no.">
+                <Input value={vendorBillNo} onChange={(e) => setVendorBillNo(e.target.value)} placeholder="e.g. SB/4512" className={cn(inputCls, "font-money")} />
+              </Field>
+              <Field label="Bill date">
+                <Input type="date" value={vendorBillDate} onChange={(e) => setVendorBillDate(e.target.value)} className={inputCls} aria-label="Vendor bill date" />
+              </Field>
+              <Field label="Notes">
+                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional remarks" className={inputCls} />
+              </Field>
+            </div>
+
+            <div className="dmk-well px-3 py-2.5 flex items-start gap-2">
+              <ShieldCheck className="h-4 w-4 text-dmk-yellow shrink-0 mt-0.5" />
+              <p className="text-[11px] text-dmk-text-muted leading-snug">
+                On create the PO lands on the <span className="font-semibold text-dmk-text-secondary">verification team portal</span> (product
+                names + ordered qty only). Stock, payable and the PURCHASE journal book when you accept their counts.
+              </p>
+            </div>
+
+            <Button
+              className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+              onClick={createPo}
+              disabled={!canSave || submitting}
+            >
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {submitting ? "Creating PO…" : "Create PO & send to verification"}
+            </Button>
+            {!vendor && <p className="text-[11px] text-dmk-text-muted text-center">Select a vendor to enable the order</p>}
+            {vendor && lines.length === 0 && <p className="text-[11px] text-dmk-text-muted text-center">Add at least one product line</p>}
+          </div>
+
+        </div>
+
+        {/* ══════════ RIGHT 70% — PRODUCT SEARCH (top) + LINES (below) ══════════ */}
+        <div className="space-y-4 min-w-0">
           {/* Product picker — vendor-scoped */}
           <div className="dmk-card p-4 space-y-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -551,75 +624,6 @@ export default function NewPurchaseOrderView() {
           </div>
         </div>
 
-        {/* ══════════ RIGHT — SUMMARY (sticky) ══════════ */}
-        <div className="lg:sticky lg:top-20 space-y-4">
-          <div className="dmk-elevated p-5 space-y-4">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">PO summary</span>
-
-            <div className="space-y-2">
-              <div className="flex justify-between text-[13px]">
-                <span className="text-dmk-text-secondary">Taxable value</span>
-                <span className="font-money text-dmk-text-primary">{formatINR(totals.taxable)}</span>
-              </div>
-              {intra ? (
-                <>
-                  <div className="flex justify-between text-[13px]">
-                    <span className="text-dmk-text-secondary">CGST</span>
-                    <span className="font-money text-dmk-text-primary">{formatINR(totals.cgst)}</span>
-                  </div>
-                  <div className="flex justify-between text-[13px]">
-                    <span className="text-dmk-text-secondary">SGST</span>
-                    <span className="font-money text-dmk-text-primary">{formatINR(totals.sgst)}</span>
-                  </div>
-                </>
-              ) : (
-                <div className="flex justify-between text-[13px]">
-                  <span className="text-dmk-text-secondary">IGST</span>
-                  <span className="font-money text-dmk-text-primary">{formatINR(totals.igst)}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="border-t border-dmk-border-medium pt-3 flex items-end justify-between">
-              <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">PO value</span>
-              <span className="font-money text-[28px] font-bold leading-none text-dmk-yellow">{formatINR(totals.grand)}</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="PO date">
-                <Input type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} className={inputCls} aria-label="PO date" />
-              </Field>
-              <Field label="Vendor bill no.">
-                <Input value={vendorBillNo} onChange={(e) => setVendorBillNo(e.target.value)} placeholder="e.g. SB/4512" className={cn(inputCls, "font-money")} />
-              </Field>
-              <Field label="Bill date">
-                <Input type="date" value={vendorBillDate} onChange={(e) => setVendorBillDate(e.target.value)} className={inputCls} aria-label="Vendor bill date" />
-              </Field>
-              <Field label="Notes">
-                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional remarks" className={inputCls} />
-              </Field>
-            </div>
-
-            <div className="dmk-well px-3 py-2.5 flex items-start gap-2">
-              <ShieldCheck className="h-4 w-4 text-dmk-yellow shrink-0 mt-0.5" />
-              <p className="text-[11px] text-dmk-text-muted leading-snug">
-                On create the PO lands on the <span className="font-semibold text-dmk-text-secondary">verification team portal</span> (product
-                names + ordered qty only). Stock, payable and the PURCHASE journal book when you accept their counts.
-              </p>
-            </div>
-
-            <Button
-              className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
-              onClick={createPo}
-              disabled={!canSave || submitting}
-            >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {submitting ? "Creating PO…" : "Create PO & send to verification"}
-            </Button>
-            {!vendor && <p className="text-[11px] text-dmk-text-muted text-center">Select a vendor to enable the order</p>}
-            {vendor && lines.length === 0 && <p className="text-[11px] text-dmk-text-muted text-center">Add at least one product line</p>}
-          </div>
-        </div>
       </div>
 
       {/* Success dialog */}

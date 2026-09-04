@@ -12,6 +12,7 @@ import {
   CalendarClock,
   CalendarOff,
   CheckCircle2,
+  ChevronDown,
   History,
   IndianRupee,
   Loader2,
@@ -189,6 +190,8 @@ export default function RecurringView() {
   const [deleteOf, setDeleteOf] = React.useState<RecurringTemplate | null>(null);
   const [deleting, setDeleting] = React.useState(false);
   const [runningId, setRunningId] = React.useState<string | null>(null);
+  // Expandable product list per template row
+  const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const [generating, setGenerating] = React.useState(false);
   const [genResult, setGenResult] = React.useState<RecurringGenerateResponse | null>(null);
 
@@ -663,7 +666,8 @@ export default function RecurringView() {
                   const overdue = !t.onHold && (t.overdueBy ?? 0) > 0;
                   const dueToday = !!t.dueToday && !overdue && !t.onHold;
                   return (
-                    <tr key={t.id} className={cn("group/row", t.onHold && "opacity-80")}>
+                    <React.Fragment key={t.id}>
+                    <tr className={cn("group/row", t.onHold && "opacity-80")}>
                       <td className="max-w-[220px]">
                         <span className="block truncate text-[13px] font-semibold text-dmk-text-primary">{t.name}</span>
                         {t.notes && (
@@ -684,7 +688,16 @@ export default function RecurringView() {
                         <Badge tone="gold">{frequencyLabel(t.frequency)}</Badge>
                       </td>
                       <td>{paymentBadge(t.paymentMode)}</td>
-                      <td className="text-[12.5px] text-dmk-text-secondary whitespace-nowrap">{t.itemSummary}</td>
+                      <td className="text-[12.5px] text-dmk-text-secondary whitespace-nowrap">
+                        <button
+                          onClick={() => setExpandedId((id) => (id === t.id ? null : t.id))}
+                          title="Expand product list"
+                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 -mx-1 hover:bg-dmk-hover transition-colors"
+                        >
+                          <ChevronDown className={cn("h-3.5 w-3.5 text-dmk-text-muted transition-transform", expandedId === t.id && "rotate-180 text-dmk-yellow")} />
+                          {t.itemSummary}
+                        </button>
+                      </td>
                       <td className="text-right whitespace-nowrap">
                         <Money value={t.estValue?.estTotal ?? 0} className="text-[13px] font-semibold text-dmk-text-primary" />
                         <span className="block text-[10px] text-dmk-text-muted">
@@ -774,6 +787,31 @@ export default function RecurringView() {
                         </div>
                       </td>
                     </tr>
+                    {expandedId === t.id && (
+                      <tr key={`${t.id}-items`} className="bg-dmk-input-well/40">
+                        <td colSpan={9} className="px-4 py-3">
+                          <p className="text-[10px] uppercase tracking-widest font-semibold text-dmk-text-muted mb-2">
+                            Products in this template — billed every cycle
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {t.items.map((i) => (
+                              <span
+                                key={`${t.id}-${i.sku}-${i.productId}`}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-dmk-border-subtle bg-dmk-bg-primary px-2 py-1 text-[11px] text-dmk-text-secondary whitespace-nowrap"
+                              >
+                                <span className="font-money text-dmk-text-muted">{i.sku}</span>
+                                <span className="text-dmk-text-primary max-w-[260px] truncate">{i.productName}</span>
+                                <span className="font-money text-dmk-yellow">× {i.quantity}</span>
+                                {i.manualDiscountPct != null && i.manualDiscountPct > 0 && (
+                                  <span className="text-dmk-gold">−{i.manualDiscountPct}%</span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>

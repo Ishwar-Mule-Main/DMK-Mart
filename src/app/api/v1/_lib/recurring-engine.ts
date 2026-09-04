@@ -202,7 +202,9 @@ export async function runRecurringGeneration(opts: RunOptions): Promise<Generati
           firmId: firm.id,
           customerId: t.customerId,
           paymentMode: t.paymentMode,
-          invoiceDate: new Date(cursor),
+          // NEVER post-date the books: an explicit run-now on a not-yet-due
+          // template bills today (this was the "3 Nov 2026" journals bug).
+          invoiceDate: new Date(Math.min(cursor.getTime(), asOfDate.getTime())),
           lines,
           templateId: t.id,
         });

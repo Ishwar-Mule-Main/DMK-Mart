@@ -45,6 +45,7 @@ import { formatINR, formatDate } from "@/lib/format";
 import { useErpStore } from "@/store/erp-store";
 import { requestAgingTab } from "@/lib/settle-bus";
 import { cn } from "@/lib/utils";
+import { DashboardAiChat } from "./dashboard-ai-chat";
 
 type BadgeTone = "success" | "warning" | "danger" | "info" | "dr" | "cr" | "neutral";
 
@@ -595,6 +596,9 @@ export default function DashboardView() {
                 </button>
               )}
             </div>
+
+            {/* AI chatbot — grounded on this firm's live data */}
+            <DashboardAiChat />
           </div>
 
           {/* ── Recent transactions ─────────────────────── */}

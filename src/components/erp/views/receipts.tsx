@@ -8,7 +8,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { AlertTriangle, CalendarClock, Download, HandCoins, Loader2, Plus, Search, Sparkles } from "lucide-react";
+import { AlertTriangle, CalendarClock, ChevronDown, Download, HandCoins, Layers, Loader2, Plus, Search, Sparkles, List } from "lucide-react";
 import { useErpStore } from "@/store/erp-store";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { formatINR, formatDate, toISODate, downloadCSV } from "@/lib/format";
@@ -62,6 +62,9 @@ export default function ReceiptsView() {
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [custFilter, setCustFilter] = React.useState("all");
   const [query, setQuery] = React.useState("");
+  // Customer-wise grouping — all receipts of one customer at one place
+  const [groupByCustomer, setGroupByCustomer] = React.useState(true);
+  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({});
   const [newOpen, setNewOpen] = React.useState(false);
   const [refresh, setRefresh] = React.useState(0);
   const [presetCustomer, setPresetCustomer] = React.useState<string | null>(null);
@@ -151,6 +154,19 @@ export default function ReceiptsView() {
     });
   }, [receipts, query, customerMap]);
 
+  // ── Customer-wise groups: every receipt of a customer at one place ──
+  const groups = React.useMemo(() => {
+    const map = new Map<string, { id: string; name: string; receipts: CustomerReceipt[]; total: number }>();
+    for (const r of visible) {
+      const name = r.customer?.partyName ?? customerMap.get(r.customerId)?.partyName ?? r.customerId;
+      const g = map.get(r.customerId) ?? { id: r.customerId, name, receipts: [], total: 0 };
+      g.receipts.push(r);
+      g.total += Number(r.amount);
+      map.set(r.customerId, g);
+    }
+    return [...map.values()].sort((a, b) => b.total - a.total);
+  }, [visible, customerMap]);
+
   function exportCsv() {
     downloadCSV("customer-receipts.csv", [
       ["Date", "Customer", "Mode", "UTR / Ref", "Settled against", "On account", "Notes", "Amount"],
@@ -204,11 +220,102 @@ export default function ReceiptsView() {
             ))}
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-1 rounded-lg border border-dmk-border-subtle bg-dmk-input-well p-0.5 h-9">
+          <button
+            onClick={() => setGroupByCustomer(true)}
+            className={cn(
+              "h-8 px-3 rounded-md text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
+              groupByCustomer ? "bg-dmk-yellow/15 text-dmk-yellow" : "text-dmk-text-muted hover:text-dmk-text-secondary"
+            )}
+          >
+            <Layers className="h-3.5 w-3.5" /> By customer
+          </button>
+          <button
+            onClick={() => setGroupByCustomer(false)}
+            className={cn(
+              "h-8 px-3 rounded-md text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
+              !groupByCustomer ? "bg-dmk-yellow/15 text-dmk-yellow" : "text-dmk-text-muted hover:text-dmk-text-secondary"
+            )}
+          >
+            <List className="h-3.5 w-3.5" /> Flat list
+          </button>
+        </div>
         <Button size="sm" variant="outline" onClick={exportCsv} disabled={visible.length === 0} className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover">
           <Download className="h-4 w-4" /> Export CSV
         </Button>
       </div>
 
+      {/* ── Customer-wise groups — all receipts of one customer at one place ── */}
+      {groupByCustomer ? (
+        receipts === null ? (
+          <div className="dmk-card overflow-hidden"><LoadingRows rows={6} /></div>
+        ) : groups.length === 0 ? (
+          <div className="dmk-card overflow-hidden"><EmptyState icon={HandCoins} title="No receipts" hint="Record a receipt to reduce a customer's outstanding balance." /></div>
+        ) : (
+          <div className="space-y-3">
+            {groups.map((g) => {
+              const open = openGroups[g.id] !== false; // default expanded
+              return (
+                <div key={g.id} className="dmk-card overflow-hidden">
+                  <button
+                    onClick={() => setOpenGroups((m) => ({ ...m, [g.id]: !open }))}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-dmk-hover/60 transition-colors text-left"
+                  >
+                    <ChevronDown className={cn("h-4 w-4 text-dmk-text-muted transition-transform shrink-0", open && "rotate-180 text-dmk-yellow")} />
+                    <span className="h-8 w-8 rounded-full bg-dmk-blue/20 border border-dmk-blue/40 flex items-center justify-center text-[11px] font-bold text-dmk-blue shrink-0">
+                      {g.name.slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13.5px] font-bold text-dmk-text-primary truncate">{g.name}</span>
+                      <span className="block text-[11px] text-dmk-text-muted">
+                        {g.receipts.length} receipt{g.receipts.length === 1 ? "" : "s"} · latest {formatDate(g.receipts[0].receiptDate)}
+                      </span>
+                    </span>
+                    <span className="text-right shrink-0">
+                      <span className="block text-[10px] uppercase tracking-widest text-dmk-text-muted">Total received</span>
+                      <span className="block font-money text-[15px] font-bold text-dmk-success">{formatINR(g.total)}</span>
+                    </span>
+                  </button>
+                  {open && (
+                    <div className="border-t border-dmk-border-subtle divide-y divide-dmk-border-subtle">
+                      {g.receipts.map((r) => {
+                        const allocs = r.allocations ?? [];
+                        const allocated = allocs.reduce((s, a) => s + a.amount, 0);
+                        const onAccount = Number(r.amount) - allocated;
+                        return (
+                          <div key={r.id} className="px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
+                            <span className="text-dmk-text-secondary whitespace-nowrap w-24 shrink-0">{formatDate(r.receiptDate)}</span>
+                            <span className="dmk-badge dmk-badge-neutral shrink-0">{r.mode}</span>
+                            <span className="font-money text-dmk-text-muted truncate max-w-[140px]">{r.utrRef || "—"}</span>
+                            <span className="min-w-0 flex-1 flex flex-wrap items-center gap-1.5">
+                              {allocs.length === 0 ? (
+                                <span className="text-[11.5px] text-dmk-text-muted italic">On account</span>
+                              ) : (
+                                <>
+                                  {allocs.slice(0, 3).map((a) => (
+                                    <span key={a.invoiceId} className="inline-flex items-center gap-1 rounded-md border border-dmk-border-subtle bg-dmk-input-well px-1.5 py-0.5 text-[10.5px]">
+                                      <span className="font-money text-dmk-info">{a.invoiceNumber}</span>
+                                      <span className="font-money text-dmk-text-primary">{formatINR(a.amount)}</span>
+                                    </span>
+                                  ))}
+                                  {allocs.length > 3 && <span className="text-[10.5px] text-dmk-text-muted">+{allocs.length - 3} more</span>}
+                                  {onAccount > 0.009 && <span className="text-[10.5px] text-dmk-text-muted">· on acct {formatINR(onAccount)}</span>}
+                                </>
+                              )}
+                              {r.notes && <span className="text-[10.5px] text-dmk-text-muted italic truncate max-w-[180px]">{r.notes}</span>}
+                            </span>
+                            <span className="font-money text-[13px] font-semibold text-dmk-success shrink-0">+{formatINR(Number(r.amount))}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : (
       <div className="dmk-card overflow-hidden">
         <div className="overflow-x-auto">
           {receipts === null ? (
@@ -273,6 +380,7 @@ export default function ReceiptsView() {
           )}
         </div>
       </div>
+      )}
 
       <NewReceiptDialog
         open={newOpen}
