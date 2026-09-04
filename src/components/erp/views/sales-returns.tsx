@@ -461,11 +461,13 @@ function NewReturnDialog({
     (async () => {
       try {
         const [c, p] = await Promise.all([
-          apiGet<Customer[]>("/api/v1/customers", { firmId: activeFirmId }),
+          // B2B ONLY — returns are not collected from B2C counter buyers
+          apiGet<Customer[]>("/api/v1/customers", { firmId: activeFirmId, type: "B2B" }),
           apiGet<Product[] | { products: Product[] }>("/api/v1/products", { firmId: activeFirmId, activeOnly: "true" }),
         ]);
         if (alive) {
-          setCustomers(c);
+          // Belt-and-braces: even if the API ever widens, keep the picker B2B-only
+          setCustomers(c.filter((x) => x.customerType === "B2B"));
           setProducts(Array.isArray(p) ? p : (p.products ?? []));
         }
       } catch (e) {
@@ -561,7 +563,7 @@ function NewReturnDialog({
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">New sales return</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
-            Returned qty is quarantined to Damaged Stock — never sellable again. Credit note reduces the customer receivable.
+            B2B customers only — damaged/broken goods are not collected from B2C counter buyers. Returned qty is quarantined to Damaged Stock; the credit note reduces the customer receivable.
           </DialogDescription>
         </DialogHeader>
 
@@ -571,15 +573,18 @@ function NewReturnDialog({
               value={customerId}
               onValueChange={(v) => setCustomerId(v)}
             >
-              <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder="Select customer" /></SelectTrigger>
+              <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder="Select B2B customer" /></SelectTrigger>
               <SelectContent className="max-h-64">
                 {customers.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
-                    {c.partyName} {c.customerType === "B2C_COUNTER" ? "(counter)" : ""}
+                    {c.partyName}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <p className="mt-1 text-[11px] leading-tight text-dmk-text-muted">
+              B2B only — no returns from B2C counter buyers.
+            </p>
           </Field>
           <Field label="Invoice reference (optional)">
             <Select value={invoiceId} onValueChange={setInvoiceId} disabled={!customerId}>

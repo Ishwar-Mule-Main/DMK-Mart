@@ -644,3 +644,19 @@ Work Log:
 Stage Summary:
 - Every command from the entire chat is now verified DONE in the live app; 6 gaps found by the audit were fixed this session (30/70 layouts ×2, cart nowrap, receipts grouping, recurring expand, dashboard AI chat, B2C create affordance, future-date bug + engine clamp).
 - Suggested next cycle: verification request assignment to staff (assignedToId), team-portal toast/sound on new PO, GRN print at acceptance, verification history export, customer-well polish for the narrow 30% column (wrapping labels).
+
+---
+Task ID: 28
+Agent: ATLAS (main session — user: "in sales return only B2B customers list should show; we are not collecting damaged/broken/problem products from B2C customers")
+Task: Sales Returns restricted to B2B customers only — no B2C counter buyers in the return customer picker, rule enforced server-side too
+
+Work Log:
+- FRONTEND (sales-returns.tsx → ReturnCreateDialog): customer load now calls GET /api/v1/customers with `type: "B2B"` (server-filtered) PLUS a client-side belt-and-braces filter `customerType === "B2B"`; removed the "(counter)" SelectItem suffix (unreachable now); placeholder → "Select B2B customer"; added an 11px hint under the field "B2B only — no returns from B2C counter buyers."; dialog description now leads with "B2B customers only — damaged/broken goods are not collected from B2C counter buyers."
+- BACKEND (src/app/api/v1/sales-returns/route.ts POST): new B2B-ONLY guard before createSalesReturn — if customerId resolves to a B2C_COUNTER customer → BusinessError ERR_B2C_RETURN_NOT_ALLOWED 422 "Sales returns are B2B only — damaged/broken goods are not collected from B2C counter buyer \"X\""; loophole covered: if only an invoiceId is supplied and that invoice's customer is B2C_COUNTER → same 422 (cites the invoice). Guard lives in the route, NOT the shared engine, so the seed path is unaffected. Historical returns (if any) stay visible in the register — rule applies to NEW returns.
+- API QA (via :81 gateway, owner session): B2B list returns exactly 8 parties, B2C list 5 (Anjali Patil, Ganesh More, Rahul Deshmukh, Sunita Kale + 1); POST return with B2C customerId → HTTP 422 ERR_B2C_RETURN_NOT_ALLOWED ✓; POST with only a B2C invoiceId → HTTP 422 ✓ (both attempts created nothing).
+- BROWSER QA (agent-browser via :81): login Kunal/1234 → Sales Returns → New Return → dialog title/description show the B2B-only rule; customer dropdown lists EXACTLY 8 options, all location-first B2B parties, ZERO B2C leakage (scanned for the 4 counter names + "walk-in" + "(counter)") — screenshot qa-sr-b2b-dropdown.png; positive control end-to-end: selected "Latur Ishwar Mule Traders" → Add item → qty 2 → Create credit note → toast + dialog closed → CN/0003 ₹861.40 in the register (qa-sr-register-b2b.png) and in GET /sales-returns; B2B path fully intact.
+- GATES: eslint 0/0 · tsc --noEmit 0 · zero browser page errors (console only HMR logs) · dev server + gateway healthy throughout.
+
+Stage Summary:
+- Sales Returns are now B2B-only on BOTH layers: the customer picker shows B2B parties exclusively (server-filtered + client-filtered + visible rule text), and the API rejects any B2C customer or B2C-invoice-referenced return with a clear 422. B2B return flow verified end-to-end (CN/0003) with balanced-books engine untouched.
+- Suggested next cycle: verification request assignment to staff (assignedToId), team-portal toast/sound on new PO, GRN print at acceptance, verification history export.

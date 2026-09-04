@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import {
   asRecord,
   asRecordArray,
+  BusinessError,
   getDate,
   getNum,
   getStr,
@@ -52,9 +53,40 @@ export async function POST(request: NextRequest) {
       defectType: getStr(i.defectType) || undefined,
     }));
 
+    // ── B2B-ONLY RULE ─────────────────────────────────────────────
+    // We do not collect damaged/broken/problem products from B2C
+    // counter buyers — a return must reference a B2B customer.
+    const customerId = getStr(body.customerId);
+    const invoiceId = getStr(body.invoiceId);
+    if (customerId) {
+      const customer = await db.customer.findFirst({
+        where: { id: customerId, firmId: firm.id },
+        select: { partyName: true, customerType: true },
+      });
+      if (customer && customer.customerType === "B2C_COUNTER") {
+        throw new BusinessError(
+          "ERR_B2C_RETURN_NOT_ALLOWED",
+          `Sales returns are B2B only — damaged/broken goods are not collected from B2C counter buyer "${customer.partyName}"`,
+          422,
+        );
+      }
+    } else if (invoiceId) {
+      const inv = await db.invoice.findFirst({
+        where: { id: invoiceId, firmId: firm.id },
+        select: { customer: { select: { partyName: true, customerType: true } } },
+      });
+      if (inv?.customer && inv.customer.customerType === "B2C_COUNTER") {
+        throw new BusinessError(
+          "ERR_B2C_RETURN_NOT_ALLOWED",
+          `Sales returns are B2B only — invoice ${getStr(body.invoiceRef) || "reference"} belongs to B2C counter buyer "${inv.customer.partyName}"`,
+          422,
+        );
+      }
+    }
+
     const result = await createSalesReturn(firm, {
-      customerId: getStr(body.customerId) || null,
-      invoiceId: getStr(body.invoiceId) || null,
+      customerId: customerId || null,
+      invoiceId: invoiceId || null,
       invoiceRef: getStr(body.invoiceRef),
       returnDate: getDate(body.returnDate),
       notes: getStr(body.notes),
