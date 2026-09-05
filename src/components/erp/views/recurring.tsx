@@ -429,7 +429,7 @@ export default function RecurringView() {
     setDeleting(true);
     try {
       await apiDelete(`/api/v1/recurring?firmId=${activeFirmId}&id=${deleteOf.id}`);
-      toast({ title: "Template deleted", description: `“${deleteOf.name}” removed. Posted invoices are untouched.` });
+      toast({ title: "Moved to Deleted Data", description: `“${deleteOf.name}” removed from the schedule — restore it from Intelligence → Deleted Data.` });
       setDeleteOf(null);
       setRefresh((r) => r + 1);
     } catch (e) {
@@ -1244,7 +1244,8 @@ export default function RecurringView() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete “{deleteOf?.name}”?</AlertDialogTitle>
             <AlertDialogDescription>
-              The template and its lines will be removed from the schedule. Invoices already posted stay in your books.
+              The template and its lines are snapshotted to the Deleted Data folder, then removed from the
+              schedule — restore it anytime from Intelligence → Deleted Data. Invoices already posted stay in your books.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

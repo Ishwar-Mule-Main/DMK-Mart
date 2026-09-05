@@ -41,6 +41,7 @@ export type ViewId =
   | "docs/notes"
   | "reports"
   | "ai"
+  | "data/deleted"
   | "settings";
 
 // Signed-in persona. OWNER → full ERP shell; TEAM → verification portal.

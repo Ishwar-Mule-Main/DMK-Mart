@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// /api/v1/customers/[id] — detail (+ last 100 ledger rows) + patch
+// /api/v1/customers/[id] — detail (+ last 100 ledger rows) + patch + delete
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
@@ -13,6 +13,7 @@ import {
   handleApiError,
   ok,
 } from "@/app/api/v1/_lib/api";
+import { moveToTrash } from "@/app/api/v1/_lib/trash";
 
 async function getCustomerOr404(id: string) {
   const customer = await db.customer.findUnique({ where: { id } });
@@ -75,6 +76,33 @@ export async function PATCH(
     }
 
     const updated = await db.customer.update({ where: { id }, data });
+    return ok(updated);
+  } catch (e) {
+    return handleApiError(e);
+  }
+}
+
+/** DELETE = move to the Deleted Data bin + soft delete (row is referenced
+ *  by invoices/ledger forever). Restorable from the Deleted Data view. */
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const customer = await getCustomerOr404(id);
+    await moveToTrash({
+      firmId: customer.firmId,
+      entityType: "CUSTOMER",
+      entityId: customer.id,
+      label: customer.partyName,
+      meta: `${customer.customerType === "B2C_COUNTER" ? "B2C Counter" : "B2B"}${customer.city ? ` · ${customer.city}` : ""}${customer.phone ? ` · ${customer.phone}` : ""}`,
+      snapshot: customer,
+    });
+    const updated = await db.customer.update({
+      where: { id },
+      data: { isActive: false },
+    });
     return ok(updated);
   } catch (e) {
     return handleApiError(e);

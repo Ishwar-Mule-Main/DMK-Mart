@@ -24,6 +24,7 @@ import {
 } from "@/app/api/v1/_lib/api";
 import { calculateGST, round2 } from "@/lib/gst";
 import { calculateBulkPricing, TIERS } from "@/lib/pricing";
+import { moveToTrash } from "@/app/api/v1/_lib/trash";
 
 const FREQUENCIES = ["WEEKLY", "MONTHLY", "BIMONTHLY", "QUARTERLY"];
 const PAYMENT_MODES = ["CREDIT", "CASH", "UPI", "CARD", "NEFT"];
@@ -412,7 +413,7 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-// ─── DELETE: remove template (items cascade) ─────────────────────
+// ─── DELETE: snapshot to Deleted Data bin, then remove (items cascade) ──
 export async function DELETE(request: NextRequest) {
   try {
     const sp = request.nextUrl.searchParams;
@@ -421,9 +422,22 @@ export async function DELETE(request: NextRequest) {
     await resolveFirm(firmId);
     if (!id) throw new BusinessError("ERR_VALIDATION", "id is required", 400);
 
-    const existing = await db.recurringTemplate.findFirst({ where: { id, firmId } });
+    const existing = await db.recurringTemplate.findFirst({
+      where: { id, firmId },
+      include: { items: true },
+    });
     if (!existing) throw new BusinessError("ERR_TEMPLATE_NOT_FOUND", "Recurring template not found", 404);
 
+    // Templates are hard-deleted (no transaction FKs), so the full
+    // snapshot — template + line items — is what makes restore possible.
+    await moveToTrash({
+      firmId,
+      entityType: "RECURRING_TEMPLATE",
+      entityId: existing.id,
+      label: existing.name,
+      meta: `${existing.frequency} · ${existing.nextRunDate.toISOString().slice(0, 10)}`,
+      snapshot: { template: existing, items: existing.items },
+    });
     await db.recurringTemplate.delete({ where: { id } });
     return ok({ deleted: true, id });
   } catch (e) {

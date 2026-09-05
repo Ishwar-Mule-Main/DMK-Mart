@@ -449,11 +449,12 @@ export default function ProductsView() {
                         <AlertDialogContent className="dmk-card border-dmk-border-medium">
                           <AlertDialogHeader>
                             <AlertDialogTitle className="text-dmk-text-primary">
-                              Deactivate “{p.name}”?
+                              Move “{p.name}” to Deleted Data?
                             </AlertDialogTitle>
                             <AlertDialogDescription className="text-dmk-text-secondary">
-                              The product will be hidden from active lists and billing. Historical
-                              documents and stock are preserved. This is a soft delete.
+                              The product is snapshotted into the Deleted Data folder first, so it can be
+                              restored anytime from Intelligence → Deleted Data. It will be hidden from active
+                              lists and billing; historical documents and stock are preserved.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -464,7 +465,7 @@ export default function ProductsView() {
                               className="h-9 bg-dmk-danger text-white hover:bg-dmk-danger/90"
                               onClick={() => void deactivate(p)}
                             >
-                              Deactivate
+                              Move to Deleted Data
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>

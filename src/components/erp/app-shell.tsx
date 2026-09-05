@@ -53,6 +53,7 @@ import Gstr2bView from "./views/gstr2b";
 import ReportsView from "./views/reports";
 import AiCopilotView from "./views/ai-copilot";
 import SettingsView from "./views/settings";
+import DeletedDataView from "./views/deleted-data";
 import PurchaseVerificationView from "./views/verification";
 
 const VIEW_MAP: Record<ViewId, React.ComponentType> = {
@@ -87,6 +88,7 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   "finance/gstr2b": Gstr2bView,
   reports: ReportsView,
   ai: AiCopilotView,
+  "data/deleted": DeletedDataView,
   settings: SettingsView,
 };
 

@@ -10,7 +10,7 @@
 import * as React from "react";
 import { BookOpen, Building2, History, Loader2, Pencil, Plus, Search, Store, Users } from "lucide-react";
 import { useErpStore, useActiveFirm } from "@/store/erp-store";
-import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api-client";
+import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/api-client";
 import { formatINR, formatDate } from "@/lib/format";
 import { TIERS } from "@/lib/pricing";
 import type { Customer, Invoice, LedgerRow } from "@/types/erp";
@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { TrashButton } from "@/components/erp/trash-button";
 import { cn } from "@/lib/utils";
 
 const STATES: Array<{ code: string; name: string }> = [
@@ -194,6 +195,20 @@ function B2BTab() {
                         >
                           <Pencil className="h-3.5 w-3.5" /> Edit
                         </Button>
+                        <TrashButton
+                          className="h-8 w-8 p-0 ml-1 text-dmk-danger/80 hover:text-dmk-danger hover:bg-dmk-hover"
+                          recordLabel={c.partyName}
+                          recordHint={`${c.customerType === "B2C_COUNTER" ? "Counter buyer" : "B2B party"}${c.city ? ` from ${c.city}` : ""} will be hidden from billing and lists. The snapshot goes to the Deleted Data folder — restore it anytime. Invoices and ledger history stay intact.`}
+                          onConfirm={async () => {
+                            try {
+                              await apiDelete(`/api/v1/customers/${c.id}`);
+                              toast({ title: "Moved to Deleted Data", description: `“${c.partyName}” can be restored from Intelligence → Deleted Data.` });
+                              setRefresh((r) => r + 1);
+                            } catch (e) {
+                              toast({ variant: "destructive", title: "Could not delete", description: e instanceof Error ? e.message : "Unknown error" });
+                            }
+                          }}
+                        />
                       </td>
                     </tr>
                   );
@@ -571,6 +586,20 @@ function B2CTab() {
                       <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setHistoryOf(c)}>
                         <History className="h-3.5 w-3.5" /> History
                       </Button>
+                      <TrashButton
+                        className="h-8 w-8 p-0 ml-1 text-dmk-danger/80 hover:text-dmk-danger hover:bg-dmk-hover"
+                        recordLabel={c.partyName}
+                        recordHint="The counter buyer will be hidden from B2C billing. The snapshot goes to the Deleted Data folder — restore it anytime. Past visits and spend stay in history."
+                        onConfirm={async () => {
+                          try {
+                            await apiDelete(`/api/v1/customers/${c.id}`);
+                            toast({ title: "Moved to Deleted Data", description: `“${c.partyName}” can be restored from Intelligence → Deleted Data.` });
+                            setRefresh((r) => r + 1);
+                          } catch (e) {
+                            toast({ variant: "destructive", title: "Could not delete", description: e instanceof Error ? e.message : "Unknown error" });
+                          }
+                        }}
+                      />
                     </td>
                   </tr>
                 ))}

@@ -14,6 +14,7 @@ import {
 } from "@/app/api/v1/_lib/api";
 import { roundProductNumerics, validateProductBusinessRules } from "@/app/api/v1/_lib/product";
 import { ensureVendorPrefixedName, resolveManufacturerVendor } from "@/app/api/v1/_lib/product-naming";
+import { moveToTrash } from "@/app/api/v1/_lib/trash";
 
 async function getProductOr404(id: string) {
   const product = await db.product.findUnique({ where: { id } });
@@ -119,7 +120,16 @@ export async function DELETE(
   try {
     const { id } = await params;
     const product = await getProductOr404(id);
-    // Soft delete — products are referenced by invoices/movements forever
+    // Snapshot into the Deleted Data bin, then soft delete — products are
+    // referenced by invoices/movements forever, so the row always stays.
+    await moveToTrash({
+      firmId: product.firmId,
+      entityType: "PRODUCT",
+      entityId: product.id,
+      label: product.name,
+      meta: `${product.sku} · ${product.category}`,
+      snapshot: product,
+    });
     const updated = await db.product.update({
       where: { id },
       data: { isActive: false },

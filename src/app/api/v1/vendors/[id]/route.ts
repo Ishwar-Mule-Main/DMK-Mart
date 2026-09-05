@@ -11,6 +11,7 @@ import {
   handleApiError,
   ok,
 } from "@/app/api/v1/_lib/api";
+import { moveToTrash } from "@/app/api/v1/_lib/trash";
 
 async function getVendorOr404(id: string) {
   const vendor = await db.vendor.findUnique({ where: { id } });
@@ -64,6 +65,33 @@ export async function PATCH(
     }
 
     const updated = await db.vendor.update({ where: { id }, data });
+    return ok(updated);
+  } catch (e) {
+    return handleApiError(e);
+  }
+}
+
+/** DELETE = move to the Deleted Data bin + soft delete. Restorable from
+ *  the Deleted Data view; POs/payments keep their history intact. */
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const vendor = await getVendorOr404(id);
+    await moveToTrash({
+      firmId: vendor.firmId,
+      entityType: "VENDOR",
+      entityId: vendor.id,
+      label: vendor.vendorName,
+      meta: `${vendor.vendorType}${vendor.brand ? ` · ${vendor.brand}` : ""}${vendor.phone ? ` · ${vendor.phone}` : ""}`,
+      snapshot: vendor,
+    });
+    const updated = await db.vendor.update({
+      where: { id },
+      data: { isActive: false },
+    });
     return ok(updated);
   } catch (e) {
     return handleApiError(e);

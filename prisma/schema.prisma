@@ -58,6 +58,29 @@ model Firm {
   inventoryMovements InventoryMovement[]
   stockAdjustments  StockAdjustment[]
   recurringTemplates RecurringTemplate[]
+  deletedRecords    DeletedRecord[]
+}
+
+// ─── DELETED DATA (recycle bin) ──────────────────────────────────
+// Every delete across the owner portal drops a full JSON snapshot of
+// the record here first. The owner can restore it (reactivate the
+// soft-deleted row, or recreate a hard-deleted one) or purge it
+// forever from the "Deleted Data" view.
+
+model DeletedRecord {
+  id         String    @id @default(cuid())
+  firmId     String
+  firm       Firm      @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  entityType String // PRODUCT | CUSTOMER | VENDOR | RECURRING_TEMPLATE | VERIFICATION_STAFF
+  entityId   String // id of the original record (kept even after hard delete)
+  label      String // human-readable name (product name, party name…)
+  meta       String    @default("") // short subtitle — sku / city / phone / username
+  snapshot   String    @default("{}") // full JSON snapshot (template items included)
+  restoredAt DateTime? // set when the record has been restored
+  createdAt  DateTime  @default(now())
+
+  @@index([firmId, entityType])
+  @@index([firmId, createdAt])
 }
 
 // ─── FINANCIAL YEAR REGISTRY (Apr–Mar book years per firm) ───────

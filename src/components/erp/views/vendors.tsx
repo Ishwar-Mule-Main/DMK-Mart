@@ -9,7 +9,7 @@
 import * as React from "react";
 import { BookOpen, Building2, Loader2, Pencil, Plus, Search, Truck } from "lucide-react";
 import { useErpStore } from "@/store/erp-store";
-import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api-client";
+import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/api-client";
 import { formatINR, formatDate } from "@/lib/format";
 import type { LedgerRow, Vendor } from "@/types/erp";
 import {
@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { TrashButton } from "@/components/erp/trash-button";
 import { cn } from "@/lib/utils";
 
 const STATES: Array<{ code: string; name: string }> = [
@@ -227,6 +228,20 @@ export default function VendorsView() {
                         >
                           <Pencil className="h-3.5 w-3.5" /> Edit
                         </Button>
+                        <TrashButton
+                          className="h-8 w-8 p-0 ml-1 text-dmk-danger/80 hover:text-dmk-danger hover:bg-dmk-hover"
+                          recordLabel={v.vendorName}
+                          recordHint={`${v.vendorType === "MANUFACTURER" ? "Manufacturer" : "Distributor"} will be hidden from purchase orders and payments. The snapshot goes to the Deleted Data folder — restore it anytime. PO and payment history stay intact.`}
+                          onConfirm={async () => {
+                            try {
+                              await apiDelete(`/api/v1/vendors/${v.id}`);
+                              toast({ title: "Moved to Deleted Data", description: `“${v.vendorName}” can be restored from Intelligence → Deleted Data.` });
+                              setRefresh((r) => r + 1);
+                            } catch (e) {
+                              toast({ variant: "destructive", title: "Could not delete", description: e instanceof Error ? e.message : "Unknown error" });
+                            }
+                          }}
+                        />
                       </td>
                     </tr>
                   );

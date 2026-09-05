@@ -13,6 +13,7 @@ import {
   ok,
 } from "@/app/api/v1/_lib/api";
 import { hashPasswordAsync, notifyRealtime } from "@/app/api/v1/_lib/verification";
+import { moveToTrash } from "@/app/api/v1/_lib/trash";
 
 const STAFF_SELECT = {
   id: true,
@@ -66,7 +67,8 @@ export async function PATCH(
   }
 }
 
-/** DELETE = deactivate (soft) — keeps verification history intact. */
+/** DELETE = deactivate (soft) — keeps verification history intact.
+ *  Snapshotted to the Deleted Data bin so the owner can restore it. */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -75,6 +77,14 @@ export async function DELETE(
     const { id } = await params;
     const existing = await db.verificationStaff.findUnique({ where: { id } });
     if (!existing) throw new BusinessError("ERR_NOT_FOUND", "Team account not found", 404);
+    await moveToTrash({
+      firmId: existing.firmId,
+      entityType: "VERIFICATION_STAFF",
+      entityId: existing.id,
+      label: existing.name,
+      meta: `@${existing.username} · ${existing.role}`,
+      snapshot: existing,
+    });
     const staff = await db.verificationStaff.update({
       where: { id },
       data: { isActive: false },

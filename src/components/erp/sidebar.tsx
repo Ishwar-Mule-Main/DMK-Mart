@@ -37,6 +37,7 @@ import {
   FileWarning,
   ClipboardCheck,
   PackagePlus,
+  Trash2,
 } from "lucide-react";
 import { useErpStore, type ViewId } from "@/store/erp-store";
 import { cn } from "@/lib/utils";
@@ -115,6 +116,7 @@ const SECTIONS: NavSection[] = [
     items: [
       { id: "reports", label: "Reports & Exports", icon: BarChart3 },
       { id: "ai", label: "AI Copilot", icon: Bot },
+      { id: "data/deleted", label: "Deleted Data", icon: Trash2 },
       { id: "settings", label: "Settings", icon: Settings },
     ],
   },
