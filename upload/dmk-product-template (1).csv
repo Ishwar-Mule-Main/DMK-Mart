@@ -1,0 +1,2 @@
+SKU,Product Name,Category,Brand/Manufacturer,Unit,HSN Code,GST Rate (%),Purchase Cost,Price_Tier1_Distributor,Price_Tier2_Wholesale,Price_Tier3_SemiWholesale,Price_Tier4_Retailer,Price_Tier5_MRP,Opening Stock,Opening Damaged Stock,Low Stock Threshold,Weight (g),Barcode
+DMK-CH-001,Premium Arm Chair (Natural),Chairs,DMK Polymers,Pcs,3924,18,210,210,235,260,295,399,180,0,40,2400,8901234567890

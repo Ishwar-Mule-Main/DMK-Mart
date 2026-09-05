@@ -4,7 +4,8 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { db } from "@/lib/db";
-import { ACC } from "@/lib/journal";
+import { ACC, fyLabelForDate } from "@/lib/journal";
+import { fyDateRange } from "@/lib/fy";
 import { round2 } from "@/lib/gst";
 import { addDays, endOfDay, startOfDay } from "./api";
 import { computeARAging } from "./aging";
@@ -52,13 +53,21 @@ export async function accountBalance(firmId: string, accountCode: string, upto?:
   return round2(account.openingBalance + (agg._sum.debitAmount ?? 0) - (agg._sum.creditAmount ?? 0));
 }
 
-export async function buildDashboard(firmId: string): Promise<DashboardData> {
+export async function buildDashboard(firmId: string, fy?: string | null): Promise<DashboardData> {
   const now = new Date();
-  const todayStart = startOfDay(now);
+  // FY anchoring: the current year looks at live "today/month" windows; a
+  // historical year is anchored at its END (31 Mar) so every window, trend
+  // and balance reads as-of that year instead of leaking the current month.
+  const selectedFy = fy || fyLabelForDate(now);
+  const isCurrentFy = selectedFy === fyLabelForDate(now);
+  const { startDate: fyStart, endDate: fyEnd } = fyDateRange(selectedFy);
+  const anchor = isCurrentFy ? now : fyEnd < now ? fyEnd : fyStart;
+
+  const todayStart = startOfDay(anchor);
   const tomorrowStart = addDays(todayStart, 1);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const weekStart = startOfDay(addDays(now, -6));
-  const month30Start = startOfDay(addDays(now, -29));
+  const monthStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const weekStart = startOfDay(addDays(anchor, -6));
+  const month30Start = startOfDay(addDays(anchor, -29));
 
   const [todayInvoices, monthAgg, customerBalances, vendorBalances, products] = await Promise.all([
     db.invoice.aggregate({
@@ -66,7 +75,7 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
       _sum: { grandTotal: true },
     }),
     db.invoice.aggregate({
-      where: { firmId, status: "POSTED", invoiceDate: { gte: monthStart } },
+      where: { firmId, status: "POSTED", invoiceDate: { gte: monthStart, lte: fyEnd } },
       _sum: { grandTotal: true },
     }),
     // Full balance lists (NOT positive-only): a negative customer balance is
@@ -88,6 +97,22 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
   const cust = sumBalances(customerBalances);
   const vend = sumBalances(vendorBalances);
 
+  // Receivables / payables for the SELECTED year: the current year reads the
+  // live party balances; a historical year reads the GL as of 31 Mar of that
+  // year (party closingBalance is always the present-day number).
+  let receivables = cust.net;
+  let receivablesAdvances = cust.negative;
+  let payables = vend.net;
+  let payablesCredits = vend.negative;
+  if (!isCurrentFy) {
+    const glAr = await accountBalance(firmId, ACC.AR, fyEnd);
+    const glAp = round2(-(await accountBalance(firmId, ACC.AP, fyEnd)));
+    receivables = glAr;
+    receivablesAdvances = glAr < 0 ? round2(-glAr) : 0;
+    payables = glAp;
+    payablesCredits = glAp < 0 ? round2(-glAp) : 0;
+  }
+
   const inventoryValue = round2(
     products.filter((p) => p.isActive).reduce((s, p) => s + p.stockQuantity * p.purchaseCost, 0)
   );
@@ -98,14 +123,14 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
     (p) => p.isActive && p.stockQuantity <= p.lowStockThreshold
   ).length;
 
-  // Sales trend — last 7 days
+  // Sales trend — last 7 days of the selected year (ending at the anchor)
   const weekInvoices = await db.invoice.findMany({
-    where: { firmId, status: "POSTED", invoiceDate: { gte: weekStart } },
+    where: { firmId, status: "POSTED", invoiceDate: { gte: weekStart, lte: fyEnd } },
     select: { invoiceDate: true, grandTotal: true },
   });
   const salesTrend: Array<{ date: string; total: number }> = [];
   for (let i = 6; i >= 0; i--) {
-    const dayStart = startOfDay(addDays(now, -i));
+    const dayStart = startOfDay(addDays(anchor, -i));
     const dayEnd = addDays(dayStart, 1);
     const total = round2(
       weekInvoices
@@ -117,12 +142,12 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
 
   // Month-to-date trend — daily totals for the sparkline on the Month Sales KPI
   const monthInvoices = await db.invoice.findMany({
-    where: { firmId, status: "POSTED", invoiceDate: { gte: monthStart } },
+    where: { firmId, status: "POSTED", invoiceDate: { gte: monthStart, lte: fyEnd } },
     select: { invoiceDate: true, grandTotal: true },
   });
   const monthTrend: Array<{ date: string; total: number }> = [];
-  for (let i = 0; i <= now.getDate() - 1; i++) {
-    const dayStart = new Date(now.getFullYear(), now.getMonth(), 1 + i);
+  for (let i = 0; i <= anchor.getDate() - 1; i++) {
+    const dayStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1 + i);
     const dayEnd = addDays(dayStart, 1);
     const total = round2(
       monthInvoices
@@ -132,10 +157,10 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
     monthTrend.push({ date: dayStart.toISOString().slice(0, 10), total });
   }
 
-  // Top products — last 30 days by qty & value
+  // Top products — last 30 days of the selected year by qty & value
   const lines = await db.invoiceLineItem.findMany({
     where: {
-      invoice: { firmId, status: "POSTED", invoiceDate: { gte: month30Start } },
+      invoice: { firmId, status: "POSTED", invoiceDate: { gte: month30Start, lte: fyEnd } },
     },
     select: {
       productId: true,
@@ -160,31 +185,31 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
   }
   const topProducts = [...prodAgg.values()].sort((a, b) => b.qty - a.qty).slice(0, 10);
 
-  // AR aging buckets
-  const ar = await computeARAging(firmId, now);
+  // AR aging buckets (as of the anchor — FY end for historical years)
+  const ar = await computeARAging(firmId, anchor);
 
-  // Recent transactions — invoices + POs + payments + receipts
+  // Recent transactions — invoices + POs + payments + receipts, scoped to the year
   const [invoices, pos, payments, receipts] = await Promise.all([
     db.invoice.findMany({
-      where: { firmId },
+      where: { firmId, invoiceDate: { gte: fyStart, lte: fyEnd } },
       orderBy: { invoiceDate: "desc" },
       take: 10,
       include: { customer: { select: { partyName: true } } },
     }),
     db.purchaseOrder.findMany({
-      where: { firmId },
+      where: { firmId, poDate: { gte: fyStart, lte: fyEnd } },
       orderBy: { poDate: "desc" },
       take: 10,
       include: { vendor: { select: { vendorName: true } } },
     }),
     db.vendorPayment.findMany({
-      where: { firmId },
+      where: { firmId, paymentDate: { gte: fyStart, lte: fyEnd } },
       orderBy: { paymentDate: "desc" },
       take: 10,
       include: { vendor: { select: { vendorName: true } } },
     }),
     db.customerReceipt.findMany({
-      where: { firmId },
+      where: { firmId, receiptDate: { gte: fyStart, lte: fyEnd } },
       orderBy: { receiptDate: "desc" },
       take: 10,
       include: { customer: { select: { partyName: true } } },
@@ -226,18 +251,18 @@ export async function buildDashboard(firmId: string): Promise<DashboardData> {
     .map((t) => ({ ...t, date: t.date.toISOString(), amount: round2(t.amount) }));
 
   const [cash, bank] = await Promise.all([
-    accountBalance(firmId, ACC.CASH),
-    accountBalance(firmId, ACC.BANK),
+    accountBalance(firmId, ACC.CASH, isCurrentFy ? undefined : fyEnd),
+    accountBalance(firmId, ACC.BANK, isCurrentFy ? undefined : fyEnd),
   ]);
 
   return {
     firmId,
     todaySales: round2(todayInvoices._sum.grandTotal ?? 0),
     monthSales: round2(monthAgg._sum.grandTotal ?? 0),
-    receivables: cust.net,
-    receivablesAdvances: cust.negative,
-    payables: vend.net,
-    payablesCredits: vend.negative,
+    receivables,
+    receivablesAdvances,
+    payables,
+    payablesCredits,
     cash,
     bank,
     inventoryValue,

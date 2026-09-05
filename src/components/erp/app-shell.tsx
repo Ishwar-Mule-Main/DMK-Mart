@@ -13,6 +13,7 @@ import { apiGet, apiPost } from "@/lib/api-client";
 import type { Firm } from "@/types/erp";
 import { LoginGate } from "@/components/auth/login-gate";
 import { VerificationPortal } from "@/components/verify/verification-portal";
+import { FyGate } from "./fy-gate";
 
 /**
  * Portal addresses — the two logins live at different URLs and are never
@@ -210,29 +211,31 @@ export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-dmk-bg-primary">
-      <Header />
-      <Sidebar />
-      <CommandPalette />
-      {/* Desktop: the sidebar is a hover-to-expand rail, so the content offset is always the 64px rail width — the expanded panel overlays instead of pushing content. */}
-      <div className="flex-1 flex flex-col transition-none mt-14 lg:ml-16">
-        {/* Keyed by view + firm + FY: switching company or financial year remounts the
-            active view so every register refetches scoped to the selected year —
-            the fy param itself is injected by apiGet from the store. */}
-        <main key={`${view}-${activeFirmId}-${financialYear}`} className="dmk-enter flex-1 px-3 sm:px-5 py-4 sm:py-5 max-w-[1600px] w-full mx-auto">
-          <ActiveView />
-        </main>
-        <footer className="mt-auto border-t border-dmk-border-subtle bg-[#0D1527]/60">
-          <div className="max-w-[1600px] mx-auto px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-1.5">
-            <p className="text-[11px] text-dmk-text-muted">
-              DMK Mart ERP · AI-Native Trading, Distribution &amp; Bookkeeping Platform
-            </p>
-            <p className="text-[11px] text-dmk-text-muted font-money">
-              Σ Debits ≡ Σ Credits · Indian Rupees (₹) · FY {financialYear}
-            </p>
-          </div>
-        </footer>
+    <FyGate>
+      <div className="min-h-screen flex flex-col bg-dmk-bg-primary">
+        <Header />
+        <Sidebar />
+        <CommandPalette />
+        {/* Desktop: the sidebar is a hover-to-expand rail, so the content offset is always the 64px rail width — the expanded panel overlays instead of pushing content. */}
+        <div className="flex-1 flex flex-col transition-none mt-14 lg:ml-16">
+          {/* Keyed by view + firm + FY: switching company or financial year remounts the
+              active view so every register refetches scoped to the selected year —
+              the fy param itself is injected by apiGet from the store. */}
+          <main key={`${view}-${activeFirmId}-${financialYear}`} className="dmk-enter flex-1 px-3 sm:px-5 py-4 sm:py-5 max-w-[1600px] w-full mx-auto">
+            <ActiveView />
+          </main>
+          <footer className="mt-auto border-t border-dmk-border-subtle bg-[#0D1527]/60">
+            <div className="max-w-[1600px] mx-auto px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-1.5">
+              <p className="text-[11px] text-dmk-text-muted">
+                DMK Mart ERP · AI-Native Trading, Distribution &amp; Bookkeeping Platform
+              </p>
+              <p className="text-[11px] text-dmk-text-muted font-money">
+                Σ Debits ≡ Σ Credits · Indian Rupees (₹) · FY {financialYear}
+              </p>
+            </div>
+          </footer>
+        </div>
       </div>
-    </div>
+    </FyGate>
   );
 }

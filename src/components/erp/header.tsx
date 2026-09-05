@@ -31,14 +31,14 @@ import {
 } from "lucide-react";
 import { CompanyDetailsDialog, ChangePasswordDialog } from "@/components/erp/company-dialogs";
 import { useErpStore, type ViewId } from "@/store/erp-store";
+import { useFinancialYears } from "./fy-gate";
 import { apiGet, apiPost } from "@/lib/api-client";
+import { currentFyLabel, nextFyLabel } from "@/lib/fy";
 import { requestAgingTab } from "@/lib/settle-bus";
 import { formatINR } from "@/lib/format";
 import type { Firm, LowStockItem } from "@/types/erp";
 import { OWNER_USERNAME } from "@/components/auth/login-gate";
 import { cn } from "@/lib/utils";
-
-const FYS = ["2025-26", "2026-27", "2027-28"];
 
 interface NotificationItem {
   id: string;
@@ -55,6 +55,24 @@ export function Header() {
   const { firms, activeFirmId, setActiveFirm, financialYear, setFinancialYear, setSidebarOpen, sidebarOpen, setView } =
     useErpStore();
   const firm = firms.find((f) => f.id === activeFirmId);
+  // FY options come from the firm's financial-year registry — the list grows
+  // when a new year is opened (automatically on 1 Apr, or from this menu).
+  const { years: fyYears, createYear: createFyYear } = useFinancialYears(activeFirmId);
+  const [fyCreating, setFyCreating] = React.useState(false);
+  const nextFy = nextFyLabel(fyYears.at(-1)?.label ?? (financialYear || currentFyLabel()));
+  const nextFyMissing = fyYears.length > 0 && !fyYears.some((y) => y.label === nextFy);
+  async function handleCreateNextFy() {
+    if (fyCreating) return;
+    setFyCreating(true);
+    try {
+      await createFyYear(nextFy, { activate: false });
+      setFinancialYear(nextFy);
+    } catch {
+      /* the gate will surface creation errors */
+    } finally {
+      setFyCreating(false);
+    }
+  }
   const [alerts, setAlerts] = React.useState<LowStockItem[]>([]);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [passwordOpen, setPasswordOpen] = React.useState(false);
@@ -212,15 +230,37 @@ export function Header() {
             <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-dmk-text-muted">
               Financial Year (Apr–Mar)
             </DropdownMenuLabel>
-            {FYS.map((fy) => (
+            {(fyYears.length > 0 ? fyYears.map((y) => y.label) : financialYear ? [financialYear] : []).map((fy) => (
               <DropdownMenuItem
                 key={fy}
                 onClick={() => setFinancialYear(fy)}
                 className={cn("text-[13px] cursor-pointer", fy === financialYear && "bg-dmk-hover")}
               >
-                FY {fy}
+                <span className="flex items-center gap-2">
+                  FY {fy}
+                  {fy === currentFyLabel() && (
+                    <span className="rounded-full bg-dmk-success/10 border border-dmk-success/30 px-1.5 py-px text-[8.5px] font-bold uppercase tracking-wider text-dmk-success">
+                      current
+                    </span>
+                  )}
+                </span>
               </DropdownMenuItem>
             ))}
+            {nextFyMissing && (
+              <>
+                <DropdownMenuSeparator className="bg-dmk-border-subtle my-1" />
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void handleCreateNextFy();
+                  }}
+                  disabled={fyCreating}
+                  className="text-[12.5px] cursor-pointer text-dmk-gold"
+                >
+                  {fyCreating ? "Opening…" : `＋ Open FY ${nextFy} account`}
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 

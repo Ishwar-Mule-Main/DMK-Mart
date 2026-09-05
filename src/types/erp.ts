@@ -16,10 +16,23 @@ export interface Firm {
   bankAccount: string;
   ifsc: string;
   financialYear: string;
+  autoCreateFy: boolean;
   invoicePrefix: string;
   logoUrl?: string | null;
   openingCash: number;
   openingBank: number;
+  createdAt: string;
+}
+
+// ─── Financial year registry row (Apr–Mar book year) ──────────
+export interface FinancialYear {
+  id: string;
+  firmId: string;
+  label: string;
+  startDate: string;
+  endDate: string;
+  isClosed: boolean;
+  autoCreated: boolean;
   createdAt: string;
 }
 

@@ -11,7 +11,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { Building2, KeyRound, Loader2 } from "lucide-react";
+import { Building2, KeyRound, Loader2, CalendarRange } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,12 +80,13 @@ export function CompanyDetailsDialog({
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [form, setForm] = React.useState<Record<string, string>>({});
+  const [autoCreateFy, setAutoCreateFy] = React.useState(true);
 
   React.useEffect(() => {
     if (!open || !activeFirmId) return;
     setLoading(true);
     apiGet<{ firm: Firm }>(`/api/v1/firms/${activeFirmId}`)
-      .then(({ firm }) =>
+      .then(({ firm }) => {
         setForm({
           firmName: firm.firmName,
           gstin: firm.gstin,
@@ -95,8 +97,9 @@ export function CompanyDetailsDialog({
           ifsc: firm.ifsc,
           bankAccount: firm.bankAccount,
           invoicePrefix: firm.invoicePrefix,
-        })
-      )
+        });
+        setAutoCreateFy(firm.autoCreateFy ?? true);
+      })
       .catch(() => toast({ variant: "destructive", title: "Could not load company details" }))
       .finally(() => setLoading(false));
   }, [open, activeFirmId, toast]);
@@ -112,7 +115,7 @@ export function CompanyDetailsDialog({
     }
     setSaving(true);
     try {
-      await apiPatch(`/api/v1/firms/${activeFirmId}`, form);
+      await apiPatch(`/api/v1/firms/${activeFirmId}`, { ...form, autoCreateFy });
       toast({ title: "Company details updated", description: "Changes apply to invoices and GST documents immediately." });
       onOpenChange(false);
       onSaved?.();
@@ -163,6 +166,24 @@ export function CompanyDetailsDialog({
             ))}
           </div>
         )}
+
+        {/* Financial-year automation */}
+        <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/40 p-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[12px] font-semibold text-dmk-text-primary flex items-center gap-1.5">
+              <CalendarRange className="h-3.5 w-3.5 text-dmk-gold" /> Auto-open next financial year
+            </p>
+            <p className="text-[10.5px] leading-relaxed text-dmk-text-muted mt-1">
+              ON — the next year's books open themselves on 1 April. OFF — every section locks after
+              31 March until you open the new year from the FY menu.
+            </p>
+          </div>
+          <Switch
+            checked={autoCreateFy}
+            onCheckedChange={setAutoCreateFy}
+            aria-label="Auto-open next financial year on 1 April"
+          />
+        </div>
 
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={saving}>

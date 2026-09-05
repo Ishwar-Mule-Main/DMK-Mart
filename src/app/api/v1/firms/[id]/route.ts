@@ -8,6 +8,7 @@ import {
   BusinessError,
   asRecord,
   getStr,
+  getBool,
   handleApiError,
   ok,
 } from "@/app/api/v1/_lib/api";
@@ -77,6 +78,10 @@ export async function PATCH(
       if (body[field] !== undefined) {
         data[field] = getStr(body[field]);
       }
+    }
+    // autoCreateFy is the one boolean PATCH field (1-Apr auto-open toggle)
+    if (body.autoCreateFy !== undefined) {
+      (data as Record<string, unknown>).autoCreateFy = getBool(body.autoCreateFy);
     }
     if (data.gstin && /^\d{2}/.test(data.gstin) && !body.stateCode) {
       data.stateCode = data.gstin.slice(0, 2);

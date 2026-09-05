@@ -81,6 +81,13 @@ function fyStartISO(fy: string): string {
   return `${y}-04-01`;
 }
 
+/** As-of date for cumulative statements: the selected FY's 31 Mar, capped at today. */
+function fyAsOfISO(fy: string): string {
+  const fyEnd = `${parseInt(fy.slice(0, 4), 10) + 1}-03-31`;
+  const today = toISODate(new Date());
+  return fyEnd < today ? fyEnd : today;
+}
+
 function VerdictBanner({ balanced, drText, crText }: { balanced: boolean; drText: string; crText: string }) {
   return (
     <div
@@ -135,8 +142,10 @@ export default function StatementsView() {
 
 function TrialBalanceTab() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const financialYear = useErpStore((s) => s.financialYear);
   const { toast } = useToast();
-  const [asOf, setAsOf] = React.useState(() => toISODate(new Date()));
+  // Cumulative books as of the SELECTED year's 31 Mar (today for the current year)
+  const [asOf, setAsOf] = React.useState(() => fyAsOfISO(financialYear || "2026-27"));
   const [data, setData] = React.useState<TbResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -320,13 +329,16 @@ function PnlTab() {
   // firm's default when the store hasn't hydrated) and re-anchors when the
   // selection changes. Hand-edited dates still win until the next FY switch.
   const [dateFrom, setDateFrom] = React.useState(() => fyStartISO(financialYear || "2025-26"));
-  const [dateTo, setDateTo] = React.useState(() => toISODate(new Date()));
+  const [dateTo, setDateTo] = React.useState(() => fyAsOfISO(financialYear || "2025-26"));
   const [data, setData] = React.useState<PnlResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (financialYear) setDateFrom(fyStartISO(financialYear));
+    if (financialYear) {
+      setDateFrom(fyStartISO(financialYear));
+      setDateTo(fyAsOfISO(financialYear));
+    }
   }, [financialYear]);
 
   React.useEffect(() => {
@@ -506,8 +518,9 @@ function BsSection({ title, rows, total, tone }: { title: string; rows: BsRow[];
 
 function BalanceSheetTab() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const financialYearBS = useErpStore((s) => s.financialYear);
   const { toast } = useToast();
-  const [asOf, setAsOf] = React.useState(() => toISODate(new Date()));
+  const [asOf, setAsOf] = React.useState(() => fyAsOfISO(financialYearBS || "2026-27"));
   const [data, setData] = React.useState<BsResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);

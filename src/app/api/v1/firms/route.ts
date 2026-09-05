@@ -36,6 +36,7 @@ export async function GET() {
         bankAccount: true,
         ifsc: true,
         financialYear: true,
+        autoCreateFy: true,
         invoicePrefix: true,
         logoUrl: true,
         openingCash: true,
