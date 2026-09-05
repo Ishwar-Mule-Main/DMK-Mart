@@ -863,3 +863,21 @@ Stage Summary:
 - README.md is the single onboarding document for humans AND AI agents: local dev, VPS with HTTPS, Docker, cloud web platforms, and AI-tool workflows are each a numbered step-by-step path verified against the actual scripts/config in this repo.
 - Dev server restarted (was down) and health-checked: / returns 200, /api/v1/dashboard correctly responds with ERR_VALIDATION without firmId.
 - Pending backlog unchanged: verification request assignment (assignedToId), team-portal toast/sound on new PO, GRN print at acceptance, refund/settlement mode on CN/DN print documents, FY-close wizard, plus Tasks A–D (sundry, container-fit audit, header redesign, FY data audit) and E–F (products Excel import, FY demo data + lifecycle) from the earlier request.
+
+---
+Task ID: 40
+Agent: Z.ai Code (main)
+Task: Recommend and add LICENSE + other standard repository files; answer whether env data is needed
+
+Work Log:
+- Verified the AI SDK's real credential mechanism before answering: z-ai-web-dev-sdk reads a `.z-ai-config` JSON (baseUrl incl. /v1 + apiKey) searched in ./, ~/., /etc/ — NOT env vars. So the only required env var for the whole app is DATABASE_URL (SQLite absolute path); PORT/HOSTNAME/NODE_ENV are optional production settings.
+- Created 11 files: LICENSE (MIT, © 2026 DMK Mart ERP — Kunal); .env.example (DATABASE_URL required + optional PORT/HOSTNAME/NODE_ENV + AI note); .z-ai-config.example (AI copilot credential template); Dockerfile (3-stage Bun build, dummy DATABASE_URL for prisma generate at build time, CMD runs `prisma db push` then standalone server, VOLUME /data); docker-compose.yml (erp-data volume, port 3000, restart policy, bun-based healthcheck); .dockerignore (excludes node_modules/.next/.env/.z-ai-config/db/logs/upload/.brain); CHANGELOG.md (Keep a Changelog: 0.2.1 dated 2026-09-05 + 0.2.0 feature history + Unreleased/planned backlog); CONTRIBUTING.md (setup, 6 non-negotiable ground rules incl. balanced journals + firmId isolation + dual stock pools, code style, PR checklist, commit conventions); SECURITY.md (private reporting path, auth model disclosure — single fixed username, password-identifies-account, no RBAC — deployment hardening checklist, known limitations incl. no login rate limiting and AI snapshot provider trust); CODE_OF_CONDUCT.md (Contributor Covenant 2.1 adapted); .editorconfig.
+- SECURITY FIX discovered during verification: `.env` and `db/custom.db` were ALREADY TRACKED in git (committed before ignore rules; tracked files bypass gitignore) — the real database and local env would have been pushed to any remote. Fixed with `git rm --cached .env db/custom.db` (local files kept), added `db/*.db` + `db/*.db-journal` + `!.env.example` to .gitignore, verified via git check-ignore (env matched by .env*, db by db/*.db, .env.example exempt).
+- Committed everything as 0bb4bcd "docs: add LICENSE, env/AI config templates, Docker deployment, changelog, contributing/security/CoC guides; untrack .env and db/custom.db" (no remote configured — local commit only).
+- Updated README.md: Step 3 now uses `cp .env.example .env`; Docker section rewritten around the shipped Dockerfile/compose (review → build&run → verify&harden) instead of "create a file"; Environment Variables section now leads with the short answer ("only DATABASE_URL") + .z-ai-config instructions; new "Repository Files" table mapping every doc file to its purpose.
+- No application code touched; dev server unaffected.
+
+Stage Summary:
+- Repo now has the complete open-source hygiene set: LICENSE, CHANGELOG, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, .editorconfig, .env.example, .z-ai-config.example, Dockerfile, docker-compose.yml, .dockerignore — all cross-referenced from README.
+- Env question answered definitively: DATABASE_URL is the only required env var; AI copilot uses a .z-ai-config file instead; .env/.z-ai-config/db files must never be committed (now enforced by gitignore AND untracked).
+- Sensitive-file leak risk closed (env + live database were previously in the git index).
