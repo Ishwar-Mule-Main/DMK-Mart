@@ -448,7 +448,7 @@ export default function ReportsView() {
               size="sm"
               onClick={exportCsv}
               disabled={!data || loading}
-              className="h-9 gap-2 bg-dmk-yellow text-[12.5px] font-semibold text-white hover:bg-dmk-yellow/85"
+              className="h-9 gap-2 bg-dmk-yellow text-[12.5px] font-semibold text-[#0A0F1D] hover:bg-dmk-yellow/85"
             >
               <Download className="h-3.5 w-3.5" /> Export CSV
             </Button>

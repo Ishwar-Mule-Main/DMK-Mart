@@ -249,7 +249,7 @@ export default function SettingsView() {
             <Button
               size="sm"
               onClick={() => setCreateOpen(true)}
-              className="h-9 gap-2 bg-dmk-yellow text-[12.5px] font-semibold text-white hover:bg-dmk-yellow/85"
+              className="h-9 gap-2 bg-dmk-yellow text-[12.5px] font-semibold text-[#0A0F1D] hover:bg-dmk-yellow/85"
             >
               <Plus className="h-4 w-4" /> Create New Firm
             </Button>
@@ -1071,7 +1071,7 @@ function RestoreCard() {
             <Button
               onClick={() => void runRestore()}
               disabled={restoring || blocked || !confirmed}
-              className="h-9 gap-2 bg-dmk-gold text-[12.5px] font-bold text-[#1a1d29] hover:bg-dmk-gold/85 disabled:opacity-40 sm:ml-auto"
+              className="h-9 gap-2 bg-dmk-gold text-[12.5px] font-bold text-[#0A0F1D] hover:bg-dmk-gold/85 disabled:opacity-40 sm:ml-auto"
             >
               {restoring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArchiveRestore className="h-3.5 w-3.5" />}
               {restoring ? "Restoring…" : `Restore ${preview.totalRecords} records`}
@@ -1329,7 +1329,7 @@ function FirmDialog({
           <Button
             onClick={() => void save()}
             disabled={saving || (mode === "create" ? !createValid : !editValid)}
-            className="h-9 gap-2 bg-dmk-yellow text-white hover:bg-dmk-yellow/85 disabled:opacity-40"
+            className="h-9 gap-2 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/85 disabled:opacity-40"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {mode === "create" ? "Create Firm" : "Save Changes"}

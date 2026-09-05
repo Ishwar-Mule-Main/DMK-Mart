@@ -729,7 +729,7 @@ function ReorderAssistDialog({
                   useErpStore.getState().setView("purchase/orders");
                   onOpenChange(false);
                 }}
-                className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/85"
+                className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/85"
               >
                 View Purchase Orders
               </Button>
@@ -835,7 +835,7 @@ function ReorderAssistDialog({
                 Cancel
               </Button>
               {phase === "creating" ? (
-                <Button disabled className="h-9 gap-2 bg-dmk-yellow text-white">
+                <Button disabled className="h-9 gap-2 bg-dmk-yellow text-[#0A0F1D]">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   {progressText || "Creating draft POs…"}
                 </Button>
@@ -843,7 +843,7 @@ function ReorderAssistDialog({
                 <Button
                   onClick={() => void createDraftPos()}
                   disabled={vendoredRows.length === 0}
-                  className="h-9 gap-2 bg-dmk-yellow text-white hover:bg-dmk-yellow/85"
+                  className="h-9 gap-2 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/85"
                 >
                   <ClipboardList className="h-3.5 w-3.5" />
                   Create draft POs (by vendor)

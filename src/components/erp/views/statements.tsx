@@ -414,7 +414,7 @@ function PnlTab() {
       ) : !data ? (
         <EmptyState icon={BarChart3} title="P&L unavailable" hint="Adjust the period and try again." />
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 lg:items-stretch">
           {/* Vertical statement */}
           <div className="dmk-card p-5 space-y-0.5">
             <div className="flex items-center justify-between pb-3 border-b border-dmk-border-subtle">
@@ -446,7 +446,7 @@ function PnlTab() {
           </div>
 
           {/* Net profit card */}
-          <div className="dmk-elevated p-6 flex flex-col items-center justify-center gap-3 lg:sticky lg:top-4">
+          <div className="dmk-elevated p-6 flex flex-col items-center justify-center gap-3">
             <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net Profit</span>
             <span
               className={cn(
@@ -485,9 +485,9 @@ function PnlTab() {
 // ═══════════════════════════════════════════════════════════════
 
 // Balance-sheet section card — hoisted (static component, react-compiler safe)
-function BsSection({ title, rows, total, tone }: { title: string; rows: BsRow[]; total: number; tone: string }) {
+function BsSection({ title, rows, total, tone, className }: { title: string; rows: BsRow[]; total: number; tone: string; className?: string }) {
   return (
-    <div className="dmk-card p-4">
+    <div className={cn("dmk-card p-4", className)}>
       <h3 className="text-[13px] font-bold uppercase tracking-wider text-dmk-text-secondary pb-2.5 border-b border-dmk-border-subtle">
         {title}
       </h3>
@@ -604,12 +604,12 @@ function BalanceSheetTab() {
         <EmptyState icon={Scale} title="Balance sheet unavailable" hint="Adjust the as-of date and try again." />
       ) : (
         <>
-          {/* Two-column responsive: stacks on mobile */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          {/* Two-column responsive: stacks on mobile · stretches level on desktop */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:items-stretch">
             <BsSection title="Assets" rows={data.assets} total={data.totals.assets} tone="text-dmk-yellow" />
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
               <BsSection title="Liabilities" rows={data.liabilities} total={data.totals.liabilities} tone="text-dmk-info" />
-              <BsSection title="Equity" rows={data.equity} total={data.totals.equity} tone="text-dmk-success" />
+              <BsSection title="Equity" rows={data.equity} total={data.totals.equity} tone="text-dmk-success" className="lg:flex-1" />
             </div>
           </div>
 

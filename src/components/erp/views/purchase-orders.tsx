@@ -263,7 +263,7 @@ export default function PurchaseOrdersView() {
         actions={
           <Button
             size="sm"
-            className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+            className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
             onClick={() => setView("purchase/new-order")}
           >
             <Plus className="h-4 w-4" /> New PO
@@ -921,7 +921,7 @@ function PoFormDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+          <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
             {editing ? "Save changes" : "Create PO"}
           </Button>
         </DialogFooter>

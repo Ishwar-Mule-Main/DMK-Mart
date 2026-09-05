@@ -133,7 +133,7 @@ function B2BTab() {
         </div>
         <Button
           size="sm"
-          className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+          className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
           onClick={() => {
             setEditing(null);
             setEditOpen(true);
@@ -408,7 +408,7 @@ function B2BFormDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />} {editing ? "Save changes" : "Create customer"}
           </Button>
         </DialogFooter>
@@ -538,7 +538,7 @@ function B2CTab() {
           <SearchInput value={query} onChange={setQuery} placeholder="Search buyers by name or phone…" className="pl-9" />
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
         </div>
-        <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setAddOpen(true)}>
+        <Button size="sm" className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={() => setAddOpen(true)}>
           <Plus className="h-4 w-4" /> New Buyer
         </Button>
       </div>
@@ -642,7 +642,7 @@ function NewBuyerDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />} Add buyer
           </Button>
         </DialogFooter>

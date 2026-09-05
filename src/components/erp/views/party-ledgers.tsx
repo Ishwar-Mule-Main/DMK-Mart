@@ -1139,7 +1139,7 @@ function StatementPrintDialog({
             >
               <X className="h-4 w-4" /> Close
             </Button>
-            <Button onClick={printA4} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+            <Button onClick={printA4} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
               <Printer className="h-4 w-4" /> Print statement
             </Button>
           </div>
@@ -1233,7 +1233,7 @@ function BatchPrintDialog({
               >
                 <X className="h-4 w-4" /> Close
               </Button>
-              <Button onClick={printA4} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+              <Button onClick={printA4} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
                 <Printer className="h-4 w-4" /> Print {sheets.length} pages
               </Button>
             </span>

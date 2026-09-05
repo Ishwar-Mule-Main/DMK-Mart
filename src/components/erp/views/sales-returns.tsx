@@ -213,7 +213,7 @@ export default function SalesReturnsView() {
             <Button
               size="sm"
               aria-expanded={newOpen}
-              className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+              className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
               onClick={() => setNewOpen((o) => !o)}
             >
               {newOpen ? (
@@ -440,7 +440,6 @@ function NewReturnPanel({
   const [customerId, setCustomerId] = React.useState("");
   const [invoiceId, setInvoiceId] = React.useState("");
   const [custInvoices, setCustInvoices] = React.useState<Invoice[]>([]);
-  const [invoiceSort, setInvoiceSort] = React.useState<"recent" | "oldest">("recent");
   const [invLoading, setInvLoading] = React.useState(false);
   const [refundMode, setRefundMode] = React.useState<RefundMode>("CREDIT");
   const [returnDate, setReturnDate] = React.useState(toISODate(new Date()));
@@ -497,16 +496,17 @@ function NewReturnPanel({
     };
   }, [customerId, activeFirmId]);
 
-  // Recent-first by default, flip with the sort toggle
+  // Newest invoices first — automatic, no toggle (new returns usually
+  // reference the most recent invoices)
   const sortedInvoices = React.useMemo(() => {
     const arr = [...custInvoices];
     arr.sort((a, b) => {
       const da = new Date(a.invoiceDate).getTime() || 0;
       const dbb = new Date(b.invoiceDate).getTime() || 0;
-      return invoiceSort === "recent" ? dbb - da : da - dbb;
+      return dbb - da;
     });
     return arr;
-  }, [custInvoices, invoiceSort]);
+  }, [custInvoices]);
 
   // Selecting an invoice auto-loads its products at the INVOICED pricing —
   // every row starts with damaged qty 0 (not returned) until typed in.
@@ -669,35 +669,22 @@ function NewReturnPanel({
             </p>
           </Field>
           <Field label="Customer invoices">
-            <div className="flex gap-1.5">
-              <Select value={invoiceId} onValueChange={setInvoiceId} disabled={!customerId}>
-                <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder={customerId ? "Pick an invoice…" : "Pick a customer first"} /></SelectTrigger>
-                <SelectContent className="max-h-64">
-                  {sortedInvoices.length === 0 ? (
-                    <SelectItem value="none" disabled>No invoices for this customer</SelectItem>
-                  ) : (
-                    sortedInvoices.map((i) => (
-                      <SelectItem key={i.id} value={i.id}>
-                        <span className="font-money">{i.invoiceNumber}</span> · {formatDate(i.invoiceDate)} · {formatINR(Number(i.grandTotal))}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-9 shrink-0 border-dmk-border-subtle px-2 text-[11px] text-dmk-text-secondary hover:bg-dmk-hover"
-                onClick={() => setInvoiceSort((s) => (s === "recent" ? "oldest" : "recent"))}
-                disabled={!customerId || sortedInvoices.length < 2}
-                title="Toggle invoice sort order"
-              >
-                {invoiceSort === "recent" ? "Newest ↓" : "Oldest ↑"}
-              </Button>
-            </div>
+            <Select value={invoiceId} onValueChange={setInvoiceId} disabled={!customerId}>
+              <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder={customerId ? "Pick an invoice…" : "Pick a customer first"} /></SelectTrigger>
+              <SelectContent className="max-h-64">
+                {sortedInvoices.length === 0 ? (
+                  <SelectItem value="none" disabled>No invoices for this customer</SelectItem>
+                ) : (
+                  sortedInvoices.map((i) => (
+                    <SelectItem key={i.id} value={i.id}>
+                      <span className="font-money">{i.invoiceNumber}</span> · {formatDate(i.invoiceDate)} · {formatINR(Number(i.grandTotal))}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
             <p className="mt-1 text-[11px] leading-tight text-dmk-text-muted">
-              Recent invoices first — picking one loads its products &amp; prices below.
+              Newest invoices first — picking one loads its products &amp; prices below.
             </p>
           </Field>
           <Field label="Return date">
@@ -715,7 +702,7 @@ function NewReturnPanel({
                   className={cn(
                     "h-9 rounded-md border px-1 text-[11px] font-medium leading-tight transition-colors",
                     refundMode === m.value
-                      ? "border-dmk-yellow bg-dmk-yellow text-white shadow-sm"
+                      ? "border-dmk-yellow bg-dmk-yellow text-[#0A0F1D] shadow-sm"
                       : "border-dmk-border-medium bg-transparent text-dmk-text-secondary hover:bg-dmk-hover",
                   )}
                 >
@@ -892,7 +879,7 @@ function NewReturnPanel({
         {/* Panel footer actions */}
         <div className="flex items-center justify-end gap-2 border-t border-dmk-border-subtle pt-3">
           <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
-          <Button onClick={submit} disabled={saving || returnRows.length === 0 || overQtyRows.length > 0} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+          <Button onClick={submit} disabled={saving || returnRows.length === 0 || overQtyRows.length > 0} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
             {saving ? "Posting…" : returnRows.length > 0 ? `Create credit note · ${returnRows.length} item${returnRows.length === 1 ? "" : "s"}` : "Create credit note"}
           </Button>
         </div>

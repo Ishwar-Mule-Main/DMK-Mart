@@ -231,7 +231,7 @@ export default function JournalsView() {
               size="sm"
               onClick={() => setDialogOpen(true)}
               disabled={!activeFirmId}
-              className="h-9 gap-2 bg-dmk-yellow text-[12.5px] font-semibold text-white hover:bg-dmk-yellow/85"
+              className="h-9 gap-2 bg-dmk-yellow text-[12.5px] font-semibold text-[#0A0F1D] hover:bg-dmk-yellow/85"
             >
               <Plus className="h-4 w-4" /> New Journal
             </Button>
@@ -294,7 +294,7 @@ export default function JournalsView() {
             <Button
               size="sm"
               onClick={() => setDialogOpen(true)}
-              className="h-9 gap-2 bg-dmk-yellow text-white hover:bg-dmk-yellow/85"
+              className="h-9 gap-2 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/85"
             >
               <Plus className="h-4 w-4" /> New Journal
             </Button>
@@ -689,7 +689,7 @@ function NewJournalDialog({
           <Button
             onClick={save}
             disabled={!balanced || saving}
-            className="h-9 gap-2 bg-dmk-yellow text-white hover:bg-dmk-yellow/85 disabled:opacity-40"
+            className="h-9 gap-2 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/85 disabled:opacity-40"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Post Voucher

@@ -336,12 +336,14 @@ export default function NewPurchaseOrderView() {
         }
       />
 
-      {/* 30/70 layout mirroring Sales billing — LEFT 30%: vendor (top) + PO summary (bottom) · RIGHT 70%: product search (top) + lines (below) */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,30%)_1fr] gap-4 items-start">
-        {/* ══════════ LEFT 30% — VENDOR (top) + PO SUMMARY (bottom) · sticky ══════════ */}
-        <div className="space-y-4 min-w-0 lg:sticky lg:top-20">
-          {/* Vendor picker */}
-          <div className="dmk-card p-4 space-y-3">
+      {/* 30/70 PO workspace — 2×2 grid on desktop so BOTH rows stretch:
+          row 1 = vendor | product search · row 2 = PO summary | lines.
+          Every card's bottom lands on the same level on laptop/desktop;
+          tablet/mobile stack in one auto column. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,30%)_1fr] lg:grid-rows-[auto_minmax(0,1fr)] gap-4 lg:h-[calc(100vh-13rem)]">
+        {/* ══════════ LEFT 30% — VENDOR (top) + PO SUMMARY (bottom) ══════════ */}
+        {/* Vendor picker */}
+        <div className="dmk-card p-4 space-y-3 min-w-0 lg:col-start-1 lg:row-start-1">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Vendor / Manufacturer</span>
               <Button
@@ -488,7 +490,7 @@ export default function NewPurchaseOrderView() {
           </div>
 
           {/* PO summary — bottom of the LEFT 30% pane (below vendor) */}
-          <div className="dmk-elevated p-5 space-y-4">
+          <div className="dmk-elevated p-5 space-y-4 min-w-0 lg:col-start-1 lg:row-start-2 lg:overflow-y-auto">
             <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">PO summary</span>
 
             <div className="space-y-2">
@@ -544,7 +546,7 @@ export default function NewPurchaseOrderView() {
             </div>
 
             <Button
-              className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+              className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
               onClick={createPo}
               disabled={!canSave || submitting}
             >
@@ -555,12 +557,9 @@ export default function NewPurchaseOrderView() {
             {vendor && lines.length === 0 && <p className="text-[11px] text-dmk-text-muted text-center">Add at least one product line</p>}
           </div>
 
-        </div>
-
         {/* ══════════ RIGHT 70% — PRODUCT SEARCH (top) + LINES (below) ══════════ */}
-        <div className="space-y-4 min-w-0">
-          {/* Product picker — vendor-scoped */}
-          <div className="dmk-card p-4 space-y-3">
+        {/* Product picker — vendor-scoped */}
+        <div className="dmk-card p-4 space-y-3 min-w-0 lg:col-start-2 lg:row-start-1">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Add products</span>
               {vendor && (
@@ -638,8 +637,8 @@ export default function NewPurchaseOrderView() {
           </div>
 
           {/* Lines table */}
-          <div className="dmk-card overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="dmk-card overflow-hidden min-w-0 lg:col-start-2 lg:row-start-2 flex flex-col min-h-0">
+            <div className="overflow-auto flex-1 min-h-0">
               {lines.length === 0 ? (
                 <EmptyState
                   icon={ShoppingCart}
@@ -719,7 +718,6 @@ export default function NewPurchaseOrderView() {
               )}
             </div>
           </div>
-        </div>
 
       </div>
 
@@ -762,7 +760,7 @@ export default function NewPurchaseOrderView() {
             >
               <ShieldCheck className="h-4 w-4" /> Open verification cockpit
             </Button>
-            <Button className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setSuccessOpen(false)}>
+            <Button className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={() => setSuccessOpen(false)}>
               Create another PO
             </Button>
           </DialogFooter>

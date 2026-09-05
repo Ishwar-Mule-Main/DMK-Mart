@@ -429,7 +429,7 @@ export default function InvoiceRegisterView() {
             >
               <FileText className="h-4 w-4" /> Open A4
             </Button>
-            <Button onClick={() => setDetailOpen(false)} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">Close</Button>
+            <Button onClick={() => setDetailOpen(false)} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

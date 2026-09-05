@@ -365,12 +365,14 @@ export default function BillingView() {
         }
       />
 
-      {/* ── 30/70 billing layout — LEFT 30%: customer (top) + payment summary (bottom) · RIGHT 70%: product search (top) + cart (below) ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,30%)_1fr] gap-4 items-start">
+      {/* ── 30/70 billing workspace — 2×2 grid on desktop so BOTH rows stretch:
+          row 1 = customer | product search · row 2 = invoice summary | cart.
+          Every card's bottom lands on the same level on laptop/desktop;
+          tablet/mobile stack in one auto column. ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,30%)_1fr] lg:grid-rows-[auto_minmax(0,1fr)] gap-4 lg:h-[calc(100vh-13rem)]">
         {/* ══════════ LEFT 30% — CUSTOMER (top) + PAYMENT SUMMARY (bottom) ══════════ */}
-        <div className="space-y-4 min-w-0 lg:sticky lg:top-20">
-          {/* Customer picker */}
-          <div className="dmk-card p-4 space-y-3">
+        {/* Customer picker */}
+        <div className="dmk-card p-4 space-y-3 min-w-0 lg:col-start-1 lg:row-start-1">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Customer</span>
               <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setNewCustOpen(true)}>
@@ -508,8 +510,8 @@ export default function BillingView() {
             )}
           </div>
 
-          {/* Payment summary — bottom of the LEFT 30% pane (below customer) */}
-          <div className="dmk-elevated p-5 space-y-4">
+        {/* Payment summary — bottom of the LEFT 30% pane (below customer) */}
+        <div className="dmk-elevated p-5 space-y-4 min-w-0 lg:col-start-1 lg:row-start-2 lg:overflow-y-auto">
             <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Invoice summary</span>
 
             <div className="space-y-2">
@@ -580,7 +582,7 @@ export default function BillingView() {
             )}
 
             <Button
-              className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+              className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
               onClick={confirmSale}
               disabled={!customer || lines.length === 0 || submitting}
             >
@@ -590,12 +592,9 @@ export default function BillingView() {
             {!customer && <p className="text-[11px] text-dmk-text-muted text-center">Select a B2B customer to enable billing</p>}
           </div>
 
-        </div>
-
         {/* ══════════ RIGHT 70% — PRODUCT SEARCH (top) + CART (below) ══════════ */}
-        <div className="space-y-4 min-w-0">
-          {/* Product typeahead */}
-          <div className="dmk-card p-4 space-y-3">
+        {/* Product typeahead */}
+        <div className="dmk-card p-4 space-y-3 min-w-0 lg:col-start-2 lg:row-start-1">
             <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Add products</span>
             <div className="relative">
               <Input
@@ -654,9 +653,9 @@ export default function BillingView() {
             </div>
           </div>
 
-          {/* Cart table */}
-          <div className="dmk-card overflow-hidden">
-            <div className="overflow-x-auto">
+        {/* Cart table */}
+        <div className="dmk-card overflow-hidden min-w-0 lg:col-start-2 lg:row-start-2 flex flex-col min-h-0">
+          <div className="overflow-auto flex-1 min-h-0">
               {lines.length === 0 ? (
                 <EmptyState
                   icon={ShoppingCart}
@@ -746,7 +745,6 @@ export default function BillingView() {
                   </tbody>
                 </table>
               )}
-            </div>
           </div>
         </div>
 
@@ -799,7 +797,7 @@ export default function BillingView() {
             >
               <FileText className="h-4 w-4" /> View A4 document
             </Button>
-            <Button className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setSuccessOpen(false)}>
+            <Button className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={() => setSuccessOpen(false)}>
               New sale
             </Button>
           </DialogFooter>
@@ -933,7 +931,7 @@ function NewCustomerDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create customer
           </Button>
         </DialogFooter>

@@ -285,7 +285,7 @@ export default function B2CCounterView() {
 
         {/* ══════════ POS TAB ══════════ */}
         <TabsContent value="pos" className="mt-0 space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-4 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-4 lg:items-stretch">
             <div className="space-y-4 min-w-0">
               {/* Buyer picker */}
               <div className="dmk-card p-4 space-y-3">
@@ -481,9 +481,9 @@ export default function B2CCounterView() {
               </div>
             </div>
 
-            {/* Summary — instant payment only */}
-            <div className="lg:sticky lg:top-20 space-y-4">
-              <div className="dmk-elevated p-5 space-y-4">
+            {/* Summary — instant payment only (stretches to match the POS column on desktop) */}
+            <div className="space-y-4 min-w-0 lg:h-full lg:flex lg:flex-col">
+              <div className="dmk-elevated p-5 space-y-4 lg:flex-1 lg:flex lg:flex-col">
                 <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Receipt summary</span>
                 <div className="space-y-2">
                   <div className="flex justify-between text-[13px]">
@@ -548,8 +548,10 @@ export default function B2CCounterView() {
                   </div>
                 </div>
 
+                <div className="flex-1" aria-hidden="true" />
+
                 <Button
-                  className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+                  className="w-full h-11 text-[14px] font-semibold bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
                   onClick={confirmSale}
                   disabled={lines.length === 0 || submitting}
                 >
@@ -598,7 +600,7 @@ export default function B2CCounterView() {
             </div>
           )}
           <DialogFooter>
-            <Button className="w-full bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setSuccessOpen(false)}>Next sale</Button>
+            <Button className="w-full bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={() => setSuccessOpen(false)}>Next sale</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -655,7 +657,7 @@ function BuyersDirectory({ onNew }: { onNew: () => void }) {
           <SearchInput value={query} onChange={setQuery} placeholder="Search buyers by name or phone…" className="pl-9" />
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
         </div>
-        <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={onNew}>
+        <Button size="sm" className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={onNew}>
           <UserPlus className="h-4 w-4" /> New Buyer
         </Button>
       </div>
@@ -826,7 +828,7 @@ function NewBuyerDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add buyer
           </Button>
         </DialogFooter>

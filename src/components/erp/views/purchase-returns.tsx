@@ -181,7 +181,7 @@ export default function PurchaseReturnsView() {
           <Button
             size="sm"
             aria-expanded={newOpen}
-            className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+            className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
             onClick={() => setNewOpen((o) => !o)}
           >
             {newOpen ? (
@@ -372,7 +372,6 @@ function NewDebitNotePanel({
   const [vendorId, setVendorId] = React.useState("NONE");
   const [poId, setPoId] = React.useState("NONE");
   const [poOptions, setPoOptions] = React.useState<PoLite[]>([]);
-  const [poSort, setPoSort] = React.useState<"recent" | "oldest">("recent");
   const [settlementMode, setSettlementMode] = React.useState<SettlementMode>("CREDIT");
   const [returnDate, setReturnDate] = React.useState(toISODate(new Date()));
   const [lines, setLines] = React.useState<DnLine[]>([]);
@@ -418,16 +417,17 @@ function NewDebitNotePanel({
     };
   }, [activeFirmId, vendorId]);
 
-  // Recent POs first, flip with the sort toggle
+  // Newest POs first — automatic, no toggle (fresh bills are usually
+  // returned to the vendor first)
   const sortedPoOptions = React.useMemo(() => {
     const arr = [...poOptions];
     arr.sort((a, b) => {
       const da = new Date(a.poDate).getTime() || 0;
       const dbb = new Date(b.poDate).getTime() || 0;
-      return poSort === "recent" ? dbb - da : da - dbb;
+      return dbb - da;
     });
     return arr;
-  }, [poOptions, poSort]);
+  }, [poOptions]);
 
   // Selecting a PO auto-loads its lines at the PO prices — every row
   // starts with damaged qty 0 (not returned) until typed in.
@@ -601,38 +601,25 @@ function NewDebitNotePanel({
           </Field>
 
           <Field label="Vendor invoices (confirmed POs)">
-            <div className="flex gap-1.5">
-              <Select
-                value={poId}
-                onValueChange={setPoId}
-                disabled={vendorId === "NONE"}
-              >
-                <SelectTrigger className={cn(inputCls, "w-full")}>
-                  <SelectValue placeholder={vendorId === "NONE" ? "Pick a vendor first" : "Pick a PO — loads its products"} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="NONE">— None —</SelectItem>
-                  {sortedPoOptions.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.poNumber} · {formatDate(p.poDate)} · {formatINR(Number(p.grandTotal))}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-9 shrink-0 border-dmk-border-subtle px-2 text-[11px] text-dmk-text-secondary hover:bg-dmk-hover"
-                onClick={() => setPoSort((s) => (s === "recent" ? "oldest" : "recent"))}
-                disabled={vendorId === "NONE" || sortedPoOptions.length < 2}
-                title="Toggle PO sort order"
-              >
-                {poSort === "recent" ? "Newest ↓" : "Oldest ↑"}
-              </Button>
-            </div>
+            <Select
+              value={poId}
+              onValueChange={setPoId}
+              disabled={vendorId === "NONE"}
+            >
+              <SelectTrigger className={cn(inputCls, "w-full")}>
+                <SelectValue placeholder={vendorId === "NONE" ? "Pick a vendor first" : "Pick a PO — loads its products"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="NONE">— None —</SelectItem>
+                {sortedPoOptions.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.poNumber} · {formatDate(p.poDate)} · {formatINR(Number(p.grandTotal))}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="mt-1 text-[11px] leading-tight text-dmk-text-muted">
-              Recent POs first — picking one loads its products &amp; PO prices below.
+              Newest POs first — picking one loads its products &amp; PO prices below.
             </p>
           </Field>
 
@@ -652,7 +639,7 @@ function NewDebitNotePanel({
                   className={cn(
                     "h-9 rounded-md border px-1 text-[11px] font-medium leading-tight transition-colors",
                     settlementMode === m.value
-                      ? "border-dmk-yellow bg-dmk-yellow text-white shadow-sm"
+                      ? "border-dmk-yellow bg-dmk-yellow text-[#0A0F1D] shadow-sm"
                       : "border-dmk-border-medium bg-transparent text-dmk-text-secondary hover:bg-dmk-hover",
                   )}
                 >
@@ -855,7 +842,7 @@ function NewDebitNotePanel({
           <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+          <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             {returnRows.length > 0 ? `Create debit note · ${returnRows.length} item${returnRows.length === 1 ? "" : "s"}` : "Create debit note"}
           </Button>

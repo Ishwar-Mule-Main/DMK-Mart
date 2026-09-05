@@ -293,7 +293,7 @@ export function Header() {
             >
               <Bell className="h-[18px] w-[18px]" strokeWidth={1.75} />
               {notifCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 rounded-full bg-dmk-yellow text-[9.5px] font-bold text-white flex items-center justify-center">
+                <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 rounded-full bg-dmk-yellow text-[9.5px] font-bold text-[#0A0F1D] flex items-center justify-center">
                   {notifCount > 9 ? "9+" : notifCount}
                 </span>
               )}

@@ -129,7 +129,7 @@ export default function VendorsView() {
         actions={
           <Button
             size="sm"
-            className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90"
+            className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
             onClick={() => {
               setEditing(null);
               setFormOpen(true);
@@ -510,7 +510,7 @@ function VendorFormDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+          <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             {editing ? "Save changes" : "Create vendor"}
           </Button>

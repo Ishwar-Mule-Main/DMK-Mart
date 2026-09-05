@@ -129,13 +129,16 @@ export default function ReceiptsView() {
   React.useEffect(() => {
     if (!activeFirmId) return;
     let alive = true;
+    // Re-runs on `refresh` too — after a receipt is recorded the party
+    // balances (closingBalance) must refresh so the account-limit strip
+    // and the per-customer Dr labels in the picker reflect the payment.
     apiGet<Customer[]>("/api/v1/customers", { firmId: activeFirmId, type: "B2B" })
       .then((res) => alive && setCustomers(res))
       .catch(() => alive && setCustomers([]));
     return () => {
       alive = false;
     };
-  }, [activeFirmId]);
+  }, [activeFirmId, refresh]);
 
   const customerMap = React.useMemo(() => new Map((customers ?? []).map((c) => [c.id, c])), [customers]);
 
@@ -198,7 +201,7 @@ export default function ReceiptsView() {
         subtitle="Collections against receivables — allocate to invoices for precise aging (R7)"
         icon={HandCoins}
         actions={
-          <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={() => setNewOpen(true)}>
+          <Button size="sm" className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={() => setNewOpen(true)}>
             <Plus className="h-4 w-4" /> Record Receipt
           </Button>
         }
@@ -806,7 +809,7 @@ function NewReceiptDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
-          <Button onClick={submit} disabled={saving || !customerId || overAllocated} className="bg-dmk-yellow text-white hover:bg-dmk-yellow/90">
+          <Button onClick={submit} disabled={saving || !customerId || overAllocated} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Record receipt
           </Button>
         </DialogFooter>

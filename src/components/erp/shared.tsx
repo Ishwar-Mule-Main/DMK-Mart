@@ -273,19 +273,24 @@ export function ErrorText({ children }: { children: React.ReactNode }) {
 
 // ═══════════════════════════════════════════════════════════════
 // MASONRY SECTION SYSTEM — shared by Sales Orders (register),
-// Sales Returns, Purchase Orders and Purchase Returns.
+// Sales Returns, Purchase Orders, Purchase Returns and Verification.
 // Every section renders the SAME 2-column masonry grid:
 //   left  = register list card (compact row-cards, scrollable)
 //   right = summary stack (uniform cards, natural heights)
-// items-start + uniform gap-4 + identical card anatomy = no
-// extra spacing and no mismatched heights between sections.
+// DESKTOP (xl+): both columns STRETCH to the same height — the register
+// card fills its column and the aside's LAST card absorbs any slack, so
+// the left card's bottom always lands on the right rail's last-card
+// level. TABLET/MOBILE (<xl): single column, fully auto heights.
 // ═══════════════════════════════════════════════════════════════
 
 export function SectionGrid({ list, aside }: { list: React.ReactNode; aside: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-      <div className="min-w-0">{list}</div>
-      <aside className="min-w-0 flex flex-col gap-4 [&>*]:min-w-0" aria-label="Section summary">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 xl:items-stretch">
+      <div className="min-w-0 flex flex-col [&>*]:flex-1">{list}</div>
+      <aside
+        className="min-w-0 flex flex-col gap-4 [&>*]:min-w-0 [&>*:last-child]:flex-1"
+        aria-label="Section summary"
+      >
         {aside}
       </aside>
     </div>
@@ -311,7 +316,7 @@ export function RegisterCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="dmk-card overflow-hidden flex flex-col">
+    <div className="dmk-card overflow-hidden flex flex-col h-full">
       <div className="px-4 pt-3.5 pb-3 space-y-2.5 border-b border-dmk-border-subtle">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
@@ -326,11 +331,11 @@ export function RegisterCard({
         </div>
         {filters && <div className="flex flex-col sm:flex-row gap-2">{filters}</div>}
       </div>
-      <div className="overflow-y-auto max-h-[calc(100vh-352px)] min-h-[360px] divide-y divide-dmk-border-subtle">
+      <div className="overflow-y-auto min-h-[360px] max-h-[calc(100vh-352px)] xl:flex-1 xl:min-h-0 divide-y divide-dmk-border-subtle">
         {children}
       </div>
       {footer && (
-        <div className="dmk-well px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-dmk-text-muted border-t border-dmk-border-subtle">
+        <div className="dmk-well px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-dmk-text-muted border-t border-dmk-border-subtle mt-auto">
           {footer}
         </div>
       )}

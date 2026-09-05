@@ -125,7 +125,7 @@ export default function InvoiceDocsView() {
                   </button>
                 ))}
               </div>
-              <Button size="sm" className="h-9 bg-dmk-yellow text-white hover:bg-dmk-yellow/90" onClick={printA4} disabled={!invoice}>
+              <Button size="sm" className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={printA4} disabled={!invoice}>
                 <Printer className="h-4 w-4" /> Print
               </Button>
             </div>
