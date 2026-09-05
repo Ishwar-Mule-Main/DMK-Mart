@@ -881,3 +881,25 @@ Stage Summary:
 - Repo now has the complete open-source hygiene set: LICENSE, CHANGELOG, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, .editorconfig, .env.example, .z-ai-config.example, Dockerfile, docker-compose.yml, .dockerignore — all cross-referenced from README.
 - Env question answered definitively: DATABASE_URL is the only required env var; AI copilot uses a .z-ai-config file instead; .env/.z-ai-config/db files must never be committed (now enforced by gitignore AND untracked).
 - Sensitive-file leak risk closed (env + live database were previously in the git index).
+
+---
+Task ID: 41
+Agent: Z.ai Code (main)
+Task: Wire the AI Copilot to OpenRouter (user-provided key) with model z-ai/glm-5.3-flash for self-hosted deployment
+
+Work Log:
+- Verified SDK mechanics before coding: z-ai-web-dev-sdk loadConfig() reads .z-ai-config from cwd → home → /etc (first match wins) and passes the WHOLE config through; createChatCompletion sends the caller's body as-is — the `model` field must be supplied by the route, not the config. SDK's CreateChatCompletionBody already types `model?: string`.
+- Validated the user's OpenRouter key: GET /models (found z-ai/glm-5.3-flash, ctx 1,310,720, $0.075/M prompt — near-free, not literally $0; the $0 option is z-ai/glm-5.2:free) and a live POST /chat/completions with the app's exact body shape (incl. thinking field — OpenRouter tolerates it) → 200, choices[0].message.content = "OPENROUTER OK".
+- Created .z-ai-config (project root, GITIGNORED — verified NOT committed): baseUrl https://openrouter.ai/api/v1, user's key, model z-ai/glm-5.3-flash. Project-level file shadows /etc sandbox config for this app only.
+- New src/app/api/v1/_lib/aiModel.ts — resolveAiModel(): AI_MODEL env → "model" field in .z-ai-config (same 3-path lookup as SDK) → undefined (sandbox gateway default, zero behavior change in sandbox). ai/chat route spreads `...(model ? { model } : {})` into the create body.
+- Updated .z-ai-config.example (OpenRouter + model template) and README env section (resolution order + JSON example).
+- GATES: bun run lint 0/0 · bunx tsc --noEmit 0.
+- E2E API test: POST /api/v1/ai/chat → ok:true, grounded reply (Cash ₹141,642.40 / Bank ₹443,822.48 / top debtor Hyderabad Vinayak ₹57,549) + receivables donut chart. OpenRouter key usage endpoint showed $0.000042 consumed — proving the request routed through OpenRouter.
+- Browser QA (Caddy :81, Kunal/1234): dashboard DMK AI Copilot → typed question → Send → user bubble + GLM reply rendered in message list; dev.log POST /api/v1/ai/chat 200 in 5.1s. Note: initial agent-browser click appeared inert (perf-entries buffer was full masking resource entries; later IIFE eval click worked cleanly) — flow verified end-to-end. Screenshot: qa-openrouter-copilot.png.
+- Committed b7da796 (aiModel.ts, route, README, example). SECRET SAFETY: .z-ai-config never staged (check-ignore verified); key lives only in the gitignored file.
+
+Stage Summary:
+- The copilot now runs on OpenRouter z-ai/glm-5.3-flash in this project; deploying elsewhere only requires copying .z-ai-config to the server root (it is intentionally NOT in git).
+- Model resolution is generic: any OpenAI-compatible provider works by editing .z-ai-config (or AI_MODEL env), incl. local Ollama.
+- Honest cost note for the user: glm-5.3-flash is ultra-cheap (~₹0.004/answer), not literally free-unlimited; switch model to "z-ai/glm-5.2:free" for a strictly $0 plan (daily rate caps apply).
+- Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
