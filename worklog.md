@@ -848,3 +848,18 @@ Stage Summary:
 - Return forms lost the cluttered sort toggle and now always surface the freshest invoices/POs first.
 - Recording receipts/payments immediately reflects in the party account balance strips and picker labels in both sections.
 - Suggested next cycle: verification request assignment (assignedToId), team-portal toast/sound on new PO, GRN print at acceptance, refund/settlement mode on CN/DN print documents, FY-close wizard.
+
+---
+Task ID: 39
+Agent: Z.ai Code (main)
+Task: Add a README file with step-by-step instructions to install the software on the web, with other AI tools, or on any server
+
+Work Log:
+- Gathered deployment-relevant facts from the codebase: package.json scripts (dev/build/start with standalone output + cp of static/public, db:push/generate/migrate/reset), next.config.ts `output: "standalone"`, .env shape (DATABASE_URL SQLite absolute path), prisma/schema.prisma (SQLite provider), db/custom.db location, runtime versions (bun 1.3.14 / node 24), auth model (owner username pinned "Kunal", password identifies the company account, demo 1234), seed route (idempotent, POST /api/v1/seed, skipped if any firm exists), register-firm flow (COA + opening capital journal), team portal at /team, and AI copilot backend usage of z-ai-web-dev-sdk (works in sandbox; self-hosted needs SDK credentials, everything else unaffected).
+- Wrote README.md (project root) with: feature matrix, tech stack, prerequisites (Bun/Node), 6-step local install (clone → install → .env with absolute DATABASE_URL → db:generate+db:push → dev server → lint/tsc), first-login & demo data (seed curl OR create-company-account), VPS deployment (Ubuntu: bun install, build, systemd unit + PM2 alternative, Nginx reverse proxy with WebSocket upgrade headers + client_max_body_size, Certbot HTTPS, Caddy alternative), Docker deployment (multi-stage Dockerfile with prisma db push on boot + docker-compose persistent volume for /data), cloud platforms (Vercel/Netlify SQLite caveat with Turso/Postgres option; Railway/Render/Fly persistent-volume recipe), AI-tools install/develop guide (Claude Code, Cursor/Windsurf, GitHub Copilot @workspace, Aider — with repo-specific tips: single `/` SPA, /api/v1 envelope, round2 + balanced-journal R6, AGENTS.md/.brain context files), environment variables table, scripts reference, API map + health check, project structure tree, troubleshooting table (P1003, port busy, seed-less login, upload size, serverless SQLite), and production security notes (change 1234 password, HTTPS, nightly sqlite .backup cron, ufw lockdown of :3000, /team allow-listing).
+- All content in English per standing rule; no application code touched.
+
+Stage Summary:
+- README.md is the single onboarding document for humans AND AI agents: local dev, VPS with HTTPS, Docker, cloud web platforms, and AI-tool workflows are each a numbered step-by-step path verified against the actual scripts/config in this repo.
+- Dev server restarted (was down) and health-checked: / returns 200, /api/v1/dashboard correctly responds with ERR_VALIDATION without firmId.
+- Pending backlog unchanged: verification request assignment (assignedToId), team-portal toast/sound on new PO, GRN print at acceptance, refund/settlement mode on CN/DN print documents, FY-close wizard, plus Tasks A–D (sundry, container-fit audit, header redesign, FY data audit) and E–F (products Excel import, FY demo data + lifecycle) from the earlier request.
