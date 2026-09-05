@@ -903,3 +903,29 @@ Stage Summary:
 - Model resolution is generic: any OpenAI-compatible provider works by editing .z-ai-config (or AI_MODEL env), incl. local Ollama.
 - Honest cost note for the user: glm-5.3-flash is ultra-cheap (~₹0.004/answer), not literally free-unlimited; switch model to "z-ai/glm-5.2:free" for a strictly $0 plan (daily rate caps apply).
 - Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
+
+---
+Task ID: 42
+Agent: Z.ai Code (main)
+Task: Reorganize the repository into a proper human-style folder structure (no code changes) and delete every QA screenshot
+
+Work Log:
+- Inventoried the root: found ~95 root qa-*.png, 23 cron-19-*.png, 24 .brain/*.png, 26 download/*.png (cycle18/qa20/qa21), stale tool-results/*.txt dumps, and scattered folders (upload/, .brain/, agent-ctx/, download/, tool-results/) — 159 PNGs were even COMMITTED to git outside public/.
+- SCREENSHOTS REMOVED (user request): every agent QA screenshot deleted from root, .brain/, download/ (rm + git rm; 210 staged deletions incl. stale tool-output dumps and the download/README.md dump marker). Only images left in git now: public/ app assets + docs/uploads/{DMK-1.png, user-reference-screenshot.png} (user-provided files, preserved).
+- NEW STRUCTURE (no src code touched — verified zero src references to old paths):
+  docs/blueprint/ ← upload/BluePrint.txt, BluePrint-Theoretical.txt (typo fixed), DMK-Mart-Multi-Entity-Architecture.pdf
+  docs/brain/ ← .brain/BRAIN.md, ROADMAP.md, reviews/REVIEW_DELIVERY_SPRINT.md
+  docs/dev-notes/ ← agent-ctx/3-a-full-stack-developer.md → fullstack-backend-build.md
+  docs/uploads/ ← user CSVs + reference images (renamed cleanly)
+  AGENTS.md → project ROOT (standard AI-tools convention)
+  .github/workflows/ci.yml (NEW) — bun install + db:generate + lint + tsc on push/PR
+  upload/ is a system MOUNT POINT (cannot be deleted) — emptied and fully untracked; download/, .brain/, agent-ctx/, tool-results/ folders removed entirely. tsconfig.tsbuildinfo cleared (regenerates).
+- NOTE for future agents: blueprint/brain docs moved from upload/ + .brain/ to docs/blueprint/ + docs/brain/ — update any new references accordingly (worklog history keeps old paths for historical entries).
+- Reference updates: README (AI-tools section, project-structure tree, repository-files table, footer links) and .dockerignore (docs excluded; old upload/.brain entries removed).
+- KEPT as-is: worklog.md at root (mandated agent handover path), Caddyfile (gateway), mini-services/, examples/websocket/, scripts/ (real backfill scripts), tests/ (sandbox runtime scripts), skills/ + .zscripts/ (sandbox infra, gitignored), dev.log (runtime, gitignored).
+- VERIFICATION: bun run lint 0/0 · bunx tsc --noEmit 0 · server 200 · dashboard API ok:true · browser smoke via :81 (logo + login render). Commits: 94bdc1a + 3a2a78b.
+
+Stage Summary:
+- Repository now has a professional human-style layout: root holds only build/config/doc entry points; all historical and reference material lives under docs/; AI-tool rules at root AGENTS.md; CI wired.
+- Zero screenshots remain anywhere in the repo (159 tracked + all untracked removed); no code files changed — app verified healthy end-to-end.
+- Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F (sundry, container fit, header, FY audit, products Excel import — note: the products template CSV now lives at docs/uploads/dmk-product-template.csv).
