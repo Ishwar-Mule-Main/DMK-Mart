@@ -13,10 +13,13 @@
 
 import * as React from "react";
 import {
+  Banknote,
+  BookUser,
   CheckCircle2,
   ClipboardList,
   Loader2,
   Plus,
+  ReceiptText,
   Search,
   ShieldCheck,
   ShoppingCart,
@@ -55,6 +58,20 @@ interface PoLine {
   gstRate: number;
   qty: string;
   cost: string;
+}
+
+// Sundry Creditor standing for the selected vendor (from /finance/sundry)
+interface SundryCreditorInfo {
+  ledgerBalance: number;
+  paymentTerms: string;
+  openPOCount: number;
+  openPOValue: number;
+  lastPayment: { date: string; amount: number; mode: string } | null;
+  lastActivity: string | null;
+}
+
+interface SundryCreditorResponse {
+  parties: SundryCreditorInfo[];
 }
 
 function round2(n: number): number {
@@ -108,6 +125,32 @@ export default function NewPurchaseOrderView() {
   const [vendorQuery, setVendorQuery] = React.useState("");
   const [vendorOpen, setVendorOpen] = React.useState(false);
   const [vendor, setVendor] = React.useState<Vendor | null>(null);
+
+  // ── Sundry Creditor standing (A/c 2000) for the selected vendor ──
+  const [sundryCreditor, setSundryCreditor] = React.useState<SundryCreditorInfo | null>(null);
+  const [sundryLoading, setSundryLoading] = React.useState(false);
+  const vendorId = vendor?.id ?? null;
+  React.useEffect(() => {
+    if (!activeFirmId || !vendorId) {
+      setSundryCreditor(null);
+      return;
+    }
+    let alive = true;
+    setSundryLoading(true);
+    apiGet<SundryCreditorResponse>("/api/v1/finance/sundry", { firmId: activeFirmId, type: "CREDITORS", partyId: vendorId })
+      .then((res) => {
+        if (alive) setSundryCreditor((res.parties?.[0] as SundryCreditorInfo) ?? null);
+      })
+      .catch(() => {
+        if (alive) setSundryCreditor(null);
+      })
+      .finally(() => {
+        if (alive) setSundryLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activeFirmId, vendorId]);
 
   // Products
   const [products, setProducts] = React.useState<Product[]>([]);
@@ -312,38 +355,92 @@ export default function NewPurchaseOrderView() {
             </div>
 
             {vendor ? (
-              <div className="dmk-well p-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[14px] font-semibold text-dmk-text-primary truncate">{vendor.vendorName}</span>
-                    <Badge tone={vendor.vendorType === "MANUFACTURER" ? "dr" : "info"}>
-                      {vendor.vendorType === "MANUFACTURER" ? "MANUFACTURER" : "DISTRIBUTOR"}
-                    </Badge>
-                    {isManufacturer && vendor.brand && <Badge tone="warning">Brand · {vendor.brand}</Badge>}
+              <div className="dmk-well p-3 space-y-2.5">
+                {/* identity row */}
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[14px] font-semibold text-dmk-text-primary truncate">{vendor.vendorName}</span>
+                      <Badge tone={vendor.vendorType === "MANUFACTURER" ? "dr" : "info"}>
+                        {vendor.vendorType === "MANUFACTURER" ? "MANUFACTURER" : "DISTRIBUTOR"}
+                      </Badge>
+                      {isManufacturer && vendor.brand && <Badge tone="warning">Brand · {vendor.brand}</Badge>}
+                    </div>
+                    <div className="text-[11.5px] text-dmk-text-muted mt-1 flex flex-wrap gap-x-3">
+                      <span>GSTIN <span className="font-money text-dmk-text-secondary">{vendor.gstin || "—"}</span></span>
+                      <span>State {vendor.stateCode} {intra ? "(intra)" : "(inter)"}</span>
+                      <span>Terms {vendor.paymentTerms.replace("_", "-")}</span>
+                    </div>
                   </div>
-                  <div className="text-[11.5px] text-dmk-text-muted mt-1 flex flex-wrap gap-x-3">
-                    <span>GSTIN <span className="font-money text-dmk-text-secondary">{vendor.gstin || "—"}</span></span>
-                    <span>State {vendor.stateCode} {intra ? "(intra)" : "(inter)"}</span>
-                    <span>Terms {vendor.paymentTerms.replace("_", "-")}</span>
-                    <span>
-                      Owed{" "}
-                      <span className={cn("font-money", Number(vendor.closingBalance) > 0.005 ? "text-dmk-yellow" : "text-dmk-success")}>
-                        {Number(vendor.closingBalance) > 0.005 ? formatINR(Number(vendor.closingBalance)) : "Clear"}
-                      </span>
-                    </span>
-                  </div>
+                  <button
+                    aria-label="Change vendor"
+                    onClick={() => {
+                      setVendor(null);
+                      setVendorQuery("");
+                      setLines([]);
+                    }}
+                    className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md border border-dmk-border-subtle text-dmk-text-muted hover:text-dmk-danger hover:border-dmk-danger/40 transition-colors"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
-                <button
-                  aria-label="Change vendor"
-                  onClick={() => {
-                    setVendor(null);
-                    setVendorQuery("");
-                    setLines([]);
-                  }}
-                  className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-dmk-border-subtle text-dmk-text-muted hover:text-dmk-danger hover:border-dmk-danger/40 transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+
+                {/* ── SUNDRY CREDITOR standing (A/c 2000) ── */}
+                <div className="rounded-md border border-dmk-border-subtle bg-dmk-bg-primary/60 p-2.5 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[9.5px] uppercase tracking-widest font-bold text-dmk-text-muted inline-flex items-center gap-1.5">
+                      <BookUser className="h-3 w-3 text-dmk-gold" /> Sundry Creditor · A/c 2000
+                    </span>
+                    {sundryLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 text-dmk-text-muted animate-spin" aria-label="Loading sundry standing" />
+                    ) : null}
+                  </div>
+
+                  {sundryCreditor ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">We owe (ledger)</p>
+                          <p className={cn("font-money text-[13.5px] font-semibold", sundryCreditor.ledgerBalance > 0.005 ? "text-dmk-yellow" : sundryCreditor.ledgerBalance < -0.005 ? "text-dmk-success" : "text-dmk-text-muted")}>
+                            {sundryCreditor.ledgerBalance > 0.005
+                              ? `Cr ${formatINR(sundryCreditor.ledgerBalance)}`
+                              : sundryCreditor.ledgerBalance < -0.005
+                                ? `Dr ${formatINR(-sundryCreditor.ledgerBalance)} adv.`
+                                : "Clear"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">Open PO exposure</p>
+                          <p className="font-money text-[13.5px] font-semibold text-dmk-text-primary">
+                            {formatINR(sundryCreditor.openPOValue)}
+                            <span className="text-[10.5px] font-normal text-dmk-text-muted"> · {sundryCreditor.openPOCount} PO</span>
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-[10.5px] text-dmk-text-muted flex items-center gap-1.5 flex-wrap">
+                        <Banknote className="h-3 w-3 shrink-0" />
+                        {sundryCreditor.lastPayment ? (
+                          <>
+                            Last payment <span className="font-money text-dmk-success">{formatINR(sundryCreditor.lastPayment.amount)}</span>
+                            <span className="text-dmk-text-muted">({sundryCreditor.lastPayment.mode})</span>
+                            <span className="text-dmk-text-secondary">{new Date(sundryCreditor.lastPayment.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                          </>
+                        ) : (
+                          <span>No payments recorded yet</span>
+                        )}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setView("purchase/payments")}
+                        className="text-[10.5px] font-semibold uppercase tracking-wider text-dmk-blue/90 hover:text-dmk-blue inline-flex items-center gap-1 transition-colors"
+                      >
+                        <ReceiptText className="h-3 w-3" /> Record payment
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-dmk-text-muted">Sundry standing unavailable — balance feeds from the ledger.</p>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="relative">

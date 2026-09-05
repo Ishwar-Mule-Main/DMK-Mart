@@ -237,10 +237,12 @@ export async function POST(request: NextRequest) {
       firmId: firm.id,
       voucherType: "DEBIT_NOTE",
       postingDate: returnDate,
-      narration: `Debit note ${debitNoteNo} — purchase return${vendor ? ` to ${vendor.vendorName}` : ""}`,
+      narration: `Debit note ${debitNoteNo} — purchase return${vendor ? ` to ${vendor.vendorName}` : " (vendor unattributed — booked to Vendor Claims Recoverable)"}`,
       referenceDocId: returnId,
       lines: [
-        { accountCode: ACC.AP, entrySide: "DEBIT", amount: grandTotal },
+        // Known vendor → reduce that vendor's payable (A/c 2000); unknown → A/c 1400
+        // so Sundry Creditors always equals Σ vendor balances.
+        { accountCode: vendor ? ACC.AP : ACC.VENDOR_CLAIMS, entrySide: "DEBIT", amount: grandTotal },
         { accountCode: ACC.PURCHASES, entrySide: "CREDIT", amount: subtotal },
         ...(tax.cgst > 0 ? [{ accountCode: ACC.GST_CGST, entrySide: "CREDIT" as const, amount: tax.cgst }] : []),
         ...(tax.sgst > 0 ? [{ accountCode: ACC.GST_SGST, entrySide: "CREDIT" as const, amount: tax.sgst }] : []),

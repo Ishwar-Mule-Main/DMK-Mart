@@ -211,9 +211,12 @@ export async function POST(request: NextRequest) {
         firmId: firm.id,
         voucherType: "DEBIT_NOTE",
         postingDate: returnDate,
-        narration: `Debit note ${debitNoteNo} — recovery of sales returns${vendor ? ` from ${vendor.vendorName}` : ""}`,
+        narration: `Debit note ${debitNoteNo} — recovery of sales returns${vendor ? ` from ${vendor.vendorName}` : " (vendor unattributed — booked to Vendor Claims Recoverable)"}`,
         lines: [
-          { accountCode: ACC.AP, entrySide: "DEBIT", amount: grandTotal },
+          // Known vendor → reduce that vendor's payable (A/c 2000, ledger updated above).
+          // Unknown vendor → AP must stay equal to Σ vendor balances, so the
+          // recovery is parked in "Vendor Claims Recoverable" (A/c 1400).
+          { accountCode: vendor ? ACC.AP : ACC.VENDOR_CLAIMS, entrySide: "DEBIT", amount: grandTotal },
           { accountCode: ACC.PURCHASES, entrySide: "CREDIT", amount: subtotal },
           ...(tax.cgst > 0 ? [{ accountCode: ACC.GST_CGST, entrySide: "CREDIT" as const, amount: tax.cgst }] : []),
           ...(tax.sgst > 0 ? [{ accountCode: ACC.GST_SGST, entrySide: "CREDIT" as const, amount: tax.sgst }] : []),

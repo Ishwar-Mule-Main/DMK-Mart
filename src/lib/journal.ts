@@ -163,6 +163,7 @@ export const ACC = {
   AR: "1100", // Sundry Debtors
   INVENTORY: "1200", // Finished Goods Stock
   ITC: "1300", // GST Input Tax Credit
+  VENDOR_CLAIMS: "1400", // Vendor Claims Recoverable (unattributed recoveries)
   AP: "2000", // Sundry Creditors
   GST_CGST: "2100",
   GST_SGST: "2110",
@@ -188,6 +189,7 @@ export async function seedChartOfAccounts(firmId: string) {
     { code: ACC.AR, name: "Sundry Debtors (Accounts Receivable)", group: "Current Assets", cls: "ASSET" },
     { code: ACC.INVENTORY, name: "Inventory Asset", group: "Current Assets", cls: "ASSET" },
     { code: ACC.ITC, name: "GST Input Tax Credit (ITC)", group: "Current Assets", cls: "ASSET" },
+    { code: ACC.VENDOR_CLAIMS, name: "Vendor Claims Recoverable", group: "Current Assets", cls: "ASSET" },
     { code: ACC.AP, name: "Sundry Creditors (Accounts Payable)", group: "Current Liabilities", cls: "LIABILITY" },
     { code: ACC.GST_CGST, name: "Output CGST Payable", group: "Current Liabilities", cls: "LIABILITY" },
     { code: ACC.GST_SGST, name: "Output SGST Payable", group: "Current Liabilities", cls: "LIABILITY" },

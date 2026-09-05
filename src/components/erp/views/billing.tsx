@@ -10,6 +10,7 @@
 import * as React from "react";
 import {
   AlertTriangle,
+  BookUser,
   CheckCircle2,
   FileText,
   Loader2,
@@ -17,6 +18,7 @@ import {
   ReceiptText,
   Search,
   ShoppingCart,
+  Timer,
   Trash2,
   UserPlus,
   X,
@@ -108,6 +110,26 @@ interface CartLine {
   manualDiscPct: number;
 }
 
+// Sundry Debtor standing for the selected customer (from /finance/sundry)
+interface SundryDebtorInfo {
+  ledgerBalance: number;
+  creditLimit: number;
+  creditDays: number;
+  available: number | null;
+  utilizationPct: number;
+  overLimit: boolean;
+  openInvoiceCount: number;
+  openOutstanding: number;
+  unapplied: number;
+  overdueOutstanding: number;
+  overdueCount: number;
+  oldestInvoice: { no: string; date: string; ageDays: number } | null;
+}
+
+interface SundryDebtorResponse {
+  parties: SundryDebtorInfo[];
+}
+
 const PAYMENT_MODES = ["CREDIT", "CASH", "UPI", "NEFT"] as const;
 
 export default function BillingView() {
@@ -123,6 +145,32 @@ export default function BillingView() {
   const [custSearching, setCustSearching] = React.useState(false);
   const [customer, setCustomer] = React.useState<Customer | null>(null);
   const [newCustOpen, setNewCustOpen] = React.useState(false);
+
+  // ── Sundry Debtor standing (A/c 1100) for the selected customer ──
+  const [sundryDebtor, setSundryDebtor] = React.useState<SundryDebtorInfo | null>(null);
+  const [sundryLoading, setSundryLoading] = React.useState(false);
+  const customerId = customer?.id ?? null;
+  React.useEffect(() => {
+    if (!activeFirmId || !customerId) {
+      setSundryDebtor(null);
+      return;
+    }
+    let alive = true;
+    setSundryLoading(true);
+    apiGet<SundryDebtorResponse>("/api/v1/finance/sundry", { firmId: activeFirmId, type: "DEBTORS", partyId: customerId })
+      .then((res) => {
+        if (alive) setSundryDebtor((res.parties?.[0] as SundryDebtorInfo) ?? null);
+      })
+      .catch(() => {
+        if (alive) setSundryDebtor(null);
+      })
+      .finally(() => {
+        if (alive) setSundryLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activeFirmId, customerId]);
 
   // Product typeahead
   const [prodQuery, setProdQuery] = React.useState("");
@@ -331,36 +379,101 @@ export default function BillingView() {
             </div>
 
             {customer ? (
-              <div className="dmk-well p-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[14px] font-semibold text-dmk-text-primary truncate">{customer.partyName}</span>
-                    <Badge tone={tierBadgeTone(customer.assignedTier)}>{tierLabel(customer.assignedTier)}</Badge>
-                  </div>
-                  <div className="text-[11.5px] text-dmk-text-muted mt-1 flex flex-wrap gap-x-3">
-                    <span>GSTIN <span className="font-money text-dmk-text-secondary">{customer.gstin || "—"}</span></span>
-                    <span>State {customer.stateCode || "—"} {customer.stateCode === firm?.stateCode ? "(intra)" : "(inter)"}</span>
-                    <span>Credit days {customer.creditDays}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 text-right">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wider text-dmk-text-muted">Credit limit</p>
-                    <p className="font-money text-[13px] text-dmk-text-primary">{formatINR(customer.creditLimit)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wider text-dmk-text-muted">Outstanding</p>
-                    <p className={cn("font-money text-[13px]", Number(customer.closingBalance) > 0.005 ? "text-dmk-yellow" : "text-dmk-success")}>
-                      {Number(customer.closingBalance) > 0.005 ? `Dr ${formatINR(Number(customer.closingBalance))}` : "Clear"}
-                    </p>
+              <div className="dmk-well p-3 space-y-2.5">
+                {/* identity row */}
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[14px] font-semibold text-dmk-text-primary truncate">{customer.partyName}</span>
+                      <Badge tone={tierBadgeTone(customer.assignedTier)}>{tierLabel(customer.assignedTier)}</Badge>
+                    </div>
+                    <div className="text-[11.5px] text-dmk-text-muted mt-1 flex flex-wrap gap-x-3">
+                      <span>GSTIN <span className="font-money text-dmk-text-secondary">{customer.gstin || "—"}</span></span>
+                      <span>State {customer.stateCode || "—"} {customer.stateCode === firm?.stateCode ? "(intra)" : "(inter)"}</span>
+                    </div>
                   </div>
                   <button
                     aria-label="Change customer"
                     onClick={() => setCustomer(null)}
-                    className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-dmk-border-subtle text-dmk-text-muted hover:text-dmk-danger hover:border-dmk-danger/40 transition-colors"
+                    className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md border border-dmk-border-subtle text-dmk-text-muted hover:text-dmk-danger hover:border-dmk-danger/40 transition-colors"
                   >
                     <X className="h-4 w-4" />
                   </button>
+                </div>
+
+                {/* ── SUNDRY DEBTOR standing (A/c 1100) ── */}
+                <div className="rounded-md border border-dmk-border-subtle bg-dmk-bg-primary/60 p-2.5 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[9.5px] uppercase tracking-widest font-bold text-dmk-text-muted inline-flex items-center gap-1.5">
+                      <BookUser className="h-3 w-3 text-dmk-gold" /> Sundry Debtor · A/c 1100
+                    </span>
+                    {sundryLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 text-dmk-text-muted animate-spin" aria-label="Loading sundry standing" />
+                    ) : sundryDebtor && sundryDebtor.overdueCount > 0 ? (
+                      <span className="dmk-badge bg-dmk-danger/15 text-dmk-danger text-[9.5px] px-1.5 py-0.5 inline-flex items-center gap-1">
+                        <Timer className="h-2.5 w-2.5" /> {sundryDebtor.overdueCount} overdue
+                      </span>
+                    ) : sundryDebtor && sundryDebtor.ledgerBalance <= 0.005 ? (
+                      <span className="dmk-badge bg-dmk-success/15 text-dmk-success text-[9.5px] px-1.5 py-0.5">NO DUES</span>
+                    ) : null}
+                  </div>
+
+                  {sundryDebtor ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">Ledger balance</p>
+                          <p className={cn("font-money text-[13.5px] font-semibold", sundryDebtor.ledgerBalance > 0.005 ? "text-dmk-yellow" : sundryDebtor.ledgerBalance < -0.005 ? "text-dmk-success" : "text-dmk-text-muted")}>
+                            {sundryDebtor.ledgerBalance > 0.005
+                              ? `Dr ${formatINR(sundryDebtor.ledgerBalance)}`
+                              : sundryDebtor.ledgerBalance < -0.005
+                                ? `Cr ${formatINR(-sundryDebtor.ledgerBalance)} adv.`
+                                : "Clear"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">Open invoices</p>
+                          <p className="font-money text-[13.5px] font-semibold text-dmk-text-primary">
+                            {formatINR(sundryDebtor.openOutstanding)}
+                            <span className="text-[10.5px] font-normal text-dmk-text-muted"> · {sundryDebtor.openInvoiceCount} inv</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      {sundryDebtor.creditLimit > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between text-[10.5px] mb-1">
+                            <span className="text-dmk-text-muted">Credit limit {formatINR(sundryDebtor.creditLimit)} · {sundryDebtor.creditDays}d terms</span>
+                            <span className={cn("font-semibold", sundryDebtor.overLimit ? "text-dmk-danger" : sundryDebtor.utilizationPct >= 85 ? "text-dmk-warning" : "text-dmk-success")}>
+                              {sundryDebtor.utilizationPct.toFixed(0)}% used
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-dmk-input-well overflow-hidden">
+                            <div
+                              className={cn("h-full rounded-full", sundryDebtor.overLimit ? "bg-dmk-danger" : sundryDebtor.utilizationPct >= 85 ? "bg-dmk-warning" : "bg-dmk-success")}
+                              style={{ width: `${Math.min(100, Math.max(3, sundryDebtor.utilizationPct))}%` }}
+                            />
+                          </div>
+                          <p className="text-[10px] text-dmk-text-muted mt-0.5">
+                            Available credit <span className="font-money text-dmk-text-secondary">{formatINR(Math.max(sundryDebtor.available ?? 0, 0))}</span>
+                            {sundryDebtor.unapplied > 0.005 && <> · unapplied receipts <span className="font-money text-dmk-success">{formatINR(sundryDebtor.unapplied)}</span></>}
+                          </p>
+                        </div>
+                      )}
+
+                      {sundryDebtor.oldestInvoice && (
+                        <p className="text-[10.5px] text-dmk-text-muted flex items-center gap-1.5">
+                          <ReceiptText className="h-3 w-3 shrink-0" />
+                          Oldest open <span className="font-mono text-dmk-text-secondary">{sundryDebtor.oldestInvoice.no}</span>
+                          <span className={cn("font-semibold", sundryDebtor.oldestInvoice.ageDays > 60 ? "text-dmk-danger" : "text-dmk-text-secondary")}>
+                            {sundryDebtor.oldestInvoice.ageDays}d
+                          </span>
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-dmk-text-muted">Sundry standing unavailable — balance feeds from the ledger.</p>
+                  )}
                 </div>
               </div>
             ) : (
