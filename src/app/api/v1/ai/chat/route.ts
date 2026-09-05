@@ -22,6 +22,7 @@ import {
 } from "@/app/api/v1/_lib/api";
 import { buildDashboard } from "@/app/api/v1/_lib/dashboard";
 import { computePnl } from "@/app/api/v1/_lib/pnl";
+import { resolveAiModel } from "@/app/api/v1/_lib/aiModel";
 import type { CopilotChart } from "@/types/erp";
 
 interface ChatCompletionShape {
@@ -323,7 +324,12 @@ export async function POST(request: NextRequest) {
     ].join("\n");
 
     const zai = await ZAI.create();
+    // Self-hosted: the model comes from AI_MODEL env or the "model"
+    // field of .z-ai-config (e.g. OpenRouter's z-ai/glm-5.3-flash).
+    // Undefined in the sandbox — the gateway default model is used.
+    const model = await resolveAiModel();
     const completion = (await zai.chat.completions.create({
+      ...(model ? { model } : {}),
       messages: [
         { role: "assistant", content: systemPrompt },
         { role: "user", content: message },

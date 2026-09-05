@@ -432,7 +432,17 @@ aider --model gpt-4o    # or any configured model
 | `PORT` | optional | `3000` | Port for the standalone server |
 | `HOSTNAME` | optional | `0.0.0.0` | Bind address for the standalone server |
 
-> **AI Copilot note:** the "DMK AI" chat uses `z-ai-web-dev-sdk` on the backend. On your own server it is configured via a **`.z-ai-config` JSON file** (not an env var) — copy `.z-ai-config.example`, set `baseUrl` (an OpenAI-compatible endpoint including `/v1`) and `apiKey`, and place the file in the project root, your home directory, or `/etc/`. Inside the Z.ai sandbox it works out of the box. **Every other module works fully without it** — the chat endpoint simply returns an error toast if the SDK is unavailable.
+> **AI Copilot note:** the "DMK AI" chat uses `z-ai-web-dev-sdk` on the backend. On your own server it is configured via a **`.z-ai-config` JSON file** (not an env var) — copy `.z-ai-config.example`, set `baseUrl` (an OpenAI-compatible endpoint including `/v1`), `apiKey`, and **`model`**, then place the file in the project root, your home directory, or `/etc/`. The app resolves the model in this order: `AI_MODEL` env var → `model` field in `.z-ai-config` → provider default. Example (free-tier OpenRouter GLM):
+>
+> ```json
+> {
+>   "baseUrl": "https://openrouter.ai/api/v1",
+>   "apiKey": "sk-or-v1-…",
+>   "model": "z-ai/glm-5.3-flash"
+> }
+> ```
+>
+> Inside the Z.ai sandbox it works out of the box with no file. **Every other module works fully without any AI config** — the chat endpoint simply returns an error toast if the provider is unreachable.
 
 ---
 

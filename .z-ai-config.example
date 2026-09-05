@@ -1,4 +1,5 @@
 {
-  "baseUrl": "https://api.openai-compatible-provider.com/v1",
-  "apiKey": "YOUR_API_KEY_HERE"
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "apiKey": "YOUR_OPENROUTER_API_KEY",
+  "model": "z-ai/glm-5.3-flash"
 }
