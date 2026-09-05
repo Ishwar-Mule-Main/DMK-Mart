@@ -102,16 +102,20 @@ bun install
 
 ### Step 3 — Configure the environment
 
-Create a `.env` file in the project root:
+Copy the shipped template and edit the database path:
 
 ```bash
-cat > .env <<'EOF'
-# SQLite database file path.
-# IMPORTANT: use an ABSOLUTE path (relative paths are resolved
-# against prisma/schema.prisma, not the project root).
-DATABASE_URL="file:/full/absolute/path/to/dmk-mart-erp/db/custom.db"
-EOF
+cp .env.example .env
 ```
+
+Then edit `.env` and point `DATABASE_URL` at an **absolute** path (relative paths are resolved against `prisma/schema.prisma`, not the project root):
+
+```bash
+# Linux / macOS
+DATABASE_URL="file:/full/absolute/path/to/dmk-mart-erp/db/custom.db"
+```
+
+> **Windows example:** `DATABASE_URL="file:C:/projects/dmk-mart-erp/db/custom.db"`
 
 Make sure the `db/` folder exists:
 
@@ -119,7 +123,7 @@ Make sure the `db/` folder exists:
 mkdir -p db
 ```
 
-> **Windows example:** `DATABASE_URL="file:C:/projects/dmk-mart-erp/db/custom.db"`
+> `.env` is gitignored on purpose — the only **required** variable is `DATABASE_URL` (see [Environment Variables](#-environment-variables)).
 
 ### Step 4 — Create the database schema
 
@@ -312,60 +316,31 @@ sudo systemctl reload caddy
 
 ## 🐳 Step-by-Step: Deploy with Docker
 
-### Step 1 — Create a `Dockerfile` in the project root
+The repo ships a production `Dockerfile`, a `docker-compose.yml` (with a persistent `erp-data` volume + healthcheck) and a `.dockerignore` — no extra files needed.
 
-```dockerfile
-FROM oven/bun:1 AS base
-WORKDIR /app
+### Step 1 — Review the configuration (optional)
 
-# ── Dependencies ─────────────────────────────────────────────
-FROM base AS deps
-COPY package.json bun.lock* ./
-RUN bun install
+- `Dockerfile` — 3-stage build (deps → build → runtime, Bun-based); auto-runs `prisma db push` on first boot so the schema always exists
+- `docker-compose.yml` — exposes port **3000**, stores the SQLite file in the `erp-data` volume at `/data/custom.db`
+- `.dockerignore` — keeps secrets (`​.env`, `.z-ai-config`) and local databases out of the image
 
-# ── Build ────────────────────────────────────────────────────
-FROM base AS builder
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-ENV NEXT_TELEMETRY_DISABLED=1
-RUN bun run db:generate && bun run build
-
-# ── Runtime ──────────────────────────────────────────────────
-FROM base AS runner
-ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/prisma ./prisma
-RUN mkdir -p /data
-ENV DATABASE_URL="file:/data/custom.db"
-EXPOSE 3000
-# Ensure schema exists on first boot, then start
-CMD ["sh", "-c", "bunx prisma db push --skip-generate --accept-data-loss && bun ./server.js"]
-```
-
-### Step 2 — Create a `docker-compose.yml`
-
-```yaml
-services:
-  erp:
-    build: .
-    ports:
-      - "3000:3000"
-    volumes:
-      - erp-data:/data          # persists the SQLite file across restarts
-    restart: unless-stopped
-
-volumes:
-  erp-data:
-```
-
-### Step 3 — Build & run
+### Step 2 — Build & run
 
 ```bash
 docker compose up -d --build
 docker compose logs -f
 ```
 
+### Step 3 — Verify & harden
+
+```bash
+curl http://localhost:3000/                     # → 200
+docker compose exec erp ls -la /data           # custom.db lives on the volume
+```
+
 Open **http://your-server-ip:3000**. Put Nginx/Caddy (previous section, Step 5–6) in front for HTTPS.
+
+> To load the demo data in Docker: `curl -X POST http://localhost:3000/api/v1/seed`
 
 ---
 
@@ -448,6 +423,8 @@ aider --model gpt-4o    # or any configured model
 
 ## 🔐 Environment Variables
 
+**Short answer: only ONE — `DATABASE_URL`.** Copy `.env.example` → `.env` and set it. Never commit your real `.env`.
+
 | Variable | Required | Example | Purpose |
 |---|---|---|---|
 | `DATABASE_URL` | ✅ | `file:/absolute/path/db/custom.db` | SQLite file location (use absolute path) |
@@ -455,7 +432,7 @@ aider --model gpt-4o    # or any configured model
 | `PORT` | optional | `3000` | Port for the standalone server |
 | `HOSTNAME` | optional | `0.0.0.0` | Bind address for the standalone server |
 
-> **AI Copilot note:** the "DMK AI" chat uses `z-ai-web-dev-sdk` on the backend. Inside the Z.ai sandbox it works out of the box; on your own server, AI answers require valid SDK credentials. **Every other module works fully without it** — the chat endpoint simply returns an error toast if the SDK is unavailable.
+> **AI Copilot note:** the "DMK AI" chat uses `z-ai-web-dev-sdk` on the backend. On your own server it is configured via a **`.z-ai-config` JSON file** (not an env var) — copy `.z-ai-config.example`, set `baseUrl` (an OpenAI-compatible endpoint including `/v1`) and `apiKey`, and place the file in the project root, your home directory, or `/etc/`. Inside the Z.ai sandbox it works out of the box. **Every other module works fully without it** — the chat endpoint simply returns an error toast if the SDK is unavailable.
 
 ---
 
@@ -565,4 +542,23 @@ dmk-mart-erp/
 
 ---
 
-**Questions or issues?** Check [`worklog.md`](./worklog.md) for the full development history and [`upload/BluePrint.txt`](./upload/BluePrint.txt) for the complete product specification.
+## 📦 Repository Files
+
+| File | Purpose |
+|---|---|
+| `README.md` | This guide — install, deploy, develop |
+| `LICENSE` | MIT license |
+| `CHANGELOG.md` | Release history (Keep a Changelog format) |
+| `CONTRIBUTING.md` | Dev setup, ground rules (balanced journals, firm isolation…), PR checklist |
+| `SECURITY.md` | Security model, hardening checklist, private vulnerability reporting |
+| `CODE_OF_CONDUCT.md` | Contributor Covenant 2.1 |
+| `.env.example` | Environment template (copy to `.env`) |
+| `.z-ai-config.example` | AI copilot credential template (copy to `.z-ai-config`) |
+| `Dockerfile` + `docker-compose.yml` + `.dockerignore` | Production Docker deployment |
+| `.editorconfig` | Consistent formatting across editors |
+| `prisma/schema.prisma` | Full database schema |
+| `worklog.md` | Full development history |
+
+---
+
+**Questions or issues?** Check [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the dev workflow, [`SECURITY.md`](./SECURITY.md) for reporting vulnerabilities, and [`upload/BluePrint.txt`](./upload/BluePrint.txt) for the complete product specification.

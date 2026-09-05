@@ -52,3 +52,9 @@ prompt
 server.log
 # Skills directory
 /skills/
+# local database files (never commit real data)
+db/*.db
+db/*.db-journal
+
+# keep the env template in git even though .env* is ignored
+!.env.example

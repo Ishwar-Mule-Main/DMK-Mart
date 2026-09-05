@@ -1,0 +1,30 @@
+# dependencies & build output
+node_modules
+.next
+out
+build
+coverage
+
+# local data & secrets — never bake into an image
+.env
+.env.*
+!.env.example
+.z-ai-config
+db
+*.db
+*.db-journal
+
+# logs
+*.log
+dev.log
+server.log
+
+# misc
+.git
+.github
+.DS_Store
+README.md
+upload
+.brain
+qa-*.png
+worklog.md
