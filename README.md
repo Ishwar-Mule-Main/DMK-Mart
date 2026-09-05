@@ -374,7 +374,7 @@ Open **http://your-server-ip:3000**. Put Nginx/Caddy (previous section, Step 5�
 
 ## 🤖 Step-by-Step: Install & Develop Using AI Tools
 
-This codebase is AI-friendly: it already contains an **`AGENTS.md`** blueprint (`upload/AGENTS.md`), a product brain (`.brain/BRAIN.md`), and a PRD (`upload/BluePrint.txt`) that AI coding tools can read for context.
+This codebase is AI-friendly: it already contains a root-level **`AGENTS.md`** blueprint (the standard file AI coding tools auto-read), a product brain (`docs/brain/BRAIN.md`), and a PRD (`docs/blueprint/BluePrint.txt`) that AI coding tools can read for context.
 
 ### Claude Code (terminal)
 
@@ -387,7 +387,7 @@ claude          # starts an interactive session inside the project
 Example prompts:
 
 ```text
-> Follow upload/AGENTS.md and .brain/BRAIN.md. Run the dev server and fix any error you see.
+> Follow AGENTS.md and docs/brain/BRAIN.md. Run the dev server and fix any error you see.
 > Add a new report view for monthly GST summary under /api/v1/reports.
 ```
 
@@ -395,7 +395,7 @@ Example prompts:
 
 1. Install from <https://cursor.com> (or <https://windsurf.com>).
 2. **File → Open Folder…** → select `dmk-mart-erp`.
-3. The agent auto-picks up `AGENTS.md` as project rules; keep `upload/BluePrint.txt` open in a tab for product context.
+3. The agent auto-picks up `AGENTS.md` as project rules; keep `docs/blueprint/BluePrint.txt` open in a tab for product context.
 4. Ask in chat: *"Run `bun run dev` and summarize the app"*, then iterate with change requests.
 
 ### GitHub Copilot (VS Code / JetBrains)
@@ -416,7 +416,7 @@ aider --model gpt-4o    # or any configured model
 
 - The only user-visible page is `/` (a client-side SPA view-switcher); all backend logic lives under `src/app/api/v1/*`.
 - Every API response is enveloped: `{ ok: true, data }` or `{ ok: false, error, code }`.
-- Money is always `round2`; journals must stay balanced (Dr = Cr) — tell your AI to respect rule R6 in `.brain/BRAIN.md`.
+- Money is always `round2`; journals must stay balanced (Dr = Cr) — tell your AI to respect rule R6 in `docs/brain/BRAIN.md`.
 - After schema edits run `bun run db:push` — never hand-edit `db/custom.db`.
 
 ---
@@ -493,8 +493,16 @@ curl http://localhost:3000/api/v1/dashboard   # → {"ok":true,...}
 
 ```
 dmk-mart-erp/
+├── .github/workflows/ci.yml    # CI: lint + type-check on every push
+├── AGENTS.md                   # AI-tool project rules (root convention)
+├── docs/
+│   ├── blueprint/              # Original PRD & architecture blueprint
+│   ├── brain/                  # Product brain + delivery reviews
+│   ├── dev-notes/              # Build-phase engineering notes
+│   └── uploads/                # Reference images & data files
 ├── prisma/schema.prisma        # Full data model (Firm, Product, Invoice, Journal…)
 ├── db/custom.db                # SQLite database file (created by db:push)
+├── scripts/                    # Maintenance scripts (data backfills)
 ├── src/
 │   ├── app/
 │   │   ├── page.tsx            # The ERP SPA (owner portal)
@@ -509,9 +517,11 @@ dmk-mart-erp/
 │   ├── components/ui/          # shadcn/ui primitives
 │   ├── lib/                    # journal engine, GST, pricing, db client
 │   └── store/                  # Zustand store (firm, FY, view, session)
-├── upload/                     # Original blueprint docs + AGENTS.md
-├── .brain/                     # Product brain for AI tools
-└── worklog.md                  # Development log
+├── examples/                   # WebSocket mini-service reference demo
+├── mini-services/              # Standalone sidecar services (socket.io)
+├── worklog.md                  # Development log
+└── (README, LICENSE, CHANGELOG, CONTRIBUTING, SECURITY,
+    CODE_OF_CONDUCT, Dockerfile, docker-compose.yml, .env.example…)
 ```
 
 ---
@@ -566,9 +576,12 @@ dmk-mart-erp/
 | `.z-ai-config.example` | AI copilot credential template (copy to `.z-ai-config`) |
 | `Dockerfile` + `docker-compose.yml` + `.dockerignore` | Production Docker deployment |
 | `.editorconfig` | Consistent formatting across editors |
+| `AGENTS.md` | Project rules for AI coding tools (Claude Code, Cursor, Copilot…) |
+| `docs/` | Blueprint PRD, product brain, dev notes, reference uploads |
+| `.github/workflows/ci.yml` | CI — lint + type-check on every push |
 | `prisma/schema.prisma` | Full database schema |
 | `worklog.md` | Full development history |
 
 ---
 
-**Questions or issues?** Check [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the dev workflow, [`SECURITY.md`](./SECURITY.md) for reporting vulnerabilities, and [`upload/BluePrint.txt`](./upload/BluePrint.txt) for the complete product specification.
+**Questions or issues?** Check [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the dev workflow, [`SECURITY.md`](./SECURITY.md) for reporting vulnerabilities, and [`docs/blueprint/BluePrint.txt`](./docs/blueprint/BluePrint.txt) for the complete product specification.
