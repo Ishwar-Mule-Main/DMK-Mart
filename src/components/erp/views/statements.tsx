@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiGet } from "@/lib/api-client";
 import { downloadCSV, formatINR, toISODate } from "@/lib/format";
-import { useErpStore, useActiveFirm } from "@/store/erp-store";
+import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -314,13 +314,20 @@ function PnlRow({
 
 function PnlTab() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
-  const activeFirm = useActiveFirm();
+  const financialYear = useErpStore((s) => s.financialYear);
   const { toast } = useToast();
-  const [dateFrom, setDateFrom] = React.useState(() => fyStartISO(activeFirm?.financialYear ?? "2025-26"));
+  // The P&L window follows the FY selected in the header (falls back to the
+  // firm's default when the store hasn't hydrated) and re-anchors when the
+  // selection changes. Hand-edited dates still win until the next FY switch.
+  const [dateFrom, setDateFrom] = React.useState(() => fyStartISO(financialYear || "2025-26"));
   const [dateTo, setDateTo] = React.useState(() => toISODate(new Date()));
   const [data, setData] = React.useState<PnlResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (financialYear) setDateFrom(fyStartISO(financialYear));
+  }, [financialYear]);
 
   React.useEffect(() => {
     if (!activeFirmId) return;

@@ -12,6 +12,7 @@ import {
   asRecord,
   asRecordArray,
   endOfDay,
+  fyRange,
   getDateOrNull,
   getNum,
   getStr,
@@ -29,8 +30,10 @@ export async function GET(request: NextRequest) {
 
     const type = getStr(sp.get("type"));
     const search = getStr(sp.get("search"));
-    const dateFrom = getDateOrNull(sp.get("dateFrom"));
-    const dateTo = getDateOrNull(sp.get("dateTo"));
+    // FY window applies when no explicit date range is given — explicit always wins.
+    const fy = fyRange(sp.get("fy"));
+    const dateFrom = getDateOrNull(sp.get("dateFrom")) ?? fy?.gte ?? null;
+    const dateTo = getDateOrNull(sp.get("dateTo")) ?? fy?.lte ?? null;
 
     const journals = await db.journalEntry.findMany({
       where: {

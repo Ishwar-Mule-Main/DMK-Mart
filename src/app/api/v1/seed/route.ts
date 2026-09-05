@@ -10,7 +10,7 @@
 
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { ACC, postJournal, seedChartOfAccounts } from "@/lib/journal";
+import { ACC, currentFyLabel, postJournal, seedChartOfAccounts } from "@/lib/journal";
 import { handleApiError, ok } from "@/app/api/v1/_lib/api";
 import { recordMovement } from "@/app/api/v1/_lib/party";
 import { confirmPurchaseOrder, createPurchaseOrder } from "@/app/api/v1/_lib/po";
@@ -101,7 +101,7 @@ export async function POST(_request: NextRequest) {
         bankName: "HDFC Bank",
         bankAccount: "50200045678901",
         ifsc: "HDFC0001234",
-        financialYear: "2025-26",
+        financialYear: currentFyLabel(),
         invoicePrefix: "DMK",
         logoUrl: "/dmk-logo.png",
         openingCash: 150000,

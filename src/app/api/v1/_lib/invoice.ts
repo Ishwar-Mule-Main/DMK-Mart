@@ -7,7 +7,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { db } from "@/lib/db";
-import { ACC, nextDocNumber, postJournal } from "@/lib/journal";
+import { ACC, fyLabelForDate, nextDocNumber, postJournal } from "@/lib/journal";
 import { calculateGST, round2, roundOffDelta, sumGstSplits } from "@/lib/gst";
 import { calculateBulkPricing, TIERS } from "@/lib/pricing";
 import { amountInWords } from "@/lib/format";
@@ -240,7 +240,8 @@ export async function createInvoice(firm: FirmRow, input: CreateInvoiceInput) {
   }
 
   // ── Numbering + persistence ────────────────────────────────────
-  const invoiceNumber = await nextDocNumber("INVOICE", firm.id, firm.invoicePrefix, firm.financialYear);
+  // Invoice number carries the FY of the invoice DATE (not the firm's default FY).
+  const invoiceNumber = await nextDocNumber("INVOICE", firm.id, firm.invoicePrefix, fyLabelForDate(invoiceDate));
 
   const invoiceId = await db.$transaction(async (tx) => {
     const invoice = await tx.invoice.create({

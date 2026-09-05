@@ -8,6 +8,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import {
   asRecord,
+  fyRange,
   getDate,
   getNum,
   getStr,
@@ -24,8 +25,13 @@ export async function GET(request: NextRequest) {
     await resolveFirm(firmId);
 
     const vendorId = getStr(sp.get("vendorId"));
+    const fy = fyRange(sp.get("fy"));
     const payments = await db.vendorPayment.findMany({
-      where: { firmId, ...(vendorId ? { vendorId } : {}) },
+      where: {
+        firmId,
+        ...(fy ? { paymentDate: fy } : {}),
+        ...(vendorId ? { vendorId } : {}),
+      },
       include: {
         vendor: { select: { id: true, vendorName: true } },
         allocations: {

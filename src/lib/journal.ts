@@ -72,6 +72,21 @@ export async function nextDocNumber(
 }
 
 /**
+ * Indian financial-year label ("2026-27") for a document date —
+ * FY runs Apr 1 – Mar 31. Document numbers always carry the FY of
+ * the DATE ON THE DOCUMENT, never the firm's currently-selected FY.
+ */
+export function fyLabelForDate(d: Date): string {
+  const startYear = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+  return `${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`;
+}
+
+/** Current financial-year label, derived from the system clock. */
+export function currentFyLabel(): string {
+  return fyLabelForDate(new Date());
+}
+
+/**
  * Post a balanced journal entry. Throws ERR_JOURNAL_UNBALANCED when
  * ΣDr ≠ ΣCr (to the paisa). Creates entry + lines atomically.
  */
@@ -103,11 +118,13 @@ export async function postJournal(input: PostJournalInput) {
     }
   }
 
+  const firm = await db.firm.findUnique({ where: { id: input.firmId } });
   const voucherNumber = await nextVoucherNumber(
     input.firmId,
     input.voucherType,
-    (await db.firm.findUnique({ where: { id: input.firmId } }))?.invoicePrefix ?? "DMK",
-    (await db.firm.findUnique({ where: { id: input.firmId } }))?.financialYear ?? "25-26"
+    firm?.invoicePrefix ?? "DMK",
+    // Voucher numbers carry the FY of the posting date, not the firm's default FY.
+    fyLabelForDate(input.postingDate)
   );
 
   return db.journalEntry.create({

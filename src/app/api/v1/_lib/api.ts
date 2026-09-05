@@ -130,3 +130,19 @@ export function addDays(d: Date, days: number): Date {
   x.setDate(x.getDate() + days);
   return x;
 }
+
+/**
+ * Financial-year window (Indian FY: Apr 1 – Mar 31) from a "2025-26" label.
+ * Returns null when the label is absent/unparseable so callers can skip the
+ * filter entirely — lists then stay unscoped (master-data style).
+ */
+export function fyRange(fy: unknown): { gte: Date; lte: Date } | null {
+  const label = getStr(fy);
+  const m = /^(\d{4})-(\d{2})$/.exec(label);
+  if (!m) return null;
+  const startYear = parseInt(m[1], 10);
+  const start = startOfDay(new Date(startYear, 3, 1)); // Apr 1
+  const end = endOfDay(new Date(startYear + 1, 2, 31)); // Mar 31
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+  return { gte: start, lte: end };
+}

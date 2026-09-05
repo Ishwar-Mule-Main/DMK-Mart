@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import {
   asRecord,
   asRecordArray,
+  fyRange,
   getDate,
   getNum,
   getStr,
@@ -26,8 +27,13 @@ export async function GET(request: NextRequest) {
     await resolveFirm(firmId);
 
     const customerId = getStr(sp.get("customerId"));
+    const fy = fyRange(sp.get("fy"));
     const receipts = await db.customerReceipt.findMany({
-      where: { firmId, ...(customerId ? { customerId } : {}) },
+      where: {
+        firmId,
+        ...(fy ? { receiptDate: fy } : {}),
+        ...(customerId ? { customerId } : {}),
+      },
       include: {
         customer: { select: { id: true, partyName: true } },
         allocations: {

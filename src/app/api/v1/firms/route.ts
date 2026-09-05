@@ -6,7 +6,7 @@
 
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { ACC, postJournal, seedChartOfAccounts } from "@/lib/journal";
+import { ACC, currentFyLabel, postJournal, seedChartOfAccounts } from "@/lib/journal";
 import { round2 } from "@/lib/gst";
 import {
   BusinessError,
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
         bankName: getStr(body.bankName),
         bankAccount: getStr(body.bankAccount),
         ifsc: getStr(body.ifsc),
-        financialYear: getStr(body.financialYear) || "2025-26",
+        financialYear: getStr(body.financialYear) || currentFyLabel(),
         invoicePrefix: getStr(body.invoicePrefix) || firmCode,
         openingCash,
         openingBank,

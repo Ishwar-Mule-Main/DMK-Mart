@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import {
   asRecord,
   asRecordArray,
+  fyRange,
   getDate,
   getNum,
   getStr,
@@ -29,10 +30,12 @@ export async function GET(request: NextRequest) {
     const search = getStr(sp.get("search"));
     const customerId = getStr(sp.get("customerId"));
     const counterParam = getStr(sp.get("isCounterSale"));
+    const fy = fyRange(sp.get("fy"));
 
     const invoices = await db.invoice.findMany({
       where: {
         firmId,
+        ...(fy ? { invoiceDate: fy } : {}),
         ...(customerId ? { customerId } : {}),
         ...(counterParam !== "" ? { isCounterSale: counterParam === "true" } : {}),
         ...(search

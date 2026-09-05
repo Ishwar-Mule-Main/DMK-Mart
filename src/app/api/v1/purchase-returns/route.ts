@@ -5,12 +5,13 @@
 
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { ACC, nextDocNumber, postJournal } from "@/lib/journal";
+import { ACC, fyLabelForDate, nextDocNumber, postJournal } from "@/lib/journal";
 import { calculateGST, round2, sumGstSplits } from "@/lib/gst";
 import {
   BusinessError,
   asRecord,
   asRecordArray,
+  fyRange,
   getDate,
   getNum,
   getStr,
@@ -35,9 +36,13 @@ export async function GET(request: NextRequest) {
     const sp = request.nextUrl.searchParams;
     const firmId = getStr(sp.get("firmId"));
     await resolveFirm(firmId);
+    const fy = fyRange(sp.get("fy"));
 
     const returns = await db.purchaseReturn.findMany({
-      where: { firmId },
+      where: {
+        firmId,
+        ...(fy ? { returnDate: fy } : {}),
+      },
       include: {
         vendor: { select: { id: true, vendorName: true } },
         items: true,
@@ -152,7 +157,8 @@ export async function POST(request: NextRequest) {
     const totalTax = round2(tax.cgst + tax.sgst + tax.igst);
     const grandTotal = round2(subtotal + totalTax);
 
-    const debitNoteNo = await nextDocNumber("DN", firm.id, firm.invoicePrefix, firm.financialYear);
+    // Debit-note number carries the FY of the return date.
+    const debitNoteNo = await nextDocNumber("DN", firm.id, firm.invoicePrefix, fyLabelForDate(returnDate));
 
     const returnId = await db.$transaction(async (tx) => {
       const created = await tx.purchaseReturn.create({

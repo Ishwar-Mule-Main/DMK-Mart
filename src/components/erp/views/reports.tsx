@@ -47,7 +47,7 @@ import {
 } from "@/components/ui/dialog";
 import { apiGet } from "@/lib/api-client";
 import { downloadCSV, formatINR, formatDate, toISODate } from "@/lib/format";
-import { useErpStore, useActiveFirm } from "@/store/erp-store";
+import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -279,16 +279,25 @@ function compactINR(v: number): string {
 
 export default function ReportsView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
-  const activeFirm = useActiveFirm();
+  const financialYear = useErpStore((s) => s.financialYear);
   const { toast } = useToast();
 
   const [type, setType] = React.useState<ReportType>("sales");
+  // Report window follows the FY selected in the header and re-anchors to its
+  // Apr 1 → today span whenever the selection changes (hand-edited dates win
+  // until the next FY switch).
   const [dateFrom, setDateFrom] = React.useState(() => {
-    const fy = activeFirm?.financialYear ?? "2025-26";
+    const fy = financialYear || "2025-26";
     const y = parseInt(fy.slice(0, 4), 10);
     return `${Number.isFinite(y) ? y : new Date().getFullYear()}-04-01`;
   });
   const [dateTo, setDateTo] = React.useState(() => toISODate(new Date()));
+
+  React.useEffect(() => {
+    if (!financialYear) return;
+    const y = parseInt(financialYear.slice(0, 4), 10);
+    if (Number.isFinite(y)) setDateFrom(`${y}-04-01`);
+  }, [financialYear]);
   const [data, setData] = React.useState<ReportResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);

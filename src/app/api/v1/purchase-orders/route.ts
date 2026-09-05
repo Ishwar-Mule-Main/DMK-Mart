@@ -8,6 +8,7 @@ import {
   BusinessError,
   asRecord,
   asRecordArray,
+  fyRange,
   getDate,
   getDateOrNull,
   getNum,
@@ -28,10 +29,12 @@ export async function GET(request: NextRequest) {
 
     const status = getStr(sp.get("status"));
     const search = getStr(sp.get("search"));
+    const fy = fyRange(sp.get("fy"));
 
     const orders = await db.purchaseOrder.findMany({
       where: {
         firmId,
+        ...(fy ? { poDate: fy } : {}),
         ...(status ? { status } : {}),
         ...(search
           ? {

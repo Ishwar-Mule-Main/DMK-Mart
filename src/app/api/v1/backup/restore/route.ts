@@ -1,4 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
+import { currentFyLabel } from "@/lib/journal";
 // /api/v1/backup/restore — restore a backup envelope into a NEW firm
 // R1 isolation: restores NEVER write to existing firms. A fresh firm
 // is always created and every record is re-keyed with brand-new ids
@@ -197,7 +198,7 @@ export async function POST(request: NextRequest) {
       bankName: getStr(srcFirm.bankName),
       bankAccount: getStr(srcFirm.bankAccount),
       ifsc: getStr(srcFirm.ifsc),
-      financialYear: getStr(srcFirm.financialYear) || "2025-26",
+      financialYear: getStr(srcFirm.financialYear) || currentFyLabel(),
       invoicePrefix: getStr(srcFirm.invoicePrefix) || firmCode,
       logoUrl: getStrOrNull(srcFirm.logoUrl),
       openingCash: getNum(srcFirm.openingCash),

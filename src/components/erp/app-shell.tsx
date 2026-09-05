@@ -88,7 +88,7 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
 };
 
 export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
-  const { view, firms, activeFirmId, setFirms, session } = useErpStore();
+  const { view, firms, activeFirmId, financialYear, setFirms, session } = useErpStore();
   const [mounted, setMounted] = React.useState(false);
   const [booting, setBooting] = React.useState(true);
   const [bootError, setBootError] = React.useState<string | null>(null);
@@ -214,7 +214,10 @@ export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
       <CommandPalette />
       {/* Desktop: the sidebar is a hover-to-expand rail, so the content offset is always the 64px rail width — the expanded panel overlays instead of pushing content. */}
       <div className="flex-1 flex flex-col transition-none mt-14 lg:ml-16">
-        <main key={view} className="dmk-enter flex-1 px-3 sm:px-5 py-4 sm:py-5 max-w-[1600px] w-full mx-auto">
+        {/* Keyed by view + firm + FY: switching company or financial year remounts the
+            active view so every register refetches scoped to the selected year —
+            the fy param itself is injected by apiGet from the store. */}
+        <main key={`${view}-${activeFirmId}-${financialYear}`} className="dmk-enter flex-1 px-3 sm:px-5 py-4 sm:py-5 max-w-[1600px] w-full mx-auto">
           <ActiveView />
         </main>
         <footer className="mt-auto border-t border-dmk-border-subtle bg-[#0D1527]/60">
@@ -223,7 +226,7 @@ export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
               DMK Mart ERP · AI-Native Trading, Distribution &amp; Bookkeeping Platform
             </p>
             <p className="text-[11px] text-dmk-text-muted font-money">
-              Σ Debits ≡ Σ Credits · Indian Rupees (₹) · FY {useErpStore.getState().financialYear}
+              Σ Debits ≡ Σ Credits · Indian Rupees (₹) · FY {financialYear}
             </p>
           </div>
         </footer>

@@ -21,7 +21,7 @@
 
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { ACC, nextDocNumber, postJournal } from "@/lib/journal";
+import { ACC, fyLabelForDate, nextDocNumber, postJournal } from "@/lib/journal";
 import { round2 } from "@/lib/gst";
 import {
   asRecord,
@@ -119,7 +119,8 @@ export async function POST(request: NextRequest) {
       const totalTax = round2(tax.cgst + tax.sgst + tax.igst);
       const grandTotal = round2(subtotal + totalTax);
 
-      const debitNoteNo = await nextDocNumber("DN", firm.id, firm.invoicePrefix, firm.financialYear);
+      // Debit-note number carries the FY of the return date.
+      const debitNoteNo = await nextDocNumber("DN", firm.id, firm.invoicePrefix, fyLabelForDate(returnDate));
       const sourceCreditNotes = [
         ...new Set(
           plan.lines

@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { db } from "@/lib/db";
-import { ACC, nextDocNumber, postJournal } from "@/lib/journal";
+import { ACC, fyLabelForDate, nextDocNumber, postJournal } from "@/lib/journal";
 import { calculateGST, round2, sumGstSplits } from "@/lib/gst";
 import { BusinessError } from "./api";
 import { addCustomerLedger, recordMovement, updateCustomerBalance } from "./party";
@@ -133,7 +133,8 @@ export async function createSalesReturn(firm: FirmRow, input: CreateSalesReturnI
   const totalTax = round2(tax.cgst + tax.sgst + tax.igst);
   const grandTotal = round2(subtotal + totalTax);
 
-  const creditNoteNo = await nextDocNumber("CN", firm.id, firm.invoicePrefix, firm.financialYear);
+  // Credit-note number carries the FY of the return date.
+  const creditNoteNo = await nextDocNumber("CN", firm.id, firm.invoicePrefix, fyLabelForDate(input.returnDate));
 
   const returnId = await db.$transaction(async (tx) => {
     const created = await tx.salesReturn.create({

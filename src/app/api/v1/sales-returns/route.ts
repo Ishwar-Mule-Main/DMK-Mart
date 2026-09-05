@@ -11,6 +11,7 @@ import {
   asRecord,
   asRecordArray,
   BusinessError,
+  fyRange,
   getDate,
   getNum,
   getStr,
@@ -25,9 +26,13 @@ export async function GET(request: NextRequest) {
     const sp = request.nextUrl.searchParams;
     const firmId = getStr(sp.get("firmId"));
     await resolveFirm(firmId);
+    const fy = fyRange(sp.get("fy"));
 
     const returns = await db.salesReturn.findMany({
-      where: { firmId },
+      where: {
+        firmId,
+        ...(fy ? { returnDate: fy } : {}),
+      },
       include: {
         customer: { select: { id: true, partyName: true } },
         items: { include: { product: { select: { id: true, sku: true, name: true } } } },

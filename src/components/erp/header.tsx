@@ -16,18 +16,20 @@ import {
   CalendarRange,
   Bell,
   ChevronDown,
-  Plus,
-  CircleUser,
   ShieldCheck,
   Search,
   AlertTriangle,
   Timer,
   FileWarning,
   CheckCircle2,
+  Check,
+  KeyRound,
+  Pencil,
   PackageX,
   ClipboardCheck,
   LogOut,
 } from "lucide-react";
+import { CompanyDetailsDialog, ChangePasswordDialog } from "@/components/erp/company-dialogs";
 import { useErpStore, type ViewId } from "@/store/erp-store";
 import { apiGet, apiPost } from "@/lib/api-client";
 import { requestAgingTab } from "@/lib/settle-bus";
@@ -54,6 +56,17 @@ export function Header() {
     useErpStore();
   const firm = firms.find((f) => f.id === activeFirmId);
   const [alerts, setAlerts] = React.useState<LowStockItem[]>([]);
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const [passwordOpen, setPasswordOpen] = React.useState(false);
+  const [companyMenuOpen, setCompanyMenuOpen] = React.useState(false);
+  const refreshFirmsList = React.useCallback(async () => {
+    try {
+      const list = await apiGet<Firm[]>("/api/v1/firms");
+      useErpStore.getState().setFirms(list ?? []);
+    } catch {
+      /* header keeps the cached names until the next refresh */
+    }
+  }, []);
   const [overdue, setOverdue] = React.useState<{ count: number; amount: number } | null>(null);
   const [gstRisk, setGstRisk] = React.useState<{ missingInBooks: number; netItcRisk: number } | null>(null);
   const [verifyWaiting, setVerifyWaiting] = React.useState(0);
@@ -87,11 +100,6 @@ export function Header() {
     const t = setInterval(refreshAlerts, 60000);
     return () => clearInterval(t);
   }, [refreshAlerts]);
-
-  const createFirm = async () => {
-    // opens settings view to create firm
-    useErpStore.getState().setView("settings");
-  };
 
   const openPalette = () => window.dispatchEvent(new Event("dmk:open-palette"));
 
@@ -187,49 +195,6 @@ export function Header() {
             <p className="text-[9.5px] uppercase tracking-widest text-dmk-yellow">ERP Platform</p>
           </div>
         </div>
-
-        {/* Firm switcher */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              className="h-9 px-2.5 gap-2 bg-dmk-input-well border border-dmk-border-subtle hover:bg-dmk-hover max-w-[220px]"
-            >
-              <Building2 className="h-4 w-4 text-dmk-blue shrink-0" strokeWidth={1.75} />
-              <span className="truncate text-[12.5px] font-semibold text-dmk-text-primary">
-                {firm ? firm.firmName : "Select Firm"}
-              </span>
-              <ChevronDown className="h-3.5 w-3.5 text-dmk-text-muted shrink-0" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-64 bg-dmk-bg-tertiary border-dmk-border-medium">
-            <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-dmk-text-muted">
-              Firms · Owner Workspace
-            </DropdownMenuLabel>
-            {firms.map((f) => (
-              <DropdownMenuItem
-                key={f.id}
-                onClick={() => setActiveFirm(f.id)}
-                className={cn(
-                  "gap-2 text-[13px] cursor-pointer",
-                  f.id === activeFirmId && "bg-dmk-hover"
-                )}
-              >
-                <Building2 className="h-4 w-4 text-dmk-text-muted" />
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{f.firmName}</p>
-                  <p className="text-[10.5px] text-dmk-text-muted">
-                    {f.firmCode} · GSTIN {f.gstin || "—"}
-                  </p>
-                </div>
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator className="bg-dmk-border-subtle" />
-            <DropdownMenuItem onClick={createFirm} className="gap-2 text-[13px] cursor-pointer text-dmk-gold">
-              <Plus className="h-4 w-4" /> Create / Manage Firms
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
 
         {/* FY switcher */}
         <DropdownMenu>
@@ -369,23 +334,80 @@ export function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Owner session */}
-        <DropdownMenu>
+        {/* Company menu — firm section moved to the right end (replaces the profile avatar).
+            Switch company · company details · password · sign out. */}
+        <DropdownMenu open={companyMenuOpen} onOpenChange={setCompanyMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
-              className="h-9 w-9 rounded-full bg-dmk-blue/20 border border-dmk-blue/40 flex items-center justify-center hover:bg-dmk-blue/30 transition-colors"
-              aria-label="Owner session menu"
+              className="h-9 pl-2 pr-2.5 gap-2 inline-flex items-center rounded-lg bg-dmk-input-well border border-dmk-border-subtle hover:bg-dmk-hover transition-colors max-w-[190px] sm:max-w-[240px]"
+              aria-label="Company menu"
+              aria-expanded={companyMenuOpen}
             >
-              <CircleUser className="h-5 w-5 text-dmk-blue" strokeWidth={1.75} />
+              <Building2 className="h-4 w-4 text-dmk-blue shrink-0" strokeWidth={1.75} />
+              <span className="truncate text-[12.5px] font-semibold text-dmk-text-primary">
+                {firm ? firm.firmName : "Company"}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 text-dmk-text-muted shrink-0 transition-transform",
+                  companyMenuOpen && "rotate-180"
+                )}
+              />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 bg-dmk-bg-tertiary border-dmk-border-medium">
-            <DropdownMenuLabel className="px-2 py-1.5">
-              <span className="block text-[13px] font-bold tracking-normal text-dmk-text-primary">{OWNER_USERNAME}</span>
-              <span className="block text-[10px] uppercase tracking-widest text-dmk-text-muted mt-0.5 truncate">
-                {firm?.firmName ?? "Owner"} · owner account
+          <DropdownMenuContent align="end" className="w-72 bg-dmk-bg-tertiary border-dmk-border-medium">
+            {/* Active company identity */}
+            <div className="px-2 pt-1.5 pb-2">
+              <p className="text-[13.5px] font-bold text-dmk-text-primary truncate">{firm?.firmName ?? "Company"}</p>
+              <p className="text-[10.5px] text-dmk-text-muted truncate mt-0.5">
+                {firm ? `${firm.firmCode}${firm.gstin ? ` · GSTIN ${firm.gstin}` : ""}` : "—"}
+              </p>
+              <span className="dmk-badge bg-dmk-blue/15 text-dmk-blue text-[9px] px-1.5 py-0.5 mt-1.5 inline-flex items-center gap-1">
+                <ShieldCheck className="h-2.5 w-2.5" /> {OWNER_USERNAME} · owner
               </span>
+            </div>
+
+            <DropdownMenuSeparator className="bg-dmk-border-subtle" />
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-dmk-text-muted">
+              Switch company
             </DropdownMenuLabel>
+            <div className="max-h-[180px] overflow-y-auto">
+              {firms.map((f) => (
+                <DropdownMenuItem
+                  key={f.id}
+                  onClick={() => setActiveFirm(f.id)}
+                  className={cn("gap-2 text-[13px] cursor-pointer", f.id === activeFirmId && "bg-dmk-hover")}
+                >
+                  <Building2 className="h-4 w-4 text-dmk-text-muted shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{f.firmName}</span>
+                    <span className="block text-[10.5px] text-dmk-text-muted truncate">{f.firmCode}</span>
+                  </span>
+                  {f.id === activeFirmId && <Check className="h-4 w-4 text-dmk-success shrink-0" />}
+                </DropdownMenuItem>
+              ))}
+            </div>
+
+            <DropdownMenuSeparator className="bg-dmk-border-subtle" />
+            <DropdownMenuItem
+              onClick={() => {
+                setCompanyMenuOpen(false);
+                setDetailsOpen(true);
+              }}
+              className="gap-2 text-[13px] cursor-pointer"
+            >
+              <Pencil className="h-4 w-4 text-dmk-text-muted" /> Company details
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setCompanyMenuOpen(false);
+                setPasswordOpen(true);
+              }}
+              className="gap-2 text-[13px] cursor-pointer"
+            >
+              <KeyRound className="h-4 w-4 text-dmk-text-muted" /> Change password
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="bg-dmk-border-subtle" />
             <DropdownMenuItem
               onClick={() => {
                 // Owners always land back on the OWNER login address.
@@ -399,6 +421,10 @@ export function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {/* Company dialogs (opened from the menu above) */}
+      <CompanyDetailsDialog open={detailsOpen} onOpenChange={setDetailsOpen} onSaved={() => void refreshFirmsList()} />
+      <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
     </header>
   );
 }
