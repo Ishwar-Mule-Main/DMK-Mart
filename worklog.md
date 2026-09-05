@@ -929,3 +929,24 @@ Stage Summary:
 - Repository now has a professional human-style layout: root holds only build/config/doc entry points; all historical and reference material lives under docs/; AI-tool rules at root AGENTS.md; CI wired.
 - Zero screenshots remain anywhere in the repo (159 tracked + all untracked removed); no code files changed — app verified healthy end-to-end.
 - Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F (sundry, container fit, header, FY audit, products Excel import — note: the products template CSV now lives at docs/uploads/dmk-product-template.csv).
+
+---
+Task ID: 43
+Agent: Z.ai Code (main)
+Task: "Deleted Data" recycle bin — deleted records land in a restorable folder (user ask: "can we restore deleted files in a folder named deleted data")
+
+Work Log:
+- Answer: YES — built it. Every delete across the owner portal now snapshots the record into a DeletedRecord row (full JSON, label + meta), then soft/hard deletes as the entity allows. The new "Deleted Data" view (Intelligence section, Trash2 icon) is the folder where deleted data waits.
+- Prisma: added DeletedRecord model (firmId, entityType, entityId, label, meta, snapshot JSON-string, restoredAt, createdAt + indexes); db:push + client regenerate (required dev-server restart — stale client cached the old model, first list call 500'd until restart).
+- Engine src/app/api/v1/_lib/trash.ts: moveToTrash / restoreFromTrash / purgeFromTrash. Restore reactivates soft-deleted rows (product/customer/vendor/staff) in place, or RECREATES hard-deleted ones (recurring template + its line items, customer-must-exist guard with actionable error). Conflicts fail clean: ERR_DUPLICATE_SKU, ERR_DUPLICATE_USERNAME, ERR_ALREADY_RESTORED. Purge hard-deletes the row only when no transaction history references it (invoice/ledger/PO/verification counts) — otherwise it just leaves the bin and the note explains why (ledger integrity).
+- Wired capture into: products DELETE (existing soft delete), recurring DELETE (now snapshots template+items before hard delete), verification staff DELETE, and NEW DELETE handlers for customers/[id] and vendors/[id] (both previously had no delete at all).
+- New API: GET /api/v1/deleted-data (list w/ type+search+includeRestored filters, per-folder counts, inBin/restoredCount), POST /deleted-data/[id]/restore, DELETE /deleted-data/[id] (purge, returns recordRemoved+note), POST /deleted-data/bulk (restore-all | empty-bin, optional entityType folder scope, per-item failures capped at 5).
+- UI: new view src/components/erp/views/deleted-data.tsx — folder chips w/ live counts (All/Products/Customers/Vendors/Recurring/Team), 4 KPI cards (In Bin, Restored all-time, Folders w/ items, Oldest item), search, "Show restored history" switch, table w/ type icons + Restore + purge-forever (AlertDialog), Restore All / Empty Bin bulk dialogs; reusable TrashButton component added to Customers B2B+B2C tabs and Vendors rows; products/recurring delete dialogs now say "Move to Deleted Data". Sidebar + command palette + ViewId ("data/deleted") registered.
+- E2E API verified: product delete→bin→restore(reactivated)→re-delete→purge(row gone, 404); recurring template recreate WITH items after bulk restore-all; double-restore 409 guard; empty-bin purge-all; restoredCount history.
+- Browser QA (agent-browser): login → Deleted Data view renders chips/KPIs/table (2 seeded items) → Restore click → toast "Restored", IN BIN 2→1, POST 200 → show-restored toggle lists restored rows ("Back in use") → Empty Bin dialog → "Purged 1 of 1" toast, "Bin is clean" empty state → customers TrashButton dialog copy verified (cancelled, real data untouched) → mobile 390px layout + footer OK. Screenshots not committed per repo rule. Commit 2c1ceae.
+- Test data fully cleaned: bin 0 items; all ZZ-* test records purged from DB (only legit restoredCount history remains).
+
+Stage Summary:
+- The ERP now has a real recycle bin: nothing destructive is unrecoverable. Deletion = move to Deleted Data; restore reactivates or recreates from snapshot; purge is the only true delete and it still protects transaction-referenced rows.
+- Next-phase ideas (backlog): per-item "view snapshot" drawer in Deleted Data (show the JSON preview), auto-purge policy (e.g. 90 days) with settings toggle, trash badge counter on the sidebar item, extend bin coverage to journals/COA accounts if the owner starts editing those.
+- Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
