@@ -58,3 +58,7 @@ db/*.db-journal
 
 # keep the env template in git even though .env* is ignored
 !.env.example
+
+# runtime tool dumps (never commit)
+tool-results/
+.zscripts/

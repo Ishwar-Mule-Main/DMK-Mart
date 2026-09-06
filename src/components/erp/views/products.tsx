@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { Package, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { Package, Pencil, Plus, Scale, Trash2, Upload } from "lucide-react";
 
 import {
   PageHeader,
@@ -55,6 +55,7 @@ import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/api-client
 import { toast } from "@/hooks/use-toast";
 import { useErpStore } from "@/store/erp-store";
 import type { Product, Vendor } from "@/types/erp";
+import { StockAdjustDialog } from "../stock-adjust-dialog";
 import { cn } from "@/lib/utils";
 
 const UNITS = ["Pcs", "Set", "Packet", "Box", "Crate"];
@@ -169,6 +170,9 @@ export default function ProductsView() {
   const [formError, setFormError] = React.useState<string | null>(null);
   const [mfrVendors, setMfrVendors] = React.useState<Vendor[]>([]);
   const [saving, setSaving] = React.useState(false);
+
+  // Per-product stock adjustment dialog
+  const [adjusting, setAdjusting] = React.useState<Product | null>(null);
 
   const set = (patch: Partial<ProductFormState>) => setForm((f) => ({ ...f, ...patch }));
   const tierError = React.useMemo(() => tierErrorOf(form), [form]);
@@ -428,6 +432,16 @@ export default function ProductsView() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="h-8 w-8 p-0 text-dmk-text-secondary hover:text-dmk-gold hover:bg-dmk-hover"
+                      onClick={() => setAdjusting(p)}
+                      aria-label={`Adjust stock for ${p.name}`}
+                      title="Adjust stock (add / remove / transfer / write-off)"
+                    >
+                      <Scale className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="h-8 w-8 p-0 text-dmk-text-secondary hover:text-dmk-text-primary hover:bg-dmk-hover"
                       onClick={() => openEdit(p)}
                       aria-label={`Edit ${p.name}`}
@@ -478,6 +492,13 @@ export default function ProductsView() {
           </tbody>
         </DataTable>
       )}
+
+      {/* ── Per-product stock adjustment ──────────────── */}
+      <StockAdjustDialog
+        product={adjusting}
+        onOpenChange={(open) => !open && setAdjusting(null)}
+        onAdjusted={() => setReloadKey((k) => k + 1)}
+      />
 
       {/* ── Add / Edit dialog ─────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

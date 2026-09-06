@@ -15,22 +15,18 @@ import {
   EmptyState,
   LoadingRows,
   SearchInput,
-  Field,
-  inputCls,
   DataTable,
   ErrorText,
 } from "../shared";
+import { StockAdjustDialog } from "../stock-adjust-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -41,14 +37,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { apiGet, apiPost, ApiError } from "@/lib/api-client";
+import { apiGet, apiPost } from "@/lib/api-client";
 import { toast } from "@/hooks/use-toast";
 import { useErpStore } from "@/store/erp-store";
 import type { Product } from "@/types/erp";
 import { formatINR, toISODate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-type AdjustType = "TRANSFER_DAMAGED" | "WRITE_OFF";
 
 function fmtQty(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
@@ -69,14 +63,8 @@ export default function StockLevelsView() {
   const [reloadKey, setReloadKey] = React.useState(0);
   const seqRef = React.useRef(0);
 
-  // Adjustment dialog
+  // Adjustment dialog (shared 5-type component)
   const [adjusting, setAdjusting] = React.useState<Product | null>(null);
-  const [adjustType, setAdjustType] = React.useState<AdjustType>("TRANSFER_DAMAGED");
-  const [qty, setQty] = React.useState("1");
-  const [reason, setReason] = React.useState("");
-  const [adjustDate, setAdjustDate] = React.useState(toISODate(new Date()));
-  const [adjustError, setAdjustError] = React.useState<string | null>(null);
-  const [submitting, setSubmitting] = React.useState(false);
 
   // Reorder assist dialog
   const [reorderOpen, setReorderOpen] = React.useState(false);
@@ -138,65 +126,8 @@ export default function StockLevelsView() {
     [rows]
   );
 
-  const maxQty = adjusting
-    ? adjustType === "TRANSFER_DAMAGED"
-      ? adjusting.stockQuantity
-      : adjusting.damagedStock
-    : 0;
-
   const openAdjust = (p: Product) => {
     setAdjusting(p);
-    setAdjustType("TRANSFER_DAMAGED");
-    setQty("1");
-    setReason("");
-    setAdjustDate(toISODate(new Date()));
-    setAdjustError(null);
-  };
-
-  const submitAdjustment = async () => {
-    if (!activeFirmId || !adjusting) return;
-    const q = Number(qty);
-    if (!Number.isFinite(q) || q <= 0) {
-      setAdjustError("Quantity must be a positive number.");
-      return;
-    }
-    if (q > maxQty) {
-      setAdjustError(
-        adjustType === "TRANSFER_DAMAGED"
-          ? `Cannot transfer more than sellable stock (${maxQty}).`
-          : `Cannot write off more than damaged stock (${maxQty}).`
-      );
-      return;
-    }
-    setSubmitting(true);
-    setAdjustError(null);
-    try {
-      await apiPost("/api/v1/stock/adjustment", {
-        firmId: activeFirmId,
-        productId: adjusting.id,
-        adjustType,
-        quantity: q,
-        reason: reason.trim(),
-        adjustDate,
-      });
-      toast({
-        title: adjustType === "TRANSFER_DAMAGED" ? "Transferred to damaged pool" : "Stock written off",
-        description: `${adjusting.sku} × ${fmtQty(q)} — movement recorded in the audit trail.`,
-      });
-      setAdjusting(null);
-      setReloadKey((k) => k + 1);
-    } catch (e) {
-      const msg =
-        e instanceof ApiError
-          ? `${e.message} (${e.code})`
-          : e instanceof Error
-            ? e.message
-            : "Adjustment failed";
-      setAdjustError(msg);
-      toast({ title: "Adjustment failed", description: msg, variant: "destructive" });
-    } finally {
-      setSubmitting(false);
-    }
   };
 
   return (
@@ -321,7 +252,6 @@ export default function StockLevelsView() {
                       size="sm"
                       className="h-8 px-2.5 text-[11.5px] border-dmk-border-subtle bg-dmk-input-well hover:bg-dmk-hover"
                       onClick={() => openAdjust(p)}
-                      disabled={p.stockQuantity + p.damagedStock <= 0}
                     >
                       <Scale className="h-3 w-3 mr-1" />
                       Adjust
@@ -359,110 +289,12 @@ export default function StockLevelsView() {
       {/* ── Reorder assist dialog ─────────────────────── */}
       <ReorderAssistDialog open={reorderOpen} onOpenChange={setReorderOpen} />
 
-      {/* ── Adjustment dialog ─────────────────────────── */}
-      <Dialog open={adjusting !== null} onOpenChange={(open) => !open && setAdjusting(null)}>
-        <DialogContent className="dmk-card border-dmk-border-medium">
-          <DialogHeader>
-            <DialogTitle className="text-dmk-text-primary text-[16px]">Adjust Stock</DialogTitle>
-            <DialogDescription className="text-dmk-text-muted text-[12px]">
-              {adjusting ? `${adjusting.sku} — ${adjusting.name}` : ""}
-            </DialogDescription>
-          </DialogHeader>
-
-          <RadioGroup
-            value={adjustType}
-            onValueChange={(v) => setAdjustType(v as AdjustType)}
-            className="grid grid-cols-1 sm:grid-cols-2 gap-2"
-          >
-            <div
-              className={cn(
-                "dmk-well p-3 cursor-pointer transition-colors",
-                adjustType === "TRANSFER_DAMAGED" && "border-dmk-border-medium bg-dmk-bg-tertiary"
-              )}
-              onClick={() => setAdjustType("TRANSFER_DAMAGED")}
-            >
-              <div className="flex items-center gap-2">
-                <RadioGroupItem value="TRANSFER_DAMAGED" id="adj-transfer" />
-                <Label htmlFor="adj-transfer" className="text-[12.5px] font-semibold text-dmk-text-primary cursor-pointer">
-                  Transfer to Damaged
-                </Label>
-              </div>
-              <p className="text-[10.5px] text-dmk-text-muted mt-1.5">
-                Sellable → damaged quarantine. Inventory value unchanged.
-              </p>
-            </div>
-            <div
-              className={cn(
-                "dmk-well p-3 cursor-pointer transition-colors",
-                adjustType === "WRITE_OFF" && "border-dmk-border-medium bg-dmk-bg-tertiary"
-              )}
-              onClick={() => setAdjustType("WRITE_OFF")}
-            >
-              <div className="flex items-center gap-2">
-                <RadioGroupItem value="WRITE_OFF" id="adj-writeoff" />
-                <Label htmlFor="adj-writeoff" className="text-[12.5px] font-semibold text-dmk-text-primary cursor-pointer">
-                  Write Off
-                </Label>
-              </div>
-              <p className="text-[10.5px] text-dmk-text-muted mt-1.5">
-                Destroy damaged stock — posts a DAMAGE_LOSS journal (R6).
-              </p>
-            </div>
-          </RadioGroup>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field
-              label="Quantity"
-              hint={
-                adjustType === "TRANSFER_DAMAGED"
-                  ? `Sellable available: ${fmtQty(maxQty)}`
-                  : `Damaged available: ${fmtQty(maxQty)}`
-              }
-            >
-              <Input
-                type="number"
-                min="0"
-                step="1"
-                className={inputCls}
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-              />
-            </Field>
-            <Field label="Adjustment Date">
-              <Input
-                type="date"
-                className={inputCls}
-                value={adjustDate}
-                onChange={(e) => setAdjustDate(e.target.value)}
-              />
-            </Field>
-          </div>
-          <Field label="Reason">
-            <Textarea
-              rows={2}
-              className="bg-dmk-input-well border-dmk-border-subtle text-[13px] text-dmk-text-primary placeholder:text-dmk-text-disabled resize-none"
-              placeholder="e.g. cracked during transit, packaging torn…"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </Field>
-
-          {adjustError && <ErrorText>{adjustError}</ErrorText>}
-
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setAdjusting(null)}
-              className="h-9 border-dmk-border-subtle bg-dmk-input-well text-dmk-text-secondary hover:bg-dmk-hover"
-            >
-              Cancel
-            </Button>
-            <Button onClick={() => void submitAdjustment()} disabled={submitting} className="h-9">
-              {submitting ? "Posting…" : "Post Adjustment"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* ── Adjustment dialog (shared 5-type component) ── */}
+      <StockAdjustDialog
+        product={adjusting}
+        onOpenChange={(open) => !open && setAdjusting(null)}
+        onAdjusted={() => setReloadKey((k) => k + 1)}
+      />
     </div>
   );
 }

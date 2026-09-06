@@ -178,6 +178,7 @@ export const ACC = {
   OPEX: "5300",
   ROUND_OFF: "5400",
   DAMAGE_LOSS: "5500",
+  STOCK_ADJ: "5510", // Stock Adjustment (surplus / shortage corrections)
 } as const;
 
 /** Seed the standard Chart of Accounts for a firm. */
@@ -204,6 +205,7 @@ export async function seedChartOfAccounts(firmId: string) {
     { code: ACC.OPEX, name: "Operating Expenses", group: "Indirect Expenses", cls: "EXPENSE" },
     { code: ACC.ROUND_OFF, name: "Round-Off", group: "Indirect Expenses", cls: "EXPENSE" },
     { code: ACC.DAMAGE_LOSS, name: "Damaged Stock Write-Off", group: "Indirect Expenses", cls: "EXPENSE" },
+    { code: ACC.STOCK_ADJ, name: "Stock Adjustment (Surplus/Shortage)", group: "Indirect Expenses", cls: "EXPENSE" },
   ];
   await db.chartOfAccount.createMany({
     data: coa.map((a) => ({
@@ -213,5 +215,24 @@ export async function seedChartOfAccounts(firmId: string) {
       accountGroup: a.group,
       accountClass: a.cls,
     })),
+  });
+}
+
+/**
+ * Guarantee the Stock Adjustment account (5510) exists on a firm's COA.
+ * Firms created before this account was introduced get it backfilled on
+ * first use, so stock-correction journals never fail with ERR_ACCOUNT_NOT_FOUND.
+ */
+export async function ensureStockAdjustmentAccount(firmId: string): Promise<void> {
+  await db.chartOfAccount.upsert({
+    where: { firmId_accountCode: { firmId, accountCode: ACC.STOCK_ADJ } },
+    update: {},
+    create: {
+      firmId,
+      accountCode: ACC.STOCK_ADJ,
+      accountName: "Stock Adjustment (Surplus/Shortage)",
+      accountGroup: "Indirect Expenses",
+      accountClass: "EXPENSE",
+    },
   });
 }

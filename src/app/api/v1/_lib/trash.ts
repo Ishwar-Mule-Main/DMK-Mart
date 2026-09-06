@@ -264,13 +264,32 @@ export async function purgeFromTrash(trashId: string): Promise<PurgeResult> {
     case "PRODUCT": {
       const row = await db.product.findUnique({ where: { id } });
       if (row) {
-        const refs = await db.invoiceLineItem.count({ where: { productId: id } });
+        // Any transactional document referencing the product keeps the row alive.
+        const refs =
+          (await db.invoiceLineItem.count({ where: { productId: id } })) +
+          (await db.purchaseOrderItem.count({ where: { productId: id } })) +
+          (await db.salesReturnItem.count({ where: { productId: id } })) +
+          (await db.purchaseReturnItem.count({ where: { productId: id } })) +
+          (await db.recurringTemplateItem.count({ where: { productId: id } }));
         if (refs === 0) {
-          await db.product.delete({ where: { id } }).catch(() => undefined);
+          // Product-scoped audit rows (stock movements + adjustments) belong to
+          // this product alone — clear them, then hard-delete the master row.
+          await db.inventoryMovement.deleteMany({ where: { productId: id } });
+          await db.stockAdjustment.deleteMany({ where: { productId: id } });
+          const deleted = await db.product
+            .delete({ where: { id } })
+            .then(() => true)
+            .catch(() => false);
+          if (!deleted) {
+            result = {
+              recordRemoved: false,
+              note: "Product could not be fully deleted — the inactive row stays for ledger integrity.",
+            };
+          }
         } else {
           result = {
             recordRemoved: false,
-            note: "Product has sales history — removed from the bin; the inactive row stays for ledger integrity.",
+            note: "Product has transaction history — removed from the bin; the inactive row stays for ledger integrity.",
           };
         }
       }

@@ -585,7 +585,7 @@ model StockAdjustment {
   adjustDate  DateTime
   productId   String
   productName String   @default("")
-  adjustType  String // TRANSFER_DAMAGED | WRITE_OFF | OPENING
+  adjustType  String // TRANSFER_DAMAGED | REQUEUE_SELLABLE | WRITE_OFF | ADD_SELLABLE | REMOVE_SELLABLE
   quantity    Float
   reason      String   @default("")
   createdAt   DateTime @default(now())
