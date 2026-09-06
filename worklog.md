@@ -950,3 +950,27 @@ Stage Summary:
 - The ERP now has a real recycle bin: nothing destructive is unrecoverable. Deletion = move to Deleted Data; restore reactivates or recreates from snapshot; purge is the only true delete and it still protects transaction-referenced rows.
 - Next-phase ideas (backlog): per-item "view snapshot" drawer in Deleted Data (show the JSON preview), auto-purge policy (e.g. 90 days) with settings toggle, trash badge counter on the sidebar item, extend bin coverage to journals/COA accounts if the owner starts editing those.
 - Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
+
+---
+Task ID: 44
+Agent: Z.ai Code (main)
+Task: Per-product stock adjustment option (user ask) + answers on OpenRouter undo & Vercel deployment
+
+Work Log:
+- ANSWER 1 (OpenRouter): NOT undone — the integration code (commit b7da796, resolveAiModel in _lib/aiModel.ts) is still in place and still supports OpenRouter via .z-ai-config / AI_MODEL env. HOWEVER the .z-ai-config file (gitignored by design, held the user's OpenRouter key) is currently MISSING from the project root, so the copilot is falling back to the sandbox default model right now. Options offered: restore key file / keep default / fully remove the wiring on request.
+- ANSWER 2 (Vercel): Next.js app is Vercel-shaped, but the current stack will NOT run there as-is — SQLite file DB is incompatible with the ephemeral serverless filesystem (must swap to hosted Postgres e.g. Neon/Supabase/Turso), socket.io mini-services need a long-lived process (not serverless), and .z-ai-config must become env vars. Runs as-is on any Node host — Dockerfile/docker-compose included for VPS/Railway/Render.
+- FEATURE: /api/v1/stock/adjustment extended from 2 to 5 adjustment types:
+  ADD_SELLABLE (surplus inward; journal Dr INVENTORY / Cr 5510), REMOVE_SELLABLE (shortage; Dr 5510 / Cr INVENTORY), REQUEUE_SELLABLE (damaged→sellable, value-neutral dual movements), plus existing TRANSFER_DAMAGED and WRITE_OFF. All paths write append-only InventoryMovement rows + StockAdjustment audit rows.
+- New COA account 5510 "Stock Adjustment (Surplus/Shortage)" added to ACC map + seedChartOfAccounts + ensureStockAdjustmentAccount() upsert that backfills the account on existing firms before first use (verified: auto-appeared in journals).
+- BUG FIX (found by QA): WRITE_OFF posted an unbalanced/failed journal when purchaseCost = 0 — journal is now skipped when value is 0. BUG FIX 2: purgeFromTrash(PRODUCT) reported "Removed forever." while silently swallowing FK failures from InventoryMovement rows — now checks ALL transaction refs (invoice + PO + sales/purchase returns + recurring items), clears product-scoped audit rows (inventoryMovement + stockAdjustment), and reports failure honestly if the delete still fails.
+- SHARED UI: new src/components/erp/stock-adjust-dialog.tsx — 5 radio-type picker with icons + hints, current-pool chips, quantity with pool-limit hint (unlimited for inward), reason, date, live "After posting — Sellable/Damaged" preview, per-type toasts. Wired into Products view (new Scale icon button on EVERY product row, aria-label "Adjust stock for …") AND Stock Levels view (replaced its old 2-type inline dialog; Adjust no longer disabled at zero stock since ADD works from zero).
+- E2E API QA: scratch product ZZ-ADJTEST cost ₹50 — ADD 10 → sellable 10 + JOU (Inv Dr 500 / 5510 Cr 500); TRANSFER 4; REQUEUE 2; WRITE_OFF 2 (JOU 100); REMOVE 8 (JOU 400); over-remove → 422; final pools 0/0. All balanced. Test product purged via Deleted Data; QA journals/movements/adjustments removed from DB (books clean).
+- Browser QA (agent-browser): login → Products → per-row Adjust opens dialog with all 5 types → Add 2 on DMK-ST-011 → POST 201, toast "Stock added", row 120→122, valuation ₹24,400 → Stock Levels Adjust opens the same shared dialog → dialog fits 390px mobile (374px) → no console errors. Test data reversed (+2/−2) and QA rows scrubbed.
+- REPO HYGIENE: tool-results/ and .zscripts/ removed from git tracking + gitignored (accidental commits found during staging); commit amended. Lint 0/0, tsc 0, server 200.
+- Commit: 6bb9028.
+
+Stage Summary:
+- Every product now has a full stock-adjustment option in-place: add (+), remove (−), transfer to damaged, requeue to sellable, write off — each with double-entry journals where value moves and an append-only audit trail, on top of the shared 5-type dialog used by both inventory views.
+- Purge engine now tells the truth and product purges handle audit children.
+- OpenRouter: integration intact, key file missing (user to decide: restore/keep/remove). Vercel: needs SQLite→Postgres swap + websocket strategy; runs unchanged on Node/Docker hosts.
+- Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
