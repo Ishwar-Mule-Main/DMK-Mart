@@ -7,7 +7,6 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
-import ZAI from "z-ai-web-dev-sdk";
 import { db } from "@/lib/db";
 import { round2 } from "@/lib/gst";
 import {
@@ -22,7 +21,7 @@ import {
 } from "@/app/api/v1/_lib/api";
 import { buildDashboard } from "@/app/api/v1/_lib/dashboard";
 import { computePnl } from "@/app/api/v1/_lib/pnl";
-import { resolveAiModel } from "@/app/api/v1/_lib/aiModel";
+import { createAiClient, resolveAiModel } from "@/app/api/v1/_lib/aiModel";
 import type { CopilotChart } from "@/types/erp";
 
 interface ChatCompletionShape {
@@ -323,10 +322,20 @@ export async function POST(request: NextRequest) {
       JSON.stringify(snapshot),
     ].join("\n");
 
-    const zai = await ZAI.create();
-    // Self-hosted: the model comes from AI_MODEL env or the "model"
-    // field of .z-ai-config (e.g. OpenRouter's z-ai/glm-5.3-flash).
-    // Undefined in the sandbox — the gateway default model is used.
+    // AI client: env vars first (Vercel/serverless), then .z-ai-config
+    // files (sandbox / self-hosted). When nothing is configured the
+    // copilot degrades gracefully — the rest of the ERP is unaffected.
+    const { client: zai, source: aiSource } = await createAiClient();
+    if (!zai) {
+      return ok({
+        reply:
+          "The AI copilot is not configured on this deployment. Set the AI_BASE_URL and AI_API_KEY environment variables (plus optional AI_MODEL, e.g. an OpenRouter model) — or run self-hosted with a .z-ai-config file. Every other part of the ERP works fully without it.",
+        chart,
+        aiConfigured: false,
+      });
+    }
+    // Model: AI_MODEL env or the "model" field of .z-ai-config (e.g.
+    // OpenRouter's z-ai/glm-5.3-flash). Undefined → gateway default.
     const model = await resolveAiModel();
     const completion = (await zai.chat.completions.create({
       ...(model ? { model } : {}),
@@ -339,9 +348,9 @@ export async function POST(request: NextRequest) {
 
     const reply = completion.choices?.[0]?.message?.content?.trim();
     if (!reply) {
-      return ok({ reply: "I could not generate a response from the current data. Please try again.", chart });
+      return ok({ reply: "I could not generate a response from the current data. Please try again.", chart, aiConfigured: aiSource !== "none" });
     }
-    return ok({ reply, chart });
+    return ok({ reply, chart, aiConfigured: aiSource !== "none" });
   } catch (e) {
     return handleApiError(e);
   }

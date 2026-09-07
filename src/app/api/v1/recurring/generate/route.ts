@@ -30,3 +30,42 @@ export async function POST(request: NextRequest) {
     return handleApiError(e);
   }
 }
+
+// ─── GET: Vercel Cron ping (serverless catch-up) ─────────────────
+// On Vercel the in-process scheduler cannot run (ephemeral functions),
+// so vercel.json schedules this endpoint instead. It reuses the
+// scheduler pass — the SAME engine, scanning every active firm for due
+// autoPost templates. Idempotent: schedules advance only when posted.
+//
+// Auth: set CRON_SECRET in the environment and Vercel Cron will send
+// `Authorization: Bearer <CRON_SECRET>` automatically (it also accepts
+// ?secret=<CRON_SECRET> for manual pings). When CRON_SECRET is unset
+// the endpoint is open — fine for dev/self-host; set it in production.
+export async function GET(request: NextRequest) {
+  try {
+    const secret = process.env.CRON_SECRET?.trim();
+    if (secret) {
+      const header = request.headers.get("authorization") ?? "";
+      const querySecret = request.nextUrl.searchParams.get("secret") ?? "";
+      if (header !== `Bearer ${secret}` && querySecret !== secret) {
+        return ok({ ok: false, error: "Unauthorized cron ping" }, 401);
+      }
+    }
+
+    const { runSchedulerPass } = await import("@/lib/scheduler");
+    const pass = await runSchedulerPass("cron");
+    return ok({
+      ok: true,
+      trigger: "cron",
+      firmsChecked: pass.firmsChecked,
+      generated: pass.generated,
+      failed: pass.failed,
+      skipped: pass.skipped,
+      autoPosted: pass.autoPosted,
+      errors: pass.errors,
+      durationMs: pass.durationMs,
+    });
+  } catch (e) {
+    return handleApiError(e);
+  }
+}

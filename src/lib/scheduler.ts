@@ -73,7 +73,9 @@ function state(): SchedulerState {
 }
 
 /** One scheduler pass: run due autoPost templates for every active firm. */
-export async function runSchedulerPass(trigger: "interval" | "boot" | "manual" = "interval"): Promise<SchedulerPass> {
+export async function runSchedulerPass(
+  trigger: "interval" | "boot" | "manual" | "cron" = "interval"
+): Promise<SchedulerPass> {
   const s = state();
   const t0 = Date.now();
   const pass: SchedulerPass = {

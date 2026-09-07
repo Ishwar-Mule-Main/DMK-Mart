@@ -346,19 +346,29 @@ Open **http://your-server-ip:3000**. Put Nginx/Caddy (previous section, Step 5�
 
 ## ☁️ Step-by-Step: Deploy on Cloud Platforms (Web)
 
-### Vercel / Netlify (serverless)
+### Vercel (serverless — full guide in `docs/deploy/vercel.md`)
 
-⚠️ **Caveat:** this app ships with **SQLite**, which needs a persistent writable file — serverless filesystems are ephemeral. Two options:
+The repo ships a **first-class Vercel path** alongside the self-hosted one — the codebase
+stays identical, only the database provider and build wiring differ:
 
-- **Option 1 (quick demo):** deploy as-is. The database resets between deployments — fine for evaluation, **not** for production.
-- **Option 2 (production):** switch `prisma/schema.prisma` `datasource` to a hosted provider (e.g. Turso (libSQL, SQLite-compatible), PostgreSQL) and update `DATABASE_URL`, then deploy:
+- **Database:** hosted **PostgreSQL** (Neon / Supabase / Vercel Postgres). The Prisma
+  schema mirror `prisma/schema.postgres.prisma` is auto-generated from the SQLite source
+  of truth (`bun run db:sync:pg`) and validated in CI — the two never drift.
+- **Recurring auto-post:** Vercel Cron (already wired in `vercel.json`) replaces the
+  in-process scheduler, which is skipped automatically on serverless.
+- **AI copilot:** configured with env vars (`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL`) —
+  e.g. OpenRouter — instead of the `.z-ai-config` file; degrades gracefully when absent.
+- **Realtime:** the socket.io emit bridge is fire-and-forget; both portals poll, so
+  nothing breaks on serverless.
 
-  ```bash
-  npm i -g vercel
-  vercel
-  # add DATABASE_URL in Vercel Dashboard → Settings → Environment Variables
-  vercel --prod
-  ```
+```bash
+# one-time: push the schema to your hosted Postgres (never touches local SQLite)
+DATABASE_URL="postgresql://…" bun run db:push:pg
+# then import the repo in the Vercel dashboard and add the env vars from .env.vercel.example
+```
+
+> Self-hosting on **Hostinger / VPS** with SQLite + socket.io is unchanged — see
+> `docs/deploy/hostinger.md`.
 
 ### Railway / Render / Fly.io (persistent volumes — recommended for SQLite)
 

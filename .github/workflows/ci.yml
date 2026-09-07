@@ -25,6 +25,18 @@ jobs:
       - name: Generate Prisma client
         run: bun run db:generate
 
+      - name: Validate Postgres mirror schema (Vercel path)
+        run: |
+          bunx prisma validate --schema prisma/schema.postgres.prisma
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      - name: Check Postgres mirror is in sync with schema.prisma
+        run: |
+          bun run db:sync:pg
+          git diff --exit-code prisma/schema.postgres.prisma \
+            || (echo "::error::prisma/schema.postgres.prisma is stale — run 'bun run db:sync:pg' and commit" && exit 1)
+
       - name: Lint
         run: bun run lint
 

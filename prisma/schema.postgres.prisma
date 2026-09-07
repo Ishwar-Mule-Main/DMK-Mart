@@ -1,0 +1,738 @@
+// ═══════════════════════════════════════════════════════════════
+// ⚠ GENERATED FILE — DO NOT EDIT BY HAND
+// Mirrored from prisma/schema.prisma by scripts/sync-pg-schema.mjs
+// (bun run db:sync:pg). Make schema changes in schema.prisma, then
+// re-run the sync script. Used ONLY for Vercel/Postgres deploys —
+// self-hosted (Hostinger/VPS) keeps the SQLite schema as-is.
+// ═══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════
+// DMK MART ERP — PRISMA SCHEMA
+// Single-owner, multi-firm, dual-stock, double-entry ERP
+// ═══════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── FIRM (Account entity — single owner, no users) ──────────────
+
+model Firm {
+  id             String   @id @default(cuid())
+  firmName       String
+  firmCode       String   @unique
+  gstin          String   @default("")
+  state          String   @default("Maharashtra")
+  stateCode      String   @default("27")
+  address        String   @default("")
+  phone          String   @default("")
+  email          String   @default("")
+  bankName       String   @default("")
+  bankAccount    String   @default("")
+  ifsc           String   @default("")
+  financialYear  String   @default("2025-26")
+  autoCreateFy   Boolean  @default(true) // auto-open the next FY account on 1 April; when OFF the app locks until the owner creates it
+  invoicePrefix  String   @default("DMK")
+  logoUrl        String?
+  openingCash    Float    @default(0)
+  openingBank    Float    @default(0)
+  ownerPassword  String   @default("1234") // owner portal login (hashed at register)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  verificationStaff VerificationStaff[]
+  financialYears    FinancialYear[]
+
+  products          Product[]
+  customers         Customer[]
+  vendors           Vendor[]
+  purchaseOrders    PurchaseOrder[]
+  invoices          Invoice[]
+  salesReturns      SalesReturn[]
+  purchaseReturns   PurchaseReturn[]
+  vendorPayments    VendorPayment[]
+  customerReceipts  CustomerReceipt[]
+  receiptAllocations ReceiptAllocation[]
+  paymentAllocations PaymentAllocation[]
+  gstr2bRecords     Gstr2bRecord[]
+  accounts          ChartOfAccount[]
+  journalEntries    JournalEntry[]
+  inventoryMovements InventoryMovement[]
+  stockAdjustments  StockAdjustment[]
+  recurringTemplates RecurringTemplate[]
+  deletedRecords    DeletedRecord[]
+}
+
+// ─── DELETED DATA (recycle bin) ──────────────────────────────────
+// Every delete across the owner portal drops a full JSON snapshot of
+// the record here first. The owner can restore it (reactivate the
+// soft-deleted row, or recreate a hard-deleted one) or purge it
+// forever from the "Deleted Data" view.
+
+model DeletedRecord {
+  id         String    @id @default(cuid())
+  firmId     String
+  firm       Firm      @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  entityType String // PRODUCT | CUSTOMER | VENDOR | RECURRING_TEMPLATE | VERIFICATION_STAFF
+  entityId   String // id of the original record (kept even after hard delete)
+  label      String // human-readable name (product name, party name…)
+  meta       String    @default("") // short subtitle — sku / city / phone / username
+  snapshot   String    @default("{}") // full JSON snapshot (template items included)
+  restoredAt DateTime? // set when the record has been restored
+  createdAt  DateTime  @default(now())
+
+  @@index([firmId, entityType])
+  @@index([firmId, createdAt])
+}
+
+// ─── FINANCIAL YEAR REGISTRY (Apr–Mar book years per firm) ───────
+// A year "exists" for a firm only when a row is present here. The app
+// auto-creates the current year on boot when autoCreateFy is ON; when
+// it is OFF (or creation fails) every section stays locked behind the
+// FY gate until the owner opens the new year's books.
+
+model FinancialYear {
+  id          String   @id @default(cuid())
+  firmId      String
+  firm        Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  label       String // "2025-26"
+  startDate   DateTime // Apr 1 of the opening year
+  endDate     DateTime // Mar 31 of the closing year
+  isClosed    Boolean  @default(false) // books closed — read-only year
+  autoCreated Boolean  @default(false) // opened automatically on 1 April vs manually by the owner
+  createdAt   DateTime @default(now())
+
+  @@unique([firmId, label])
+  @@index([firmId, startDate])
+}
+
+// ─── PRODUCT (5-tier pricing + dual stock) ───────────────────────
+
+model Product {
+  id                String   @id @default(cuid())
+  firmId            String
+  firm              Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  sku               String
+  name              String
+  category          String   @default("General")
+  brand             String   @default("")
+  unit              String   @default("Pcs") // Pcs | Set | Packet | Box | Crate
+  hsnCode           String   @default("3924")
+  gstRate           Float    @default(18) // 0|5|12|18|28
+  purchaseCost      Float    @default(0)
+  tier1Distributor  Float    @default(0)
+  tier2Wholesale    Float    @default(0)
+  tier3SemiWholesale Float   @default(0)
+  tier4Retailer     Float    @default(0)
+  tier5Mrp          Float    @default(0)
+  stockQuantity     Float    @default(0) // sellable
+  damagedStock      Float    @default(0) // quarantined — NEVER sellable
+  lowStockThreshold Float    @default(0)
+  manufacturerVendorId String? // MANUFACTURER vendor this product belongs to (PO scoping R10)
+  weightGrams       Float?
+  barcode           String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  manufacturerVendor Vendor? @relation("ManufacturerProducts", fields: [manufacturerVendorId], references: [id])
+  purchaseOrderItems PurchaseOrderItem[]
+  invoiceLineItems    InvoiceLineItem[]
+  salesReturnItems    SalesReturnItem[]
+  purchaseReturnItems PurchaseReturnItem[]
+  movements           InventoryMovement[]
+  recurringTemplateItems RecurringTemplateItem[]
+
+  @@unique([firmId, sku])
+  @@index([firmId, name])
+  @@index([firmId, category])
+  @@index([firmId, manufacturerVendorId])
+}
+
+// ─── CUSTOMERS (B2B + B2C counter directory) ─────────────────────
+
+model Customer {
+  id              String   @id @default(cuid())
+  firmId          String
+  firm            Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  partyName       String // location-first: "Latur Ishwar Mule"
+  firmName        String   @default("")
+  city            String   @default("")
+  stateCode       String   @default("27")
+  gstin           String   @default("")
+  phone           String   @default("")
+  email           String   @default("")
+  address         String   @default("")
+  customerType    String   @default("B2B") // B2B | B2C_COUNTER
+  assignedTier    String   @default("tier4Retailer")
+  creditLimit     Float    @default(0) // 0 for B2C
+  creditDays      Int      @default(30)
+  openingBalance  Float    @default(0) // Dr positive = they owe us
+  closingBalance  Float    @default(0) // running, Dr positive
+  visitCount      Int      @default(0) // B2C analytics
+  lifetimeSpend   Float    @default(0) // B2C analytics
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  invoices         Invoice[]
+  salesReturns     SalesReturn[]
+  receipts         CustomerReceipt[]
+  ledgerEntries    LedgerEntry[]
+  recurringTemplates RecurringTemplate[]
+
+  @@index([firmId, partyName])
+  @@index([firmId, phone])
+  @@index([firmId, customerType])
+}
+
+// ─── VENDORS (Manufacturer | Distributor) ────────────────────────
+
+model Vendor {
+  id              String   @id @default(cuid())
+  firmId          String
+  firm            Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  vendorName      String
+  vendorType      String   @default("DISTRIBUTOR") // MANUFACTURER | DISTRIBUTOR
+  brand           String   @default("") // brand scope for manufacturer
+  gstin           String   @default("")
+  stateCode       String   @default("27")
+  phone           String   @default("")
+  email           String   @default("")
+  address         String   @default("")
+  paymentTerms    String   @default("NET_30")
+  openingBalance  Float    @default(0) // Cr positive = we owe them
+  closingBalance  Float    @default(0) // running, Cr positive
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  purchaseOrders    PurchaseOrder[]
+  purchaseReturns   PurchaseReturn[]
+  payments          VendorPayment[]
+  ledgerEntries     LedgerEntry[]
+  manufacturedProducts Product[] @relation("ManufacturerProducts")
+
+  @@index([firmId, vendorName])
+  @@index([firmId, gstin])
+}
+
+// ─── PURCHASE ORDERS (PO → GRN lifecycle) ────────────────────────
+
+model PurchaseOrder {
+  id           String   @id @default(cuid())
+  firmId       String
+  firm         Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  vendorId     String
+  vendor       Vendor   @relation(fields: [vendorId], references: [id])
+  poNumber     String
+  poDate       DateTime
+  status       String   @default("PENDING") // PENDING | CONFIRMED | CANCELLED
+  subtotal     Float    @default(0)
+  totalCgst    Float    @default(0)
+  totalSgst    Float    @default(0)
+  totalIgst    Float    @default(0)
+  grandTotal   Float    @default(0)
+  receivedNote String   @default("") // GRN remarks
+  vendorBillNo   String   @default("") // supplier's sales-invoice number (GSTR-2B bill-first matching)
+  vendorBillDate DateTime?
+  notes        String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  items           PurchaseOrderItem[]
+  purchaseReturns PurchaseReturn[]
+  paymentAllocations PaymentAllocation[]
+  verification    PoVerification?
+
+  @@unique([firmId, poNumber])
+  @@index([firmId, status])
+  @@index([firmId, vendorBillNo])
+}
+
+model PurchaseOrderItem {
+  id             String  @id @default(cuid())
+  poId           String
+  po             PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product @relation(fields: [productId], references: [id])
+  sku            String  @default("")
+  productName    String  @default("")
+  hsnCode        String  @default("")
+  quantity       Float
+  receivedQty    Float   @default(0) // total received at GRN
+  unitCost       Float
+  taxableAmount  Float   @default(0)
+  gstRate        Float   @default(18)
+  cgstAmount     Float   @default(0)
+  sgstAmount     Float   @default(0)
+  igstAmount     Float   @default(0)
+  totalAmount    Float   @default(0)
+}
+
+// ─── SALES INVOICES (B2B + B2C counter) ──────────────────────────
+
+model Invoice {
+  id             String   @id @default(cuid())
+  firmId         String
+  firm           Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  invoiceNumber  String
+  invoiceDate    DateTime
+  customerId     String?
+  customer       Customer? @relation(fields: [customerId], references: [id])
+  isCounterSale  Boolean  @default(false)
+  walkInName     String   @default("")
+  walkInPhone    String   @default("")
+  subtotal       Float    @default(0)
+  discountTotal  Float    @default(0)
+  totalCgst      Float    @default(0)
+  totalSgst      Float    @default(0)
+  totalIgst      Float    @default(0)
+  roundOff       Float    @default(0)
+  grandTotal     Float    @default(0)
+  amountInWords  String   @default("")
+  paymentMode    String   @default("CREDIT") // CREDIT|CASH|UPI|CARD|NEFT
+  status         String   @default("POSTED") // POSTED | CANCELLED
+  templateId     String? // set when auto-posted by a recurring template (subscription ledger)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  lineItems    InvoiceLineItem[]
+  salesReturns SalesReturn[]
+  receiptAllocations ReceiptAllocation[]
+  recurringTemplate RecurringTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@unique([firmId, invoiceNumber])
+  @@index([firmId, invoiceDate])
+  @@index([firmId, templateId])
+}
+
+model InvoiceLineItem {
+  id              String  @id @default(cuid())
+  invoiceId       String
+  invoice         Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product @relation(fields: [productId], references: [id])
+  sku             String  @default("")
+  productName     String  @default("")
+  hsnCode         String  @default("")
+  selectedTier    String  @default("tier4Retailer")
+  packagingFormat String  @default("PIECE")
+  baseTierPrice   Float   @default(0)
+  bulkDiscountPct Float   @default(0)
+  unitPrice       Float
+  quantity        Float
+  taxableAmount   Float   @default(0)
+  gstRate         Float   @default(18)
+  cgstAmount      Float   @default(0)
+  sgstAmount      Float   @default(0)
+  igstAmount      Float   @default(0)
+  totalAmount     Float   @default(0)
+}
+
+// ─── SALES RETURNS (Credit Note → DAMAGED stock) ─────────────────
+
+model SalesReturn {
+  id           String   @id @default(cuid())
+  firmId       String
+  firm         Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  creditNoteNo String
+  invoiceRef   String   @default("")
+  invoiceId    String?
+  invoice      Invoice? @relation(fields: [invoiceId], references: [id])
+  customerId   String?
+  customer     Customer? @relation(fields: [customerId], references: [id])
+  returnDate   DateTime
+  subtotal     Float    @default(0)
+  totalTax     Float    @default(0)
+  grandTotal   Float    @default(0)
+  notes        String   @default("")
+  refundMode   String   @default("CREDIT") // CREDIT | UPI_NEFT | CASH — how the return value is settled with the customer
+  createdAt    DateTime @default(now())
+
+  items SalesReturnItem[]
+
+  @@unique([firmId, creditNoteNo])
+}
+
+model SalesReturnItem {
+  id          String  @id @default(cuid())
+  returnId    String
+  return      SalesReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product @relation(fields: [productId], references: [id])
+  damagedQty  Float
+  unitPrice   Float   @default(0)
+  gstRate     Float   @default(18)
+  totalAmount Float   @default(0)
+  defectType  String  @default("Damaged") // Damaged|Broken|Defective|Wrong Item
+  sentToVendorQty Float @default(0) // qty of this line already recovered to the vendor via purchase returns
+}
+
+// ─── PURCHASE RETURNS (Debit Note ← DAMAGED stock) ───────────────
+
+model PurchaseReturn {
+  id           String   @id @default(cuid())
+  firmId       String
+  firm         Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  debitNoteNo  String
+  poRef        String   @default("")
+  poId         String?
+  po           PurchaseOrder? @relation(fields: [poId], references: [id])
+  vendorId     String?
+  vendor       Vendor?  @relation(fields: [vendorId], references: [id])
+  returnDate   DateTime
+  subtotal     Float    @default(0)
+  totalTax     Float    @default(0)
+  grandTotal   Float    @default(0)
+  notes        String   @default("")
+  settlementMode String @default("CREDIT") // CREDIT | UPI_NEFT | CASH — how the vendor settles the debit note value
+  createdAt    DateTime @default(now())
+
+  items PurchaseReturnItem[]
+
+  @@unique([firmId, debitNoteNo])
+}
+
+model PurchaseReturnItem {
+  id          String  @id @default(cuid())
+  returnId    String
+  return      PurchaseReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product @relation(fields: [productId], references: [id])
+  damagedQty  Float
+  unitCost    Float   @default(0)
+  gstRate     Float   @default(18)
+  totalAmount Float   @default(0)
+  reason      String  @default("Transit Damage")
+}
+
+// ─── PAYMENTS ────────────────────────────────────────────────────
+
+model VendorPayment {
+  id           String   @id @default(cuid())
+  firmId       String
+  firm         Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  vendorId     String
+  vendor       Vendor   @relation(fields: [vendorId], references: [id])
+  paymentDate  DateTime
+  amount       Float
+  mode         String   @default("NEFT") // NEFT|UPI|CHEQUE|CASH
+  utrRef       String   @default("")
+  notes        String   @default("")
+  createdAt    DateTime @default(now())
+
+  allocations PaymentAllocation[]
+
+  @@index([firmId, paymentDate])
+}
+
+// ─── AP SETTLEMENT (vendor payment ↔ PO allocation) ──────────────
+
+model PaymentAllocation {
+  id              String        @id @default(cuid())
+  firmId          String
+  firm            Firm          @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  paymentId       String
+  payment         VendorPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  amount          Float
+  createdAt       DateTime      @default(now())
+
+  @@index([firmId, purchaseOrderId])
+  @@index([firmId, paymentId])
+}
+
+// ─── GSTR-2B IMPORT (ITC reconciliation source rows) ─────────────
+
+model Gstr2bRecord {
+  id            String   @id @default(cuid())
+  firmId        String
+  firm          Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  period        String   // "2026-08" return month
+  gstin         String   // supplier GSTIN
+  tradeName     String   @default("")
+  invoiceNo     String   // supplier's invoice number
+  invoiceDate   DateTime
+  taxableValue  Float
+  igst          Float    @default(0)
+  cgst          Float    @default(0)
+  sgst          Float    @default(0)
+  itcAvailable  Boolean  @default(true) // GSTR-2B ITC available flag
+  placeOfSupply String   @default("")
+  createdAt     DateTime @default(now())
+
+  @@unique([firmId, period, gstin, invoiceNo])
+  @@index([firmId, period])
+}
+
+model CustomerReceipt {
+  id          String   @id @default(cuid())
+  firmId      String
+  firm        Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  receiptDate DateTime
+  amount      Float
+  mode        String   @default("NEFT") // NEFT|UPI|CHEQUE|CASH
+  utrRef      String   @default("")
+  notes       String   @default("")
+  createdAt   DateTime @default(now())
+
+  allocations ReceiptAllocation[]
+
+  @@index([firmId, receiptDate])
+}
+
+// ─── RECEIPT ALLOCATIONS (per-invoice settlement tracking) ───────
+// A CustomerReceipt may settle specific credit invoices. Allocation rows
+// make AR aging precise: invoice outstanding = grandTotal − Σ allocations
+// − Σ credit notes. Remainder (amount > Σ allocations) stays on account.
+
+model ReceiptAllocation {
+  id        String   @id @default(cuid())
+  firmId    String
+  firm      Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  receiptId String
+  receipt   CustomerReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id])
+  amount    Float
+  createdAt DateTime @default(now())
+
+  @@index([firmId, invoiceId])
+  @@index([firmId, receiptId])
+}
+
+// ─── ACCOUNTING — Chart of Accounts & Journals ───────────────────
+
+model ChartOfAccount {
+  id           String  @id @default(cuid())
+  firmId       String
+  firm         Firm    @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  accountCode  String
+  accountName  String
+  accountGroup String  @default("") // Current Assets, Direct Expenses...
+  accountClass String // ASSET|LIABILITY|EQUITY|REVENUE|EXPENSE
+  openingBalance Float @default(0)
+  isActive     Boolean @default(true)
+
+  journalLines JournalLine[]
+
+  @@unique([firmId, accountCode])
+  @@index([firmId, accountClass])
+}
+
+model JournalEntry {
+  id              String   @id @default(cuid())
+  firmId          String
+  firm            Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  voucherNumber   String
+  voucherType     String // SALES|PURCHASE|RECEIPT|PAYMENT|JOURNAL|CONTRA|CREDIT_NOTE|DEBIT_NOTE|OPENING
+  postingDate     DateTime
+  referenceDocId  String   @default("")
+  narration       String   @default("")
+  totalDebit      Float
+  totalCredit     Float
+  createdAt       DateTime @default(now())
+
+  lines JournalLine[]
+
+  @@unique([firmId, voucherNumber])
+  @@index([firmId, postingDate])
+  @@index([firmId, voucherType])
+}
+
+model JournalLine {
+  id           String  @id @default(cuid())
+  journalId    String
+  journal      JournalEntry @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  accountId    String
+  account      ChartOfAccount @relation(fields: [accountId], references: [id])
+  accountName  String  @default("")
+  entrySide    String // DEBIT|CREDIT
+  debitAmount  Float   @default(0)
+  creditAmount Float   @default(0)
+  narration    String  @default("")
+
+  @@index([accountId])
+}
+
+// ─── INVENTORY MOVEMENTS (append-only audit trail) ───────────────
+
+model InventoryMovement {
+  id             String   @id @default(cuid())
+  firmId         String
+  firm           Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id])
+  movementType   String // PURCHASE_INWARD|SALES_OUTWARD|DAMAGE_QUARANTINE|SALES_RETURN_DAMAGE|PURCHASE_RETURN_DAMAGE|STOCK_ADJUSTMENT|WRITE_OFF|OPENING
+  quantity       Float
+  targetPool     String // SELLABLE|DAMAGED
+  direction      String // IN|OUT
+  referenceDocId String   @default("")
+  referenceNo    String   @default("")
+  notes          String   @default("")
+  createdAt      DateTime @default(now())
+
+  @@index([firmId, productId])
+  @@index([firmId, createdAt])
+}
+
+model StockAdjustment {
+  id          String   @id @default(cuid())
+  firmId      String
+  firm        Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  adjustDate  DateTime
+  productId   String
+  productName String   @default("")
+  adjustType  String // TRANSFER_DAMAGED | REQUEUE_SELLABLE | WRITE_OFF | ADD_SELLABLE | REMOVE_SELLABLE
+  quantity    Float
+  reason      String   @default("")
+  createdAt   DateTime @default(now())
+}
+
+// ─── PARTY LEDGER (customer/vendor running ledger) ───────────────
+
+model LedgerEntry {
+  id            String   @id @default(cuid())
+  firmId        String
+  partyType     String // CUSTOMER | VENDOR
+  customerId    String?
+  customer      Customer? @relation(fields: [customerId], references: [id])
+  vendorId      String?
+  vendor        Vendor?  @relation(fields: [vendorId], references: [id])
+  entryDate     DateTime
+  voucherType   String // SALES|RECEIPT|CREDIT_NOTE|PURCHASE|PAYMENT|DEBIT_NOTE|OPENING
+  voucherNo     String   @default("")
+  particulars   String   @default("")
+  debitAmount   Float    @default(0)
+  creditAmount  Float    @default(0)
+  balanceAfter  Float    @default(0)
+  createdAt     DateTime @default(now())
+
+  @@index([firmId, customerId])
+  @@index([firmId, vendorId])
+  @@index([firmId, entryDate])
+}
+
+// ─── RECURRING BILLING (standing-order templates → auto invoices) ─
+
+model RecurringTemplate {
+  id            String   @id @default(cuid())
+  firmId        String
+  firm          Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  name          String
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  frequency     String   @default("MONTHLY") // WEEKLY | MONTHLY | BIMONTHLY | QUARTERLY
+  paymentMode   String   @default("CREDIT")  // CREDIT | CASH | UPI | CARD | NEFT
+  startDate     DateTime
+  endDate       DateTime? // null = no end
+  nextRunDate   DateTime
+  lastRunDate   DateTime?
+  lastInvoiceId String   @default("")
+  skipUntil     DateTime? // hold window: cycles due ≤ this date are skipped (not back-billed)
+  autoPost      Boolean  @default(true) // reserved: always true in this build
+  isActive      Boolean  @default(true)
+  notes         String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  items RecurringTemplateItem[]
+  invoices Invoice[]
+
+  @@index([firmId, nextRunDate])
+  @@index([firmId, isActive])
+}
+
+model RecurringTemplateItem {
+  id                String  @id @default(cuid())
+  templateId        String
+  template          RecurringTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product @relation(fields: [productId], references: [id])
+  sku               String  @default("")
+  productName       String  @default("")
+  quantity          Float
+  manualDiscountPct Float? // null = auto (bulk tiers decide)
+
+  @@index([templateId])
+}
+
+// ─── PO VERIFICATION SYSTEM (owner ↔ verification-team portal) ────
+// Flow: owner raises PO → verification request is auto-created for the
+// team portal → vendor delivers goods → team counts actual SELLABLE and
+// DAMAGED qty per line (product name + ordered qty only — no money) →
+// owner reviews the submission → owner accepts → the GRN pipeline books
+// stock + vendor payable + PURCHASE journal (Finance & Accounting).
+
+model VerificationStaff {
+  id           String   @id @default(cuid())
+  firmId       String
+  firm         Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  name         String
+  username     String
+  passwordHash String // sha256 hex — created & managed from the owner portal
+  phone        String   @default("")
+  role         String   @default("VERIFIER") // VERIFIER | SUPERVISOR
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  verifications PoVerification[]
+
+  submissions   PoVerification[] @relation("SubmittedBy")
+
+  @@unique([firmId, username])
+  @@index([firmId, isActive])
+}
+
+model PoVerification {
+  id            String   @id @default(cuid())
+  firmId        String
+  poId          String   @unique
+  po            PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  status        String   @default("AWAITING_VERIFICATION")
+  // AWAITING_VERIFICATION → SUBMITTED → OWNER_ACCEPTED | back to AWAITING_VERIFICATION (owner sends back)
+  assignedToId  String?
+  assignedTo    VerificationStaff? @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+  submittedById String?
+  submittedBy   VerificationStaff? @relation("SubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+  submittedAt   DateTime?
+  submittedNote String   @default("")
+  acceptedAt    DateTime?
+  acceptedNote  String   @default("")
+  acceptedValue Float    @default(0) // PO value booked to Finance at acceptance
+  returnReason  String   @default("") // owner sends-back reason (visible to team)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  items PoVerificationItem[]
+
+  @@index([firmId, status])
+}
+
+model PoVerificationItem {
+  id             String  @id @default(cuid())
+  verificationId String
+  verification   PoVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  poItemId       String
+  productId      String
+  sku            String  @default("")
+  productName    String  @default("")
+  unit           String  @default("Pcs")
+  orderedQty     Float
+  sellableQty    Float? // team input: actual sellable products
+  damagedQty     Float? // team input: damaged products
+  remark         String  @default("")
+
+  @@index([verificationId])
+}

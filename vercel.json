@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "prisma generate --schema prisma/schema.postgres.prisma && next build",
+  "crons": [
+    {
+      "path": "/api/v1/recurring/generate",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}
