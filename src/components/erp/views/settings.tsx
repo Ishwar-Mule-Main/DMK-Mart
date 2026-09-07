@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 
 import { Badge, ErrorText, Field, PageHeader, inputCls } from "../shared";
+import AiSettingsCard from "../ai-settings-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -490,6 +491,9 @@ export default function SettingsView() {
           </ul>
         </div>
       </div>
+
+      {/* ── DMK AI Copilot — provider settings (key rotation + model picker) ── */}
+      <AiSettingsCard />
 
       {/* ── Create dialog ───────────────────────────────── */}
       <FirmDialog

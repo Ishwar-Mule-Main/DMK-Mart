@@ -728,3 +728,17 @@ model PoVerificationItem {
 
   @@index([verificationId])
 }
+
+// ── AI copilot provider settings (owner-managed, account-wide) ─────────
+// Lets the owner paste/rotate the OpenRouter (or any OpenAI-compatible)
+// API key and pick a model from the app UI — no redeploy or file edit
+// needed (critical on Vercel where .z-ai-config files don't exist).
+// Resolution order: this row → AI_* env vars → .z-ai-config file → none.
+model AiSettings {
+  id        String   @id @default("singleton")
+  provider  String   @default("openrouter") // label for the UI
+  baseUrl   String   @default("https://openrouter.ai/api/v1")
+  apiKey    String? // stored in the owner's own database
+  model     String? // model id, e.g. z-ai/glm-5.3-flash
+  updatedAt DateTime @updatedAt
+}
