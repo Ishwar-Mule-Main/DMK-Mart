@@ -3,7 +3,7 @@
 // Shared by /sales-returns route and the seed route.
 // ═══════════════════════════════════════════════════════════════
 
-import { db } from "@/lib/db";
+import { db, dbTx } from "@/lib/db";
 import { ACC, fyLabelForDate, nextDocNumber, postJournal } from "@/lib/journal";
 import { calculateGST, round2, sumGstSplits } from "@/lib/gst";
 import { BusinessError } from "./api";
@@ -136,7 +136,7 @@ export async function createSalesReturn(firm: FirmRow, input: CreateSalesReturnI
   // Credit-note number carries the FY of the return date.
   const creditNoteNo = await nextDocNumber("CN", firm.id, firm.invoicePrefix, fyLabelForDate(input.returnDate));
 
-  const returnId = await db.$transaction(async (tx) => {
+  const returnId = await dbTx(async (tx) => {
     const created = await tx.salesReturn.create({
       data: {
         firmId: firm.id,

@@ -9,7 +9,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { db, dbTx } from "@/lib/db";
 import { ACC, currentFyLabel, postJournal, seedChartOfAccounts } from "@/lib/journal";
 import { handleApiError, ok } from "@/app/api/v1/_lib/api";
 import { recordMovement } from "@/app/api/v1/_lib/party";
@@ -417,7 +417,7 @@ export async function POST(_request: NextRequest) {
     });
 
     // Stock correction sample — transfer 1 cracked bucket sellable → damaged
-    await db.$transaction(async (tx) => {
+    await dbTx(async (tx) => {
       await tx.product.update({
         where: { id: P("DMK-BK-101") },
         data: { stockQuantity: { decrement: 1 }, damagedStock: { increment: 1 } },

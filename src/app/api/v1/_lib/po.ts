@@ -5,7 +5,7 @@
 // payable, vendor ledger row, balanced PURCHASE journal (R6).
 // ═══════════════════════════════════════════════════════════════
 
-import { db } from "@/lib/db";
+import { db, dbTx } from "@/lib/db";
 import { ACC, fyLabelForDate, nextDocNumber, postJournal } from "@/lib/journal";
 import { calculateGST, round2, sumGstSplits } from "@/lib/gst";
 import { BusinessError } from "./api";
@@ -214,7 +214,7 @@ export async function confirmPurchaseOrder(
     }
   }
 
-  await db.$transaction(async (tx) => {
+  await dbTx(async (tx) => {
     for (const item of po.items) {
       const r = receivedMap.get(item.id);
       const accepted = r ? r.acceptedQty : item.quantity;

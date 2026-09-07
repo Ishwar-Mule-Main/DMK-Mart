@@ -18,7 +18,7 @@ import {
   BusinessError,
 } from "@/app/api/v1/_lib/api";
 import { round2 } from "@/lib/gst";
-import { db } from "@/lib/db";
+import { db, dbTx } from "@/lib/db";
 
 // ─── CSV helpers ─────────────────────────────────────────────────
 
@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
       throw new BusinessError("ERR_VALIDATION", "Provide either `csv` (text) or `rows` (array)", 400);
     }
 
-    const result = await db.$transaction(async (tx) => {
+    const result = await dbTx(async (tx) => {
       await tx.gstr2bRecord.deleteMany({ where: { firmId: firm.id, period } });
       await tx.gstr2bRecord.createMany({
         data: rows.map((r) => ({ ...r, firmId: firm.id, period })),

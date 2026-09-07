@@ -1014,3 +1014,27 @@ Stage Summary:
 - Owner's next step to go live on Vercel: create Neon Postgres → run `DATABASE_URL="<pooler-url>" bun run db:push:pg` locally → import the GitHub repo on Vercel → set env vars from .env.vercel.example (DATABASE_URL, CRON_SECRET, optional AI_*) → Deploy. Full guide: docs/deploy/vercel.md.
 - SECURITY NOTE for owner: the GitHub personal access token was shared in chat — recommend revoking/regenerating it from GitHub Settings after this push.
 - Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
+
+---
+Task ID: 47
+Agent: Z.ai Code (main)
+Task: Wire the project to the owner's Neon Postgres (user-provided pooled URL) — local app now runs on the same DB the Vercel deploy will use; .env updated; interactive-transaction hardening
+
+Work Log:
+- AUDIT: zero raw SQL in src (no $queryRaw/$executeRaw/PRAGMA/sqlite syntax) — the app is pure Prisma ORM, fully Postgres-portable. Backup/restore APIs confirmed as the data-migration path.
+- PRE-MIGRATION BACKUP: exported the SQLite firm via GET /api/v1/backup (tool-results/backup-pre-neon.json, 79KB envelope: 24 products, 12 customers, 5 invoices, 16 journals, 43 movements — all demo-seed data).
+- NEON: pushed the Postgres schema with the user's EXACT pooled URL (channel_binding=require accepted) — `bunx prisma db push --schema prisma/schema.postgres.prisma` succeeded (39.6s) and auto-generated the Postgres Prisma client. prisma/schema.prisma (SQLite) untouched — Hostinger path preserved.
+- .ENV UPDATED (gitignored, verified): DATABASE_URL = the Neon pooled URL + `&pgbouncer=true` (disables prepared statements for PgBouncer transaction mode); CRON_SECRET generated (ae5e901e07a21d8a2fd9df0152885921) — same value goes into the Vercel dashboard; commented SQLite URL kept for the Hostinger switch-back (file db/custom.db untouched).
+- GOTCHA (documented for future agents): the sandbox shell session exports the ORIGINAL DATABASE_URL=file:... at bootstrap and dotenv/Next NEVER override already-exported vars — starting the dev server with plain `bun run dev` silently used the stale SQLite URL and every DB call 500'd ("URL must start with postgresql://"). FIX: always launch with explicit env: `export DATABASE_URL='<neon-url>' && export CRON_SECRET='...' && (nohup bun run dev > /dev/null 2>&1 &)`. Verified /proc/<pid>/environ + APIs 200.
+- DATA: on first empty-DB access the app's idempotent seeder auto-created the fresh demo dataset (DMK Mart + ravi staff + COA + 24 products + 12 customers + vendors + 2 POs + 5 invoices + journals). Decision: keep the fresh seed (equivalent to the old SQLite demo, dates fresher); the pre-migration backup JSON is retained in tool-results/ (gitignored) and the restore API remains the path for real data later.
+- BUG FIX (real robustness gap found by QA): Prisma interactive transactions use defaults maxWait 2s / timeout 5s — over the ~250ms/round-trip sandbox↔us-east-2 link the seed's PO→vendor-ledger transaction was killed mid-flight ("Transaction API error: Transaction not found"). NEW src/lib/db.ts exports dbTx() (maxWait 15s / timeout 60s) and ALL 14 interactive `db.$transaction(async…)` call sites across 11 files now use it (batch-form sites can't take these options and don't carry the timer — left as-is). tsc + eslint clean.
+- RESET + RESEED with the hardened code: force-reset Neon → reseeded → INTEGRITY VERIFIED: trial balance 13 rows, totalDebit = totalCredit = ₹1,101,033, balanced:true; 24 products / 12 customers / 4 vendors / 2 POs / 5 invoices / 7 journals / staff ravi present; ZERO transaction errors since.
+- BROWSER E2E on Neon: cleared stale session → login Kunal/1234 (POST owner-login 200, 1.2s) → Dashboard executive cockpit renders (copilot, stock alerts) → Invoice Register lists INV/0001–0005 → mobile 390px renders compact invoice cards, footer pushed naturally below fold → console clean, no [api] errors.
+- NOTE: local app and the future Vercel deployment now SHARE this Neon database — anything posted locally appears on Vercel and vice versa. For real production books: wipe (db push --force-reset) or start a NEW Neon database before going live.
+
+Stage Summary:
+- The whole project now runs on the owner's Neon Postgres both locally and (after Vercel import) in production; SQLite/socket.io Hostinger path still intact behind the preserved schema.prisma + commented .env line.
+- Interactive transactions are now latency-tolerant everywhere (dbTx), protecting any WAN deployment (Vercel↔Neon cross-region included).
+- Owner's Vercel env vars: DATABASE_URL = the Neon pooled URL (+ &pgbouncer=true), CRON_SECRET = ae5e901e07a21d8a2fd9df0152885921 (matches local), AI_* optional.
+- SECURITY: the Neon password (npg_weGQ1R4tmKoa) was shared in chat — recommend resetting the password in the Neon console afterwards and updating .env + Vercel.
+- Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.

@@ -9,7 +9,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { db, dbTx } from "@/lib/db";
 import { ACC, ensureStockAdjustmentAccount, postJournal } from "@/lib/journal";
 import { round2 } from "@/lib/gst";
 import {
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     if (adjustType === "TRANSFER_DAMAGED") {
       // Sellable pool → damaged quarantine. Inventory VALUE unchanged,
       // so no journal is posted — two movement rows keep the audit trail.
-      await db.$transaction(async (tx) => {
+      await dbTx(async (tx) => {
         await drawSellable(tx, product, quantity);
         await tx.product.update({
           where: { id: product.id },
@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
       });
     } else if (adjustType === "REQUEUE_SELLABLE") {
       // Damaged pool → sellable (repaired / reclassified OK). Value unchanged → no journal.
-      await db.$transaction(async (tx) => {
+      await dbTx(async (tx) => {
         await drawDamaged(tx, product, quantity);
         await tx.product.update({
           where: { id: product.id },
@@ -163,7 +163,7 @@ export async function POST(request: NextRequest) {
     } else if (adjustType === "WRITE_OFF") {
       // Destroyed from the DAMAGED pool → loss journal
       const lossValue = round2(quantity * product.purchaseCost);
-      await db.$transaction(async (tx) => {
+      await dbTx(async (tx) => {
         await drawDamaged(tx, product, quantity);
         await recordMovement(tx, {
           firmId: firm.id,
@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
       // Unrecorded surplus inward (found stock / missed GRN) → sellable pool.
       // Inventory value rises: Dr INVENTORY, Cr Stock Adjustment (surplus).
       const surplusValue = round2(quantity * product.purchaseCost);
-      await db.$transaction(async (tx) => {
+      await dbTx(async (tx) => {
         await tx.product.update({
           where: { id: product.id },
           data: { stockQuantity: { increment: quantity } },
@@ -251,7 +251,7 @@ export async function POST(request: NextRequest) {
       // REMOVE_SELLABLE — physical count shortage / shrinkage out of the sellable pool.
       // Inventory value falls: Dr Stock Adjustment (shortage), Cr INVENTORY.
       const shortageValue = round2(quantity * product.purchaseCost);
-      await db.$transaction(async (tx) => {
+      await dbTx(async (tx) => {
         await drawSellable(tx, product, quantity);
         await recordMovement(tx, {
           firmId: firm.id,

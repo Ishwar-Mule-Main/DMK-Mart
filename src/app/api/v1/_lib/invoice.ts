@@ -6,7 +6,7 @@
 // R7 customer ledger with running balanceAfter.
 // ═══════════════════════════════════════════════════════════════
 
-import { db } from "@/lib/db";
+import { db, dbTx } from "@/lib/db";
 import { ACC, fyLabelForDate, nextDocNumber, postJournal } from "@/lib/journal";
 import { calculateGST, round2, roundOffDelta, sumGstSplits } from "@/lib/gst";
 import { calculateBulkPricing, TIERS } from "@/lib/pricing";
@@ -243,7 +243,7 @@ export async function createInvoice(firm: FirmRow, input: CreateInvoiceInput) {
   // Invoice number carries the FY of the invoice DATE (not the firm's default FY).
   const invoiceNumber = await nextDocNumber("INVOICE", firm.id, firm.invoicePrefix, fyLabelForDate(invoiceDate));
 
-  const invoiceId = await db.$transaction(async (tx) => {
+  const invoiceId = await dbTx(async (tx) => {
     const invoice = await tx.invoice.create({
       data: {
         firmId: firm.id,

@@ -3,7 +3,7 @@
 // Shared by the payment routes and the seed route (R6/R7).
 // ═══════════════════════════════════════════════════════════════
 
-import { db } from "@/lib/db";
+import { db, dbTx } from "@/lib/db";
 import { ACC, postJournal } from "@/lib/journal";
 import { round2 } from "@/lib/gst";
 import { BusinessError } from "./api";
@@ -39,7 +39,7 @@ export async function createVendorPayment(
 
   // R7: vendor payable (Cr-positive) decreases. Negative balance allowed
   // (advance payment) — surfaced as a warning in the response.
-  const result = await db.$transaction(async (tx) => {
+  const result = await dbTx(async (tx) => {
     const created = await tx.vendorPayment.create({
       data: {
         firmId: firm.id,
@@ -131,7 +131,7 @@ export async function createCustomerReceipt(
     throw new BusinessError("ERR_VALIDATION", "mode must be NEFT, UPI, CHEQUE or CASH", 400);
   }
 
-  const result = await db.$transaction(async (tx) => {
+  const result = await dbTx(async (tx) => {
     const created = await tx.customerReceipt.create({
       data: {
         firmId: firm.id,

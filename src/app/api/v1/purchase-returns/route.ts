@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { db, dbTx } from "@/lib/db";
 import { ACC, fyLabelForDate, nextDocNumber, postJournal } from "@/lib/journal";
 import { calculateGST, round2, sumGstSplits } from "@/lib/gst";
 import {
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
     // Debit-note number carries the FY of the return date.
     const debitNoteNo = await nextDocNumber("DN", firm.id, firm.invoicePrefix, fyLabelForDate(returnDate));
 
-    const returnId = await db.$transaction(async (tx) => {
+    const returnId = await dbTx(async (tx) => {
       const created = await tx.purchaseReturn.create({
         data: {
           firmId: firm.id,

@@ -20,7 +20,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { db, dbTx } from "@/lib/db";
 import { ACC, fyLabelForDate, nextDocNumber, postJournal } from "@/lib/journal";
 import { round2 } from "@/lib/gst";
 import {
@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
       ];
       const notes = `Auto: selected sales returns sent to vendor — sources ${sourceCreditNotes.slice(0, 8).join(", ")}`;
 
-      const returnId = await db.$transaction(async (tx) => {
+      const returnId = await dbTx(async (tx) => {
         const products = await db.product.findMany({
           where: { id: { in: lines.map((l) => l.productId) } },
           select: { id: true, name: true, damagedStock: true },
