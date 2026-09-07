@@ -995,3 +995,22 @@ Stage Summary:
 - To go live on Vercel the owner only needs: a Neon/Supabase URL → `db:push:pg` → import repo on Vercel → add env vars from .env.vercel.example → Deploy.
 - To later move to Hostinger: follow docs/deploy/hostinger.md as-is (nothing to undo).
 - Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
+
+---
+Task ID: 46
+Agent: Z.ai Code (main)
+Task: Push the Vercel-ready repo to GitHub (user-provided repo + personal access token)
+
+Work Log:
+- Pre-push secret audit of the 43-commit history: historical `.env` (added in initial commit a3c9b36, untracked since 0bb4bcd) contains ONLY `DATABASE_URL=file:/home/z/my-project/db/custom.db` — no credentials; historical `db/custom.db` is the 320KB demo seed dataset; `.z-ai-config` (OpenRouter key) was NEVER committed; tracked-tree regex scan (ghp_/sk-/sk-or-/Bearer patterns) flagged only the placeholder `sk-or-v1-xxxx…` inside .env.vercel.example template. Conclusion: full history safe to publish.
+- Verified the target repo github.com/Ishwar-Mule-Main/DMK-Mart was EMPTY (git ls-remote returned no refs) and the token had access.
+- Added remote `origin` (token kept only in local .git/config, never in tracked files) and pushed `main` → SUCCESS (new branch, upstream tracking set).
+- Verified remote: `git ls-remote origin` HEAD + refs/heads/main = 80f9e31 = local HEAD (43 commits, incl. 95dc53f "Vercel-ready deployment path").
+- Post-push health: local dev server 200, agent-browser smoke (ERP shell renders, nav intact, console clean — only HMR info logs).
+- Standing instruction for future agents: after finishing work, `git add -A && git commit && git push origin main` so GitHub stays in sync with the sandbox (commit messages follow the existing "feat:/fix:/docs:" style).
+
+Stage Summary:
+- DMK Mart ERP is now live on GitHub at Ishwar-Mule-Main/DMK-Mart (main @ 80f9e31) with the complete dual-path codebase: Vercel path (schema.postgres.prisma + vercel.json + Vercel Cron + env AI) and preserved Hostinger path (SQLite + socket.io + scheduler + .z-ai-config).
+- Owner's next step to go live on Vercel: create Neon Postgres → run `DATABASE_URL="<pooler-url>" bun run db:push:pg` locally → import the GitHub repo on Vercel → set env vars from .env.vercel.example (DATABASE_URL, CRON_SECRET, optional AI_*) → Deploy. Full guide: docs/deploy/vercel.md.
+- SECURITY NOTE for owner: the GitHub personal access token was shared in chat — recommend revoking/regenerating it from GitHub Settings after this push.
+- Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
