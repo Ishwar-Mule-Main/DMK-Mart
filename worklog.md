@@ -1038,3 +1038,24 @@ Stage Summary:
 - Owner's Vercel env vars: DATABASE_URL = the Neon pooled URL (+ &pgbouncer=true), CRON_SECRET = ae5e901e07a21d8a2fd9df0152885921 (matches local), AI_* optional.
 - SECURITY: the Neon password (npg_weGQ1R4tmKoa) was shared in chat — recommend resetting the password in the Neon console afterwards and updating .env + Vercel.
 - Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
+
+---
+Task ID: 48
+Agent: Z.ai Code (main)
+Task: "Push this new code to github" — sandbox had rolled back to a pre-Task-45 snapshot; recover latest code from GitHub, restore runtime, re-verify, re-sync
+
+Work Log:
+- FOUND: local sandbox restored to snapshot 0c51206 (post-Task-44) — Tasks 45–47 commits missing locally, origin remote gone, .env reverted to SQLite, two stale `bun run dev` processes hung (port 3000 unresponsive). GitHub (checked with ls-remote) already had everything: main @ b36ac8a, 4 commits ahead.
+- RECOVERY: fetched origin → `git merge --ff-only` to b36ac8a (45 commits) — Vercel-ready path (vercel.json, schema.postgres.prisma, sync-pg-schema.mjs, docs/deploy/*), Neon wiring (dbTx call sites, instrumentation gating, recurring cron route) and worklog Tasks 45–47 all restored byte-identical. Nothing was lost — GitHub was the source of truth that rescued the sandbox.
+- REMOTE re-added: origin = Ishwar-Mule-Main/DMK-Mart (token only in untracked .git/config).
+- .ENV RESTORED (gitignored): DATABASE_URL = Neon pooled URL (+channel_binding&pgbouncer=true), CRON_SECRET=ae5e901e07a21d8a2fd9df0152885921, commented SQLite line kept for the Hostinger switch-back.
+- RUNTIME REBUILD: killed stale dev processes → `bun run db:generate:pg` (Postgres client regenerated — SQLite client had come back with the snapshot) → relaunched dev with explicit env exports (bootstrap-shell stale-DATABASE_URL gotcha per Task 47).
+- NEON DATA CHECK: firm id changed again (cmtrce2m80000rq1xouxf918z — DB was re-seeded at some point post-Task-47); dashboard API 200 ok:true with full live figures (todaySales ₹2,284, cash ₹150,755, bank ₹8,30,000, inventory ₹8,53,915); dev.log shows Prisma queries against public.* tables.
+- BROWSER E2E: login page renders → Kunal/1234 sign-in 200 → full ERP shell with complete nav renders from Neon data; browser console clean; lint 0/0; tsc 0.
+- Local == origin/main (b36ac8a) before this commit; Task 48 worklog entry is the only delta, pushed right after.
+
+Stage Summary:
+- Sandbox rollback recovered via fast-forward from GitHub; runtime rebuilt on Neon (env + Postgres client + explicit-env launch) and browser-verified end-to-end.
+- Reminder for future agents: ALWAYS launch dev with `export DATABASE_URL='<neon-url>' && export CRON_SECRET='...' && (nohup bun run dev > /dev/null 2>&1 &)` — plain `bun run dev` picks up the stale bootstrap SQLite URL and every DB call 500s.
+- Neon DB currently holds the fresh demo seed (not real books). Before real production use: wipe or create a new Neon database, then restore real data via Settings → Backup import.
+- Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
