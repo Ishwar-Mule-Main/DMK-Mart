@@ -974,3 +974,24 @@ Stage Summary:
 - Purge engine now tells the truth and product purges handle audit children.
 - OpenRouter: integration intact, key file missing (user to decide: restore/keep/remove). Vercel: needs SQLite→Postgres swap + websocket strategy; runs unchanged on Node/Docker hosts.
 - Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
+
+---
+Task ID: 45
+Agent: Z.ai Code (main)
+Task: Make the project Vercel-ready while preserving the self-hosted SQLite + socket.io path untouched (user: host on Hostinger later on their signal)
+
+Work Log:
+- AUDIT of Vercel blockers: realtime is already fire-and-forget (notifyRealtime POST to DMK_EMIT_URL, 1.5s timeout, portals poll — nothing breaks on serverless); backup is read-only JSON (client download) — no server file writes anywhere; recurring scheduler runs via in-process setInterval (instrumentation.ts) which CANNOT run on Vercel; ZAI SDK reads only .z-ai-config files and takes no create() args (d.ts ctor is private); next.config.ts forced output:"standalone".
+- DUAL-SCHEMA STRATEGY: prisma/schema.postgres.prisma is GENERATED from the SQLite source of truth by scripts/sync-pg-schema.mjs (bun run db:sync:pg) — only the datasource block swaps (sqlite→postgresql), everything else byte-identical; banner marks it do-not-edit. Verified: prisma validate ✅, offline migrate diff generates full 868-line Postgres DDL ✅. New scripts: db:sync:pg, db:generate:pg, db:push:pg.
+- VERCEL WIRING: vercel.json { buildCommand: "prisma generate --schema prisma/schema.postgres.prisma && next build", crons: [daily GET /api/v1/recurring/generate] }; next.config.ts now emits standalone ONLY when not on Vercel (process.env.VERCEL guard) so Hostinger `bun run build`/`start` is unchanged; instrumentation.ts skips startScheduler when VERCEL=1 (logs why).
+- CRON ENDPOINT: GET /api/v1/recurring/generate reuses runSchedulerPass("cron") across all active firms (idempotent catch-up engine); guarded by CRON_SECRET (Vercel sends Bearer automatically; ?secret= fallback for manual pings; open when unset for dev). Scheduler trigger type widened to include "cron". Verified locally: 200 {ok:true, firmsChecked:0}.
+- AI COPILOT on Vercel: aiModel.ts gained createAiClient() — env-first (AI_BASE_URL + AI_API_KEY → new ZAI via typed escape hatch over the SDK's private ctor), then SDK file discovery, then {client:null} + reason; chat route degrades gracefully (200 + friendly "not configured" reply + aiConfigured:false flag) instead of 500. Sandbox path re-verified: POST /ai/chat → grounded reply (Cash ₹150,755), aiConfigured:true — file-config behavior unchanged.
+- ENV/DOCS: .env.vercel.example (Vercel dashboard copy-paste template: DATABASE_URL pooled pg URL, CRON_SECRET, AI_*); .env.example updated (two copilot config modes + CRON_SECRET note); docs/deploy/vercel.md (full step-by-step: Neon → db:push:pg → Vercel import → first-run company creation/backup restore → cron verify → behavior differences → costs) and docs/deploy/hostinger.md (the PRESERVED original way: SQLite, in-process scheduler, socket.io mini-service, standalone/systemd/Docker); README cloud section rewritten to describe the dual path; CI gains "validate pg mirror" + "mirror freshness (git diff after db:sync:pg)" gates; .gitignore fixed to allow *.example env templates while .env and .z-ai-config stay ignored (duplicate negation cleaned).
+- NOTE: sandbox DB was re-seeded overnight (firm id changed cmtpdk…→cmtr9420x…, demo data fresh) — all QA re-run against the new firm id; no code depends on fixed ids.
+- VERIFICATION: lint 0/0, tsc 0; scheduler still starts locally ("[scheduler] recurring auto-post scheduler started"); GET cron endpoint ok; AI chat ok; login→dashboard browser-verified after next.config change (dev auto-restarted). Commits: 95dc53f.
+
+Stage Summary:
+- The repo now has TWO production paths in one codebase: Vercel (Postgres + Vercel Cron + env-config AI) and Hostinger/VPS (SQLite + in-process scheduler + socket.io + .z-ai-config) — the latter byte-for-byte the old way, waiting for the owner's go signal.
+- To go live on Vercel the owner only needs: a Neon/Supabase URL → `db:push:pg` → import repo on Vercel → add env vars from .env.vercel.example → Deploy.
+- To later move to Hostinger: follow docs/deploy/hostinger.md as-is (nothing to undo).
+- Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
