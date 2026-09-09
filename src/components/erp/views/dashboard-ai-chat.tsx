@@ -22,7 +22,8 @@ import {
   Sparkles,
   User,
 } from "lucide-react";
-import { apiGet, apiPost, ApiError } from "@/lib/api-client";
+import { apiGet } from "@/lib/api-client";
+import { streamCopilotChat } from "@/lib/copilot-stream";
 import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -295,12 +296,26 @@ export function DashboardAiChat() {
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [streamText, setStreamText] = React.useState("");
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, streamText]);
+
+  // Prefetch: fire-and-forget empty ask warms the server-side snapshot
+  // cache so the first question starts streaming immediately.
+  React.useEffect(() => {
+    if (!activeFirmId) return;
+    fetch("/api/v1/ai/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ firmId: activeFirmId, message: "" }),
+    }).catch(() => {
+      /* prefetch is best-effort */
+    });
+  }, [activeFirmId]);
 
   async function send(text?: string) {
     const message = (text ?? input).trim();
@@ -308,22 +323,51 @@ export function DashboardAiChat() {
     setMessages((prev) => [...prev, { id: nextId(), role: "user", text: message }]);
     setInput("");
     setLoading(true);
+    setStreamText("");
+
+    // Last 8 turns ride along so follow-ups keep their context
+    const history = messages.slice(-8).map((m) => ({
+      role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+      content: m.text,
+    }));
+
+    let streamFailed = false;
     try {
-      const res = await apiPost<{ reply: string }>("/api/v1/ai/chat", {
-        firmId: activeFirmId,
-        message,
-      });
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId(), role: "copilot", text: res.reply || "I could not generate a response — try again." },
-      ]);
+      await streamCopilotChat(
+        { firmId: activeFirmId, message, history },
+        {
+          onDelta: (_delta, full) => setStreamText(full),
+          onDone: (full) => {
+            setMessages((prev) => [
+              ...prev,
+              { id: nextId(), role: "copilot", text: full || "I could not generate a response — try again." },
+            ]);
+          },
+          onError: (msg) => {
+            streamFailed = true;
+            toast({ variant: "destructive", title: "AI Copilot unavailable", description: msg });
+          },
+        }
+      );
     } catch (e) {
+      streamFailed = true;
       toast({
         variant: "destructive",
         title: "AI Copilot unavailable",
-        description: e instanceof ApiError ? e.message : "Request failed",
+        description: e instanceof Error ? e.message : "Request failed",
       });
     } finally {
+      // Preserve any partial answer produced before a mid-stream error.
+      setStreamText((partial) => {
+        if (streamFailed && partial) {
+          setMessages((prev) =>
+            prev.some((m) => m.text === partial)
+              ? prev
+              : [...prev, { id: nextId(), role: "copilot" as const, text: partial }]
+          );
+        }
+        return "";
+      });
       setLoading(false);
     }
   }
@@ -405,7 +449,20 @@ export function DashboardAiChat() {
                   </p>
                 </div>
               ))}
-              {loading && (
+
+              {/* Streaming answer — paints token-by-token */}
+              {loading && streamText && (
+                <div className="flex items-start gap-2">
+                  <span className="h-6 w-6 rounded-full flex items-center justify-center shrink-0 bg-dmk-yellow/15 border border-dmk-yellow/30 text-dmk-yellow">
+                    <Bot className="h-3 w-3" />
+                  </span>
+                  <p className="max-w-[82%] rounded-lg px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap bg-dmk-input-well border border-dmk-border-subtle text-dmk-text-secondary">
+                    <CopilotText text={streamText} />
+                    <span className="inline-block w-1.5 h-3.5 ml-0.5 align-text-bottom bg-dmk-yellow animate-pulse rounded-[1px]" aria-hidden />
+                  </p>
+                </div>
+              )}
+              {loading && !streamText && (
                 <div className="flex items-center gap-2 text-[12px] text-dmk-text-muted pl-8">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> Copilot is checking the books…
                 </div>

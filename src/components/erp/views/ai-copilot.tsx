@@ -13,7 +13,7 @@ import { Bot, Info, Send, Sparkles, User, TrendingUp, PackageSearch, Wallet, Lan
 import { PageHeader, inputCls } from "../shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { apiPost, ApiError } from "@/lib/api-client";
+import { streamCopilotChat } from "@/lib/copilot-stream";
 import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -89,6 +89,7 @@ export default function AiCopilotView() {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [streamText, setStreamText] = React.useState("");
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   // Rotating follow-up suggestions while a conversation is active
@@ -110,13 +111,28 @@ export default function AiCopilotView() {
     setMessages([]);
     setInput("");
     setLoading(false);
+    setStreamText("");
+  }, [activeFirmId]);
+
+  // Prefetch: fire-and-forget empty ask warms the server-side snapshot
+  // cache, so the owner's FIRST question starts streaming immediately
+  // (the empty ask returns the resting trend chart without an LLM call).
+  React.useEffect(() => {
+    if (!activeFirmId) return;
+    fetch("/api/v1/ai/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ firmId: activeFirmId, message: "" }),
+    }).catch(() => {
+      /* prefetch is best-effort */
+    });
   }, [activeFirmId]);
 
   // Keep the newest message in view
   React.useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, streamText]);
 
   async function send(text?: string) {
     const message = (text ?? input).trim();
@@ -126,20 +142,51 @@ export default function AiCopilotView() {
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setLoading(true);
+    setStreamText("");
 
+    // Last 8 turns ride along so follow-ups keep their context
+    const history = messages
+      .slice(-8)
+      .map((m) => ({
+        role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+        content: m.text,
+      }));
+
+    let streamFailed = false;
     try {
-      const res = await apiPost<{ reply: string }>("/api/v1/ai/chat", {
-        firmId: activeFirmId,
-        message,
-      });
-      setMessages((prev) => [
-        ...prev,
-        { id: nextMsgId(), role: "copilot", text: res.reply || "I could not generate a response. Please try again." },
-      ]);
+      await streamCopilotChat(
+        { firmId: activeFirmId, message, history },
+        {
+          onDelta: (_delta, full) => setStreamText(full),
+          onDone: (full) => {
+            setMessages((prev) => [
+              ...prev,
+              { id: nextMsgId(), role: "copilot", text: full || "I could not generate a response. Please try again." },
+            ]);
+          },
+          onError: (msg) => {
+            streamFailed = true;
+            toast({ variant: "destructive", title: "Copilot unavailable", description: msg });
+          },
+        }
+      );
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Copilot request failed";
+      streamFailed = true;
+      const msg = e instanceof Error ? e.message : "Copilot request failed";
       toast({ variant: "destructive", title: "Copilot unavailable", description: msg });
     } finally {
+      // If the stream errored mid-way, keep any partial text so the
+      // user still sees what was generated before the failure.
+      setStreamText((partial) => {
+        if (streamFailed && partial) {
+          setMessages((prev) =>
+            prev.some((m) => m.text === partial)
+              ? prev
+              : [...prev, { id: nextMsgId(), role: "copilot" as const, text: partial }]
+          );
+        }
+        return "";
+      });
       setLoading(false);
     }
   }
@@ -227,8 +274,23 @@ export default function AiCopilotView() {
                 )
               )}
 
-              {/* Typing indicator — three-dot pulse */}
-              {loading && (
+              {/* Streaming answer — paints token-by-token */}
+              {loading && streamText && (
+                <div className="flex justify-start gap-2.5">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-dmk-input-well border border-dmk-border-subtle">
+                    <Bot className="h-3.5 w-3.5 text-dmk-blue" />
+                  </div>
+                  <div className="max-w-[86%] sm:max-w-[75%] rounded-xl rounded-bl-sm bg-dmk-bg-tertiary border border-dmk-border-subtle px-3.5 py-2.5">
+                    <p className="text-[13px] text-dmk-text-primary whitespace-pre-wrap break-words leading-relaxed">
+                      {streamText}
+                      <span className="inline-block w-1.5 h-3.5 ml-0.5 align-text-bottom bg-dmk-yellow animate-pulse rounded-[1px]" aria-hidden />
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Typing indicator — three-dot pulse (until first token) */}
+              {loading && !streamText && (
                 <div className="flex justify-start gap-2.5">
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-dmk-input-well border border-dmk-border-subtle">
                     <Bot className="h-3.5 w-3.5 text-dmk-blue" />
@@ -294,7 +356,7 @@ export default function AiCopilotView() {
             </Button>
           </form>
           <p className="text-[10.5px] text-dmk-text-muted mt-2">
-            Answers quote exact figures from the current snapshot · may take a few seconds
+            Answers stream in real time · grounded in exact figures from your live books
           </p>
         </div>
       </div>

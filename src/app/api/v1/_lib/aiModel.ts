@@ -105,6 +105,34 @@ function constructClient(baseUrl: string, apiKey: string): ZAI {
 }
 
 /**
+ * Translate an AI provider failure into a plain-language hint the
+ * owner can act on (expired key, no credits, unknown model, rate
+ * limit, network). Used by the chat route and the settings test.
+ */
+export function translateAiError(e: unknown): string {
+  const raw =
+    e instanceof Error
+      ? e.message
+      : typeof e === "string"
+        ? e
+        : "Unknown error contacting the AI provider";
+
+  const statusMatch = raw.match(/\b(401|402|403|404|429|5\d\d)\b/);
+  const status = statusMatch?.[1];
+
+  if (status === "401") return "API key rejected (401). The key is wrong or expired — open Settings → DMK AI Copilot and paste a fresh key.";
+  if (status === "402") return "Provider account out of credits (402). Top up your OpenRouter/provider balance or switch to a free model.";
+  if (status === "403") return "Provider refused the request (403). Check that the key has access to this model.";
+  if (status === "404") return `Model not found (404). Pick a valid model in Settings → DMK AI Copilot. (${raw.slice(0, 140)})`;
+  if (status === "429") return "Rate limited (429). Too many requests — wait a few seconds and try again.";
+  if (status && status.startsWith("5")) return "The AI provider had a server error. Try again in a moment.";
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network|EAI_AGAIN/i.test(raw)) {
+    return "Could not reach the AI provider (network error). Check the base URL and this server's internet connection.";
+  }
+  return raw.slice(0, 200);
+}
+
+/**
  * Build the copilot's AI client. Saved settings (db) win — the owner
  * manages them from the app UI, which is the only runtime-editable
  * path on Vercel; then env vars; then the SDK's file-based discovery.
