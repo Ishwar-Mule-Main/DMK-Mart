@@ -21,6 +21,7 @@ import {
   resolveFirm,
   startOfDay,
 } from "@/app/api/v1/_lib/api";
+import { containsArms, rankSearch } from "@/lib/search-rank";
 
 export async function GET(request: NextRequest) {
   try {
@@ -35,6 +36,22 @@ export async function GET(request: NextRequest) {
     const dateFrom = getDateOrNull(sp.get("dateFrom")) ?? fy?.gte ?? null;
     const dateTo = getDateOrNull(sp.get("dateTo")) ?? fy?.lte ?? null;
 
+    // Word-wise SQL prefilter: every query word must hit at least one
+    // searchable column (AND across words, OR across columns — narration,
+    // voucher number and journal-line account names/notes). Case variants
+    // keep the prefilter a superset on Postgres AND SQLite.
+    const words = search
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const fieldContains = (w: string) =>
+      containsArms(w, (v) => [
+        { narration: { contains: v } },
+        { voucherNumber: { contains: v } },
+        { lines: { some: { OR: [{ accountName: { contains: v } }, { narration: { contains: v } }] } } },
+      ]);
+
     const journals = await db.journalEntry.findMany({
       where: {
         firmId,
@@ -47,20 +64,21 @@ export async function GET(request: NextRequest) {
               },
             }
           : {}),
-        ...(search
-          ? {
-              OR: [
-                { narration: { contains: search } },
-                { voucherNumber: { contains: search } },
-              ],
-            }
-          : {}),
+        ...(words.length > 0 ? { AND: words.map((w) => ({ OR: fieldContains(w) })) } : {}),
       },
       include: { lines: { orderBy: { entrySide: "desc" } } },
       orderBy: { postingDate: "desc" },
       take: 200,
     });
-    return ok(journals);
+
+    // Word-wise matching (chronological — newest-first register order kept).
+    const ranked = rankSearch(journals, search, (j) => [
+      j.narration,
+      j.voucherNumber,
+      j.lines.map((l) => l.accountName).join(" "),
+      j.lines.map((l) => l.narration).join(" "),
+    ], { chronological: true });
+    return ok(ranked);
   } catch (e) {
     return handleApiError(e);
   }

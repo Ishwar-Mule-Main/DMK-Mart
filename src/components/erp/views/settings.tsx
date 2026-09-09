@@ -30,6 +30,7 @@ import {
 
 import { Badge, ErrorText, Field, PageHeader, inputCls } from "../shared";
 import AiSettingsCard from "../ai-settings-card";
+import { LanguageCard, KeyboardShortcutsCard } from "../settings-cards";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -443,6 +444,12 @@ export default function SettingsView() {
           Filters transactional views by FY — P&amp;L windows default to this year&apos;s Apr–Mar range. Books and ledgers remain continuous.
         </p>
       </div>
+
+      {/* ── Interface language — English / हिंदी / मराठी ─────────── */}
+      <LanguageCard />
+
+      {/* ── Keyboard shortcuts — live registry from the company profile ── */}
+      <KeyboardShortcutsCard />
 
       {/* ── Automation — recurring auto-post scheduler heartbeat ──── */}
       <AutomationCard />

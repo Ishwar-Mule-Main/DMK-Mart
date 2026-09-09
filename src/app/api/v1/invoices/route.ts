@@ -19,6 +19,7 @@ import {
 } from "@/app/api/v1/_lib/api";
 import { createInvoice } from "@/app/api/v1/_lib/invoice";
 import { settledTotalsByInvoice } from "@/app/api/v1/_lib/settlement";
+import { containsArms, rankSearch } from "@/lib/search-rank";
 import { round2 } from "@/lib/gst";
 
 export async function GET(request: NextRequest) {
@@ -32,22 +33,29 @@ export async function GET(request: NextRequest) {
     const counterParam = getStr(sp.get("isCounterSale"));
     const fy = fyRange(sp.get("fy"));
 
+    // Word-wise SQL prefilter: every query word must hit at least one
+    // searchable column (AND across words, OR across columns). Case variants
+    // keep the prefilter a superset on Postgres AND SQLite.
+    const words = search
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const fieldContains = (w: string) =>
+      containsArms(w, (v) => [
+        { invoiceNumber: { contains: v } },
+        { walkInName: { contains: v } },
+        { walkInPhone: { contains: v } },
+        { customer: { partyName: { contains: v } } },
+      ]);
+
     const invoices = await db.invoice.findMany({
       where: {
         firmId,
         ...(fy ? { invoiceDate: fy } : {}),
         ...(customerId ? { customerId } : {}),
         ...(counterParam !== "" ? { isCounterSale: counterParam === "true" } : {}),
-        ...(search
-          ? {
-              OR: [
-                { invoiceNumber: { contains: search } },
-                { walkInName: { contains: search } },
-                { walkInPhone: { contains: search } },
-                { customer: { partyName: { contains: search } } },
-              ],
-            }
-          : {}),
+        ...(words.length > 0 ? { AND: words.map((w) => ({ OR: fieldContains(w) })) } : {}),
       },
       include: {
         customer: { select: { id: true, partyName: true, customerType: true, stateCode: true } },
@@ -67,7 +75,17 @@ export async function GET(request: NextRequest) {
       return { ...inv, settled: s.settled, credited: s.credited, outstanding };
     });
 
-    return ok(rows);
+    // Word-wise matching on top of the SQL prefilter — chronological mode
+    // keeps the newest-first register order while dropping non-matches
+    // (multi-word AND + typo tolerance come from the ranker).
+    const ranked = rankSearch(rows, search, (r) => [
+      r.invoiceNumber,
+      r.customer?.partyName ?? "",
+      r.walkInName ?? "",
+      r.walkInPhone ?? "",
+    ], { chronological: true });
+
+    return ok(ranked);
   } catch (e) {
     return handleApiError(e);
   }

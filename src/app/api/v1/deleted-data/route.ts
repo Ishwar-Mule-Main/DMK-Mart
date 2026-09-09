@@ -8,6 +8,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getBool, getStr, handleApiError, ok, resolveFirm } from "@/app/api/v1/_lib/api";
+import { containsArms, rankSearch } from "@/lib/search-rank";
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,23 +20,33 @@ export async function GET(request: NextRequest) {
     const includeRestored = getBool(sp.get("includeRestored"), false);
     const search = getStr(sp.get("search"));
 
+    // Word-wise SQL prefilter: every query word must hit label or meta
+    // (meta carries name/SKU/phone across item types). Case variants keep
+    // the prefilter a superset on Postgres AND SQLite.
+    const words = search
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const fieldContains = (w: string) =>
+      containsArms(w, (v) => [
+        { label: { contains: v } },
+        { meta: { contains: v } },
+      ]);
+
     const rows = await db.deletedRecord.findMany({
       where: {
         firmId,
         ...(type ? { entityType: type } : {}),
         ...(includeRestored ? {} : { restoredAt: null }),
-        ...(search
-          ? {
-              OR: [
-                { label: { contains: search } },
-                { meta: { contains: search } },
-              ],
-            }
-          : {}),
+        ...(words.length > 0 ? { AND: words.map((w) => ({ OR: fieldContains(w) })) } : {}),
       },
       orderBy: [{ restoredAt: "asc" }, { createdAt: "desc" }],
       take: 500,
     });
+
+    // Word-wise matching (chronological — bin order preserved).
+    const filtered = rankSearch(rows, search, (r) => [r.label, r.meta], { chronological: true });
 
     // Fresh rows (no restoredAt) sort first by createdAt desc; restored
     // rows trail after — SQLite orders nulls first on asc, which gives
@@ -54,7 +65,7 @@ export async function GET(request: NextRequest) {
     }
 
     return ok({
-      items: rows,
+      items: filtered,
       summary,
       inBin,
       restoredCount: await db.deletedRecord.count({ where: { firmId, restoredAt: { not: null } } }),

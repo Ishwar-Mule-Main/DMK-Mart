@@ -24,6 +24,10 @@ export interface CopilotStreamPayload {
   message: string;
   /** Recent conversation turns for follow-up context. */
   history?: Array<{ role: "user" | "assistant"; content: string }>;
+  /** Reply language: "en" (default) | "hi" | "mr". */
+  language?: string;
+  /** Speech mode — plain-sentence, ≤80-word answer for reading aloud. */
+  spoken?: boolean;
 }
 
 interface SseEvent {

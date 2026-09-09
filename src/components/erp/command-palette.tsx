@@ -21,6 +21,7 @@ import {
 import { useErpStore, type ViewId } from "@/store/erp-store";
 import { apiGet } from "@/lib/api-client";
 import { formatINR } from "@/lib/format";
+import { rankSearch } from "@/lib/search-rank";
 import type { Product, Customer, Invoice } from "@/types/erp";
 
 interface NavItem { id: ViewId; label: string; icon: React.ElementType; shortcut?: string }
@@ -121,13 +122,17 @@ export function CommandPalette() {
         apiGet<Invoice[]>("/api/v1/invoices", { firmId: activeFirmId, search: q }),
       ]);
       const arr = <T,>(v: PromiseSettledResult<T>, fallback: T): T => (v.status === "fulfilled" ? v.value : fallback);
-      const products = Array.isArray(arr(p, { products: [] } as Product[] | { products: Product[] }))
-        ? (arr(p, { products: [] }) as Product[]).slice(0, 5)
-        : ((arr(p, { products: [] }) as { products: Product[] }).products ?? []).slice(0, 5);
+      const rawProducts = Array.isArray(arr(p, { products: [] } as Product[] | { products: Product[] }))
+        ? (arr(p, { products: [] }) as Product[])
+        : ((arr(p, { products: [] }) as { products: Product[] }).products ?? []);
+      const rawCustomers = Array.isArray(arr(c, [] as Customer[])) ? (arr(c, [] as Customer[]) as Customer[]) : [];
+      const rawInvoices = Array.isArray(arr(i, [] as Invoice[])) ? (arr(i, [] as Invoice[]) as Invoice[]) : [];
+      // The APIs return ranked/filtered rows already — re-rank client-side so
+      // the palette shows the best 5 word-wise hits (not just the first 5).
       setHits({
-        products,
-        customers: Array.isArray(arr(c, [] as Customer[])) ? (arr(c, [] as Customer[]) as Customer[]).slice(0, 5) : [],
-        invoices: Array.isArray(arr(i, [] as Invoice[])) ? (arr(i, [] as Invoice[]) as Invoice[]).slice(0, 5) : [],
+        products: rankSearch(rawProducts, q, (p) => [p.sku, p.name, p.brand ?? ""]).slice(0, 5),
+        customers: rankSearch(rawCustomers, q, (c) => [c.partyName, c.phone, c.city]).slice(0, 5),
+        invoices: rankSearch(rawInvoices, q, (v) => [v.invoiceNumber, v.customer?.partyName ?? "", v.walkInName ?? ""]).slice(0, 5),
       });
       setSearching(false);
     }, 220);
@@ -136,17 +141,18 @@ export function CommandPalette() {
 
   const go = React.useCallback((view: ViewId) => { setView(view); setOpen(false); setQuery(""); }, [setView]);
 
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
+  // Word-wise ranked matching (best-first; empty query keeps original order).
   const filteredNav = React.useMemo(
-    () => NAV_GROUPS[0].items.filter((i) => !q || i.label.toLowerCase().includes(q)),
+    () => rankSearch(NAV_GROUPS[0].items, q, (i) => [i.label, i.id]),
     [q]
   );
   const filteredActions = React.useMemo(
-    () => ACTIONS.filter((a) => !q || a.label.toLowerCase().includes(q)),
+    () => rankSearch(ACTIONS, q, (a) => [a.label, a.hint, a.id]),
     [q]
   );
   const firmHits = React.useMemo(
-    () => (q ? firms.filter((f) => f.firmName.toLowerCase().includes(q) || f.firmCode.toLowerCase().includes(q)) : firms),
+    () => rankSearch(firms, q, (f) => [f.firmName, f.firmCode]),
     [firms, q]
   );
   const hasResults =
@@ -175,7 +181,7 @@ export function CommandPalette() {
             {filteredActions.map((a) => {
               const Icon = a.icon;
               return (
-                <CommandItem key={a.id} value={`action-${a.label}`} onSelect={() => go(a.view)} className="gap-2.5">
+                <CommandItem key={a.id} value={`action-${a.label} ${a.hint} ${a.id}`} onSelect={() => go(a.view)} className="gap-2.5">
                   <Icon className="h-4 w-4 text-dmk-yellow" strokeWidth={1.75} />
                   <span className="text-[13px] font-medium">{a.label}</span>
                   <span className="ml-auto text-[10.5px] text-dmk-text-muted">{a.hint}</span>
@@ -233,7 +239,7 @@ export function CommandPalette() {
             {firmHits.map((f) => (
               <CommandItem
                 key={f.id}
-                value={`firm-${f.firmName}`}
+                value={`firm-${f.firmName} ${f.firmCode}`}
                 onSelect={() => { setActiveFirm(f.id); setOpen(false); setQuery(""); }}
                 className="gap-2.5"
               >
@@ -251,7 +257,7 @@ export function CommandPalette() {
             {filteredNav.map((item) => {
               const Icon = item.icon;
               return (
-                <CommandItem key={item.id} value={`nav-${item.label}`} onSelect={() => go(item.id)} className="gap-2.5">
+                <CommandItem key={item.id} value={`nav-${item.label} ${item.id}`} onSelect={() => go(item.id)} className="gap-2.5">
                   <Icon className="h-4 w-4 text-dmk-text-secondary" strokeWidth={1.75} />
                   <span className="text-[13px]">{item.label}</span>
                   {item.shortcut && <CommandShortcut className="font-mono text-[10px] text-dmk-text-muted">{item.shortcut}</CommandShortcut>}

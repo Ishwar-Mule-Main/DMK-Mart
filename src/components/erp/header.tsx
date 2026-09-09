@@ -28,9 +28,11 @@ import {
   PackageX,
   ClipboardCheck,
   LogOut,
+  Languages,
 } from "lucide-react";
 import { CompanyDetailsDialog, ChangePasswordDialog } from "@/components/erp/company-dialogs";
 import { useErpStore, type ViewId } from "@/store/erp-store";
+import { useT, LANGS, LANG_META, type Lang } from "@/lib/i18n";
 import { useFinancialYears } from "./fy-gate";
 import { apiGet, apiPost } from "@/lib/api-client";
 import { currentFyLabel, nextFyLabel } from "@/lib/fy";
@@ -54,6 +56,7 @@ interface NotificationItem {
 export function Header() {
   const { firms, activeFirmId, setActiveFirm, financialYear, setFinancialYear, setSidebarOpen, sidebarOpen, setView } =
     useErpStore();
+  const { t, lang, setLang } = useT();
   const firm = firms.find((f) => f.id === activeFirmId);
   // FY options come from the firm's financial-year registry — the list grows
   // when a new year is opened (automatically on 1 Apr, or from this menu).
@@ -132,8 +135,8 @@ export function Header() {
       items.push({
         id: "verify-submitted",
         kind: "verification",
-        title: `${verifyWaiting} PO verification${verifyWaiting !== 1 ? "s" : ""} waiting on you`,
-        detail: "Team counted sellable vs damaged — accept to book stock & payable",
+        title: `${verifyWaiting} ${t("hdr.verifyWaiting")}`,
+        detail: t("hdr.verifyDetail"),
         view: "purchase/verification",
         severity: "info",
       });
@@ -142,8 +145,8 @@ export function Header() {
       items.push({
         id: "overdue-ar",
         kind: "receivable",
-        title: `${overdue.count} invoice${overdue.count !== 1 ? "s" : ""} overdue`,
-        detail: `${formatINR(overdue.amount)} past credit terms — collect now`,
+        title: `${overdue.count} ${t("hdr.overdueTitle")}`,
+        detail: `${formatINR(overdue.amount)} ${t("hdr.overdue")}`,
         view: "finance/aging",
         agingTab: "inv",
         severity: "danger",
@@ -153,11 +156,11 @@ export function Header() {
       items.push({
         id: "gst-risk",
         kind: "gst",
-        title: `GSTR-2B: ${gstRisk.missingInBooks} in portal, not in books`,
+        title: `GSTR-2B: ${gstRisk.missingInBooks} ${t("hdr.gstTitle")}`,
         detail:
           gstRisk.netItcRisk > 0.009
-            ? `${formatINR(gstRisk.netItcRisk)} ITC at risk this period`
-            : "Reconcile before filing to protect ITC",
+            ? `${formatINR(gstRisk.netItcRisk)} ${t("hdr.gstItcRisk")}`
+            : t("hdr.gstReconcile"),
         view: "finance/gstr2b",
         severity: gstRisk.netItcRisk > 0.009 ? "danger" : "warning",
       });
@@ -166,8 +169,8 @@ export function Header() {
       items.push({
         id: `stock-${a.productId}`,
         kind: "stock",
-        title: `${a.name} below threshold`,
-        detail: `${a.sku} · sellable ${a.stockQuantity} ≤ threshold ${a.lowStockThreshold}`,
+        title: `${a.name} ${t("hdr.belowThreshold")}`,
+        detail: `${a.sku} · ${t("pal.stock")} ${a.stockQuantity} ≤ ${a.lowStockThreshold}`,
         view: "inventory/low-stock",
         severity: "warning",
       });
@@ -176,14 +179,14 @@ export function Header() {
       items.push({
         id: "stock-more",
         kind: "stock",
-        title: `${alerts.length - 4} more products below threshold`,
-        detail: "Open Low Stock Alerts to restock",
+        title: `${alerts.length - 4} ${t("hdr.moreLow")}`,
+        detail: t("hdr.openLowStock"),
         view: "inventory/low-stock",
         severity: "warning",
       });
     }
     return items;
-  }, [alerts, overdue, gstRisk, verifyWaiting]);
+  }, [alerts, overdue, gstRisk, verifyWaiting, t, lang]);
 
   function openNotification(n: NotificationItem) {
     if (n.agingTab) requestAgingTab(n.agingTab);
@@ -228,7 +231,7 @@ export function Header() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="bg-dmk-bg-tertiary border-dmk-border-medium">
             <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-dmk-text-muted">
-              Financial Year (Apr–Mar)
+              {t("hdr.fy")}
             </DropdownMenuLabel>
             {(fyYears.length > 0 ? fyYears.map((y) => y.label) : financialYear ? [financialYear] : []).map((fy) => (
               <DropdownMenuItem
@@ -240,7 +243,7 @@ export function Header() {
                   FY {fy}
                   {fy === currentFyLabel() && (
                     <span className="rounded-full bg-dmk-success/10 border border-dmk-success/30 px-1.5 py-px text-[8.5px] font-bold uppercase tracking-wider text-dmk-success">
-                      current
+                      {t("hdr.fyCurrent")}
                     </span>
                   )}
                 </span>
@@ -257,7 +260,7 @@ export function Header() {
                   disabled={fyCreating}
                   className="text-[12.5px] cursor-pointer text-dmk-gold"
                 >
-                  {fyCreating ? "Opening…" : `＋ Open FY ${nextFy} account`}
+                  {fyCreating ? t("hdr.opening") : `＋ ${t("hdr.openNextFy", { n: nextFy })}`}
                 </DropdownMenuItem>
               </>
             )}
@@ -266,6 +269,39 @@ export function Header() {
 
         <div className="flex-1" />
 
+        {/* Language switcher — EN / हिंदी / मराठी */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              className="h-9 px-2 gap-1.5 bg-dmk-input-well border border-dmk-border-subtle hover:bg-dmk-hover hidden sm:inline-flex"
+              aria-label={`${t("hdr.language")}: ${LANG_META[lang].native}`}
+            >
+              <Languages className="h-4 w-4 text-dmk-gold" strokeWidth={1.75} />
+              <span className="text-[12px] font-semibold text-dmk-text-primary">{LANG_META[lang].flag}</span>
+              <ChevronDown className="h-3 w-3 text-dmk-text-muted" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="bg-dmk-bg-tertiary border-dmk-border-medium min-w-[150px]">
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-dmk-text-muted">
+              {t("hdr.language")}
+            </DropdownMenuLabel>
+            {LANGS.map((l: Lang) => (
+              <DropdownMenuItem
+                key={l}
+                onClick={() => setLang(l)}
+                className={cn("gap-2.5 text-[13px] cursor-pointer", l === lang && "bg-dmk-hover")}
+              >
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-dmk-input-well border border-dmk-border-subtle text-[10px] font-bold text-dmk-gold">
+                  {LANG_META[l].flag}
+                </span>
+                <span className="flex-1">{LANG_META[l].native}</span>
+                {l === lang && <Check className="h-4 w-4 text-dmk-success" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         {/* Command palette trigger (⌘K) */}
         <button
           onClick={openPalette}
@@ -273,7 +309,7 @@ export function Header() {
           aria-label="Open command palette (Cmd+K)"
         >
           <Search className="h-3.5 w-3.5" strokeWidth={1.75} />
-          <span>Search everything…</span>
+          <span>{t("hdr.searchEverything")}</span>
           <kbd className="pointer-events-none ml-2 rounded border border-dmk-border-subtle bg-dmk-bg-primary px-1.5 py-0.5 font-mono text-[9.5px] text-dmk-text-muted">⌘K</kbd>
         </button>
         <button
@@ -289,7 +325,7 @@ export function Header() {
           <DropdownMenuTrigger asChild>
             <button
               className="relative h-9 w-9 flex items-center justify-center rounded-lg hover:bg-dmk-hover text-dmk-text-secondary"
-              aria-label={notifCount > 0 ? `${notifCount} notifications` : "Notifications"}
+              aria-label={notifCount > 0 ? `${notifCount} ${t("hdr.notifications")}` : t("hdr.notifications")}
             >
               <Bell className="h-[18px] w-[18px]" strokeWidth={1.75} />
               {notifCount > 0 && (
@@ -308,19 +344,19 @@ export function Header() {
           >
             <div className="px-3 py-2.5 border-b border-dmk-border-subtle flex items-center justify-between">
               <p className="text-[10px] uppercase tracking-widest text-dmk-text-muted font-semibold flex items-center gap-2">
-                <ShieldCheck className="h-3.5 w-3.5 text-dmk-warning" /> Action Center
+                <ShieldCheck className="h-3.5 w-3.5 text-dmk-warning" /> {t("hdr.actionCenter")}
               </p>
               {notifCount > 0 ? (
                 <span className="dmk-badge bg-dmk-yellow/15 text-dmk-yellow text-[9.5px] px-1.5 py-0.5">{notifCount}</span>
               ) : (
-                <span className="dmk-badge bg-dmk-success/15 text-dmk-success text-[9.5px] px-1.5 py-0.5">ALL CLEAR</span>
+                <span className="dmk-badge bg-dmk-success/15 text-dmk-success text-[9.5px] px-1.5 py-0.5">{t("hdr.allClear")}</span>
               )}
             </div>
             {notifCount === 0 ? (
               <div className="px-3 py-6 text-center">
                 <CheckCircle2 className="h-6 w-6 text-dmk-success mx-auto mb-2" />
-                <p className="text-[12.5px] text-dmk-text-secondary font-medium">Nothing needs your attention</p>
-                <p className="text-[11px] text-dmk-text-muted mt-1">Stock, collections and GST are all healthy.</p>
+                <p className="text-[12.5px] text-dmk-text-secondary font-medium">{t("hdr.nothingNeeds")}</p>
+                <p className="text-[11px] text-dmk-text-muted mt-1">{t("hdr.allHealthy")}</p>
               </div>
             ) : (
               <div className="max-h-[320px] overflow-y-auto py-1">
@@ -368,7 +404,7 @@ export function Header() {
                 }}
                 className="gap-2 text-[11.5px] cursor-pointer text-dmk-text-muted justify-center"
               >
-                <AlertTriangle className="h-3.5 w-3.5" /> Re-check now
+                <AlertTriangle className="h-3.5 w-3.5" /> {t("hdr.recheck")}
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
@@ -380,12 +416,12 @@ export function Header() {
           <DropdownMenuTrigger asChild>
             <button
               className="h-9 pl-2 pr-2.5 gap-2 inline-flex items-center rounded-lg bg-dmk-input-well border border-dmk-border-subtle hover:bg-dmk-hover transition-colors max-w-[190px] sm:max-w-[240px]"
-              aria-label="Company menu"
+              aria-label={t("hdr.company")}
               aria-expanded={companyMenuOpen}
             >
               <Building2 className="h-4 w-4 text-dmk-blue shrink-0" strokeWidth={1.75} />
               <span className="truncate text-[12.5px] font-semibold text-dmk-text-primary">
-                {firm ? firm.firmName : "Company"}
+                {firm ? firm.firmName : t("hdr.company")}
               </span>
               <ChevronDown
                 className={cn(
@@ -398,18 +434,18 @@ export function Header() {
           <DropdownMenuContent align="end" className="w-72 bg-dmk-bg-tertiary border-dmk-border-medium">
             {/* Active company identity */}
             <div className="px-2 pt-1.5 pb-2">
-              <p className="text-[13.5px] font-bold text-dmk-text-primary truncate">{firm?.firmName ?? "Company"}</p>
+              <p className="text-[13.5px] font-bold text-dmk-text-primary truncate">{firm?.firmName ?? t("hdr.company")}</p>
               <p className="text-[10.5px] text-dmk-text-muted truncate mt-0.5">
                 {firm ? `${firm.firmCode}${firm.gstin ? ` · GSTIN ${firm.gstin}` : ""}` : "—"}
               </p>
               <span className="dmk-badge bg-dmk-blue/15 text-dmk-blue text-[9px] px-1.5 py-0.5 mt-1.5 inline-flex items-center gap-1">
-                <ShieldCheck className="h-2.5 w-2.5" /> {OWNER_USERNAME} · owner
+                <ShieldCheck className="h-2.5 w-2.5" /> {OWNER_USERNAME} · {t("hdr.owner")}
               </span>
             </div>
 
             <DropdownMenuSeparator className="bg-dmk-border-subtle" />
             <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-dmk-text-muted">
-              Switch company
+              {t("hdr.switchCompany")}
             </DropdownMenuLabel>
             <div className="max-h-[180px] overflow-y-auto">
               {firms.map((f) => (
@@ -436,7 +472,7 @@ export function Header() {
               }}
               className="gap-2 text-[13px] cursor-pointer"
             >
-              <Pencil className="h-4 w-4 text-dmk-text-muted" /> Company details
+              <Pencil className="h-4 w-4 text-dmk-text-muted" /> {t("hdr.companyDetails")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
@@ -445,7 +481,7 @@ export function Header() {
               }}
               className="gap-2 text-[13px] cursor-pointer"
             >
-              <KeyRound className="h-4 w-4 text-dmk-text-muted" /> Change password
+              <KeyRound className="h-4 w-4 text-dmk-text-muted" /> {t("hdr.changePassword")}
             </DropdownMenuItem>
             <DropdownMenuSeparator className="bg-dmk-border-subtle" />
             <DropdownMenuItem
@@ -456,7 +492,7 @@ export function Header() {
               }}
               className="gap-2 text-[13px] cursor-pointer text-dmk-danger"
             >
-              <LogOut className="h-4 w-4" /> Sign out
+              <LogOut className="h-4 w-4" /> {t("hdr.signOut")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

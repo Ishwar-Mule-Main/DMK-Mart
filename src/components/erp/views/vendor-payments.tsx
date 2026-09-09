@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { consumePendingVendor, consumePendingPayPo } from "@/lib/settle-bus";
+import { filterByQuery } from "@/lib/search-rank";
 import { cn } from "@/lib/utils";
 
 interface PayAllocation {
@@ -197,17 +198,14 @@ export default function VendorPaymentsView() {
     };
   }, [activeFirmId, refresh]);
 
-  const q = query.trim().toLowerCase();
-  const visible = (rows ?? []).filter((r) => {
-    if (!q) return true;
-    return (
-      (r.vendor?.vendorName ?? "").toLowerCase().includes(q) ||
-      (r.utrRef ?? "").toLowerCase().includes(q) ||
-      (r.notes ?? "").toLowerCase().includes(q) ||
-      r.mode.toLowerCase().includes(q) ||
-      (r.allocations ?? []).some((a) => (a.purchaseOrder?.poNumber ?? "").toLowerCase().includes(q))
-    );
-  });
+  // Word-wise ranked filtering — payment register keeps its incoming order.
+  const visible = filterByQuery(rows ?? [], query, (r) => [
+    r.vendor?.vendorName ?? "",
+    r.utrRef ?? "",
+    (r.allocations ?? []).map((a) => a.purchaseOrder?.poNumber ?? "").join(" "),
+    r.notes ?? "",
+    r.mode,
+  ]);
 
   // KPIs — computed client-side
   const now = new Date();

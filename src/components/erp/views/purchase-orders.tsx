@@ -28,6 +28,7 @@ import {
 import { useErpStore, useActiveFirm } from "@/store/erp-store";
 import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api-client";
 import { formatINR, formatDate, toISODate } from "@/lib/format";
+import { rankSearch } from "@/lib/search-rank";
 import type { Product, Vendor } from "@/types/erp";
 import {
   PageHeader,
@@ -579,21 +580,18 @@ function PoFormDialog({
   // R4/R10 — manufacturer POs list ONLY that vendor's own products
   // (manufacturerVendorId link, legacy brand match as fallback);
   // distributors list the whole catalog.
-  const pickable = products.filter((p) => {
-    if (!p.isActive) return false;
-    if (isManufacturer && vendor) {
-      const brandMatch = !!vendor.brand && p.brand.toLowerCase() === vendor.brand.toLowerCase();
-      if (p.manufacturerVendorId !== vendor.id && !brandMatch) return false;
-    }
-    const q = pickQuery.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      p.sku.toLowerCase().includes(q) ||
-      p.name.toLowerCase().includes(q) ||
-      p.category.toLowerCase().includes(q) ||
-      p.brand.toLowerCase().includes(q)
-    );
-  });
+  const pickable = rankSearch(
+    products.filter((p) => {
+      if (!p.isActive) return false;
+      if (isManufacturer && vendor) {
+        const brandMatch = !!vendor.brand && p.brand.toLowerCase() === vendor.brand.toLowerCase();
+        if (p.manufacturerVendorId !== vendor.id && !brandMatch) return false;
+      }
+      return true;
+    }),
+    pickQuery,
+    (p) => [p.sku, p.name, p.category, p.brand]
+  );
 
   const computed = lines.map((l) => {
     const taxable = round2(num(l.qty) * num(l.cost));

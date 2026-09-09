@@ -30,6 +30,7 @@ import {
 import { useErpStore, useActiveFirm } from "@/store/erp-store";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { formatINR, toISODate } from "@/lib/format";
+import { rankSearch } from "@/lib/search-rank";
 import type { Product, Vendor } from "@/types/erp";
 import {
   PageHeader,
@@ -183,18 +184,9 @@ export default function NewPurchaseOrderView() {
   }, [activeFirmId]);
 
   const vendorResults = React.useMemo(() => {
-    const q = vendorQuery.trim().toLowerCase();
     const base = vendors.filter((v) => v.isActive);
-    if (!q) return base.slice(0, 8);
-    return base
-      .filter(
-        (v) =>
-          v.vendorName.toLowerCase().includes(q) ||
-          (v.gstin ?? "").toLowerCase().includes(q) ||
-          (v.phone ?? "").includes(q) ||
-          (v.brand ?? "").toLowerCase().includes(q)
-      )
-      .slice(0, 8);
+    // Word-wise ranked vendor search (best 8; empty query → first 8 as before).
+    return rankSearch(base, vendorQuery, (v) => [v.vendorName, v.brand ?? "", v.phone ?? "", v.gstin ?? ""]).slice(0, 8);
   }, [vendors, vendorQuery]);
 
   const intra = !!vendor && vendor.stateCode === firmStateCode;
@@ -203,17 +195,8 @@ export default function NewPurchaseOrderView() {
   /** R4 — scoped pick list: manufacturer → own products, distributor → all. */
   const pickable = React.useMemo(() => {
     const scoped = scopedProducts(products, vendor).filter((p) => p.isActive);
-    const q = prodQuery.trim().toLowerCase();
-    if (!q) return scoped.slice(0, 8);
-    return scoped
-      .filter(
-        (p) =>
-          p.sku.toLowerCase().includes(q) ||
-          p.name.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q) ||
-          (p.brand ?? "").toLowerCase().includes(q)
-      )
-      .slice(0, 8);
+    // Word-wise ranked product search (best 8; empty query → first 8 as before).
+    return rankSearch(scoped, prodQuery, (p) => [p.sku, p.name, p.category, p.brand ?? ""]).slice(0, 8);
   }, [products, vendor, prodQuery]);
 
   // Keep the visible highlight in range

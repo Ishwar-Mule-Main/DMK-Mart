@@ -54,6 +54,9 @@ export interface ErpSession {
   staffUsername?: string;
 }
 
+/** UI language — English, Hindi, Marathi. */
+export type UiLanguage = "en" | "hi" | "mr";
+
 interface ErpState {
   firms: Firm[];
   activeFirmId: string | null;
@@ -63,6 +66,8 @@ interface ErpState {
   sidebarOpen: boolean;
   notifications: number;
   session: ErpSession | null;
+  /** Interface language, persisted per browser. */
+  language: UiLanguage;
   setFirms: (firms: Firm[]) => void;
   setActiveFirm: (id: string) => void;
   setFinancialYear: (fy: string) => void;
@@ -70,6 +75,7 @@ interface ErpState {
   setSidebarOpen: (open: boolean) => void;
   setNotifications: (n: number) => void;
   setSession: (s: ErpSession | null) => void;
+  setLanguage: (l: UiLanguage) => void;
   logout: () => void;
 }
 
@@ -83,6 +89,7 @@ export const useErpStore = create<ErpState>()(
       sidebarOpen: false,
       notifications: 0,
       session: null,
+      language: "en",
       setSession: (session) => set({ session }),
       logout: () => set({ session: null, view: "dashboard" }),
       setFirms: (firms) => {
@@ -103,6 +110,7 @@ export const useErpStore = create<ErpState>()(
       setView: (view) => set({ view }),
       setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
       setNotifications: (notifications) => set({ notifications }),
+      setLanguage: (language) => set({ language }),
     }),
     {
       name: "dmk-erp-store",
@@ -111,6 +119,7 @@ export const useErpStore = create<ErpState>()(
         financialYear: s.financialYear,
         view: s.view,
         session: s.session,
+        language: s.language,
       }),
     }
   )

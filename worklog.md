@@ -1107,3 +1107,35 @@ Stage Summary:
 - Remaining latency is provider-side: sandbox gateway currently contended (429 bursts); on Vercel+OpenRouter expect TTFT ≈0.5–2s with the 90s-cached snapshot making the DB phase ~0.
 - Owner action still pending: paste OpenRouter key in Settings → DMK AI Copilot → Save → Test Connection (now working again); model is pre-set to z-ai/glm-5.3-flash (≥150k requirement exceeded 8.7×).
 - Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.
+
+---
+Task ID: 1-b
+Agent: full-stack-developer
+Task: Word-wise ranked search across all views + server APIs
+
+Work Log:
+- src/lib/search-rank.ts: added two shared SQL-prefilter builders — containsVariants(word) (as-typed/lower/UPPER/Capitalized) and containsArms(word, col) (case variants per column + 3-char prefix relaxation for 4+-char words so edit-distance-1 typos reach the JS ranker). Rationale: Prisma `contains` is CASE-SENSITIVE on Postgres (Neon) and `mode:"insensitive"` is unsupported on the SQLite connector — the lowercase-then-contains pattern in the products reference route returned 0 hits for lowercase queries (proven by curl + direct Prisma probe); variants keep the prefilter a superset on BOTH connectors while rankSearch does the exact case-insensitive matching.
+- src/app/api/v1/products/route.ts (reference impl, bug fix): word prefilter no longer lowercases the query; now uses containsArms — lowercase search like "stool" matches again on Neon (curl-verified 3 hits).
+- src/app/api/v1/customers/route.ts: word-wise SQL prefilter (AND words × OR [partyName, firmName, city, phone, gstin]) + rankSearch relevance ranking ([partyName, phone, city, gstin]); type param untouched. Covers Customers B2B list, B2C buyers, billing picker, b2c-counter buyer search, party-ledgers.
+- src/app/api/v1/vendors/route.ts: word-wise prefilter ([vendorName, brand, phone, gstin]) + rankSearch; covers Vendors view + party-ledgers (no contactPerson/firmCode exists on the model — searched what the placeholder advertises).
+- src/app/api/v1/invoices/route.ts: word-wise prefilter ([invoiceNumber, walkInName, walkInPhone, customer.partyName]) + rankSearch CHRONOLOGICAL (register newest-first order kept); fy/customerId/isCounterSale params untouched (curl-verified). Covers invoice-register + invoice-docs.
+- src/app/api/v1/purchase-orders/route.ts: word-wise prefilter ([poNumber, vendor.vendorName]) + chronological rankSearch; status/fy params untouched.
+- src/app/api/v1/ledger/journals/route.ts: word-wise prefilter extended to journal LINES ([narration, voucherNumber, lines.some(accountName|narration)]) + chronological rankSearch over [narration, voucherNumber, joined accountNames, joined line narrations]; type/date params untouched.
+- src/app/api/v1/deleted-data/route.ts: word-wise prefilter ([label, meta]) + chronological rankSearch (bin order preserved); type/includeRestored params untouched.
+- receipts.tsx: client filter → filterByQuery (customer, UTR, joined allocation invoice #s, notes) — register order kept, groups derive from filtered set.
+- vendor-payments.tsx: client filter → filterByQuery (vendor, UTR, joined PO #s, notes, mode).
+- verification.tsx: status filter first, then filterByQuery (PO #, vendor).
+- recurring.tsx: filterByQuery (template name, customer, joined SKU+product) then status-filter AND.
+- purchase-orders.tsx: in-dialog product picker → rankSearch over SKU/name/category/brand after the R4/R10 brand-scope filter (relevance order; empty query unchanged).
+- new-purchase-order.tsx: vendorResults + product pickable → rankSearch ([vendorName, brand, phone, gstin] / [sku, name, category, brand]) with .slice(0, 8) preserving the old top-8 default (rankSearch's limit option skips empty queries by design).
+- command-palette.tsx: nav groups ranked via rankSearch fields [label, id], actions [label, hint, id], firm switcher [firmName, firmCode] (empty query = original order); deep-search API hits (products/customers/invoices) re-ranked client-side with rankSearch ([sku,name,brand] / [partyName,phone,city] / [invoiceNumber,customer,walkInName]) before the best-5 slice; CommandItem values now embed id/hint/code so cmdk's internal value filter doesn't hide id-matched rows ("inv" → Invoice Register AND inventory/* views).
+- Covered via server upgrades (views pass `search` to APIs, no client filter existed): customers.tsx, vendors.tsx, invoice-register.tsx, invoice-docs.tsx, party-ledgers.tsx, b2c-counter.tsx, billing.tsx, deleted-data.tsx, stock-levels.tsx (already via products API), journals.tsx.
+- SKIPPED (grep-verified: NO text search/filter input exists — no new bars added per instructions): low-stock, sundry, chart-of-accounts, aging, daybook, gstr2b, credit-debit-notes, sales-returns, purchase-returns, statements, reports, stock-movements.
+- QA: project-wide tsc 0 errors, eslint 0 on all touched files; curl smoke on the running Neon-backed server — products "stool"→3, customers "pun"→[Pune Kirti Traders], "pune kirti" word-wise AND→exact row, typo "kirtt"→Pune Kirti Traders (prefix-relaxed prefilter + JS typo tier), invoices "inv"→6 newest-first, "inv 0002"→INV/0002 only, isCounterSale+search combined OK, POs "balaji"→PO/0002, journals "round"→5, no-search passthrough unchanged (6 invoices); dev server NOT started/touched, build NOT run.
+
+Stage Summary:
+- Every search bar in the ERP now returns word-wise/text-wise results: matches drop non-hits (AND across words, OR across fields), word-start hits rank above mid-string above typo hits, primary fields weigh more; chronological registers (invoice register, invoice docs, PO list, journals, recycle bin) keep newest-first order via the ranker's chronological mode, while party/product pickers get relevance order.
+- Server search APIs (products, customers, vendors, invoices, POs, journals, deleted-data) share the word-wise SQL prefilter + JS ranking pattern and now work on BOTH Neon Postgres and the SQLite Hostinger path (case-variant contains — the pre-upgrade Postgres case-sensitivity bug is fixed everywhere).
+- Typo tolerance is now effective end-to-end (the prefilter would previously kill typo candidates before the JS ranker saw them).
+- Views skipped deliberately (no search UI): low-stock, sundry, chart-of-accounts, aging, daybook, gstr2b, credit-debit-notes, sales-returns, purchase-returns, statements, reports, stock-movements.
+- Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F.

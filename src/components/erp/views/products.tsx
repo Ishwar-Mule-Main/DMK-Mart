@@ -54,6 +54,7 @@ import {
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/api-client";
 import { toast } from "@/hooks/use-toast";
 import { useErpStore } from "@/store/erp-store";
+import { useT } from "@/lib/i18n";
 import type { Product, Vendor } from "@/types/erp";
 import { StockAdjustDialog } from "../stock-adjust-dialog";
 import { cn } from "@/lib/utils";
@@ -150,15 +151,18 @@ function tierErrorOf(f: ProductFormState): string | null {
 export default function ProductsView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const setView = useErpStore((s) => s.setView);
+  const { t } = useT();
 
   const [products, setProducts] = React.useState<Product[]>([]);
   const [categories, setCategories] = React.useState<string[]>([]);
+  const [brands, setBrands] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
   const [search, setSearch] = React.useState("");
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
   const [category, setCategory] = React.useState("all");
+  const [brand, setBrand] = React.useState("all");
   const [activeOnly, setActiveOnly] = React.useState(false);
   const [reloadKey, setReloadKey] = React.useState(0);
   const seqRef = React.useRef(0);
@@ -173,6 +177,9 @@ export default function ProductsView() {
 
   // Per-product stock adjustment dialog
   const [adjusting, setAdjusting] = React.useState<Product | null>(null);
+
+  // Type-to-filter inside the brand dropdown
+  const [brandSearch, setBrandSearch] = React.useState("");
 
   const set = (patch: Partial<ProductFormState>) => setForm((f) => ({ ...f, ...patch }));
   const tierError = React.useMemo(() => tierErrorOf(form), [form]);
@@ -191,25 +198,27 @@ export default function ProductsView() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiGet<{ products: Product[]; categories: string[] }>(
+      const res = await apiGet<{ products: Product[]; categories: string[]; brands: string[] }>(
         "/api/v1/products",
         {
           firmId: activeFirmId,
           search: debouncedSearch || undefined,
           category: category === "all" ? undefined : category,
+          brand: brand === "all" ? undefined : brand,
           activeOnly: activeOnly ? "true" : undefined,
         }
       );
       if (seq !== seqRef.current) return; // stale response guard
       setProducts(res.products ?? []);
       setCategories(res.categories ?? []);
+      setBrands(res.brands ?? []);
     } catch (e) {
       if (seq !== seqRef.current) return;
       setError(e instanceof Error ? e.message : "Failed to load products");
     } finally {
       if (seq === seqRef.current) setLoading(false);
     }
-  }, [activeFirmId, debouncedSearch, category, activeOnly]);
+  }, [activeFirmId, debouncedSearch, category, brand, activeOnly]);
 
   React.useEffect(() => {
     void load();
@@ -271,10 +280,10 @@ export default function ProductsView() {
     try {
       if (editing) {
         await apiPatch<Product>(`/api/v1/products/${editing.id}`, payload);
-        toast({ title: "Product updated", description: `${payload.sku} — ${payload.name}` });
+        toast({ title: t("prod.updated"), description: `${payload.sku} — ${payload.name}` });
       } else {
         await apiPost<Product>("/api/v1/products", payload);
-        toast({ title: "Product created", description: `${payload.sku} — ${payload.name}` });
+        toast({ title: t("prod.created"), description: `${payload.sku} — ${payload.name}` });
       }
       setDialogOpen(false);
       setReloadKey((k) => k + 1);
@@ -290,7 +299,7 @@ export default function ProductsView() {
   const deactivate = async (p: Product) => {
     try {
       await apiDelete(`/api/v1/products/${p.id}`);
-      toast({ title: "Product deactivated", description: `${p.sku} — ${p.name}` });
+      toast({ title: t("prod.deactivated"), description: `${p.sku} — ${p.name}` });
       setReloadKey((k) => k + 1);
     } catch (e) {
       toast({
@@ -309,8 +318,8 @@ export default function ProductsView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Products"
-        subtitle="Product master · 5-tier pricing · dual-stock pools (R2/R12)"
+        title={t("prod.title")}
+        subtitle={t("prod.subtitle")}
         actions={
           <>
             <Button
@@ -320,11 +329,11 @@ export default function ProductsView() {
               className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
             >
               <Upload className="h-3.5 w-3.5" />
-              Bulk Upload
+              {t("prod.bulkUpload")}
             </Button>
             <Button size="sm" onClick={openAdd} className="h-9 gap-2 text-[12.5px]">
               <Plus className="h-3.5 w-3.5" />
-              Add Product
+              {t("prod.addProduct")}
             </Button>
           </>
         }
@@ -335,15 +344,15 @@ export default function ProductsView() {
         <SearchInput
           value={search}
           onChange={setSearch}
-          placeholder="Search SKU, name, brand…"
+          placeholder={t("prod.searchPh")}
           className="sm:max-w-xs"
         />
         <Select value={category} onValueChange={setCategory}>
-          <SelectTrigger className="w-full sm:w-[190px] h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
+          <SelectTrigger className="w-full sm:w-[170px] h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
             <SelectValue placeholder="Category" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All categories</SelectItem>
+            <SelectItem value="all">{t("cmn.allCategories")}</SelectItem>
             {categories.map((c) => (
               <SelectItem key={c} value={c}>
                 {c}
@@ -351,10 +360,33 @@ export default function ProductsView() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={brand} onValueChange={setBrand} disabled={brands.length === 0}>
+          <SelectTrigger className="w-full sm:w-[170px] h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
+            <SelectValue placeholder="Brand" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            <div className="px-2 py-1.5 border-b border-dmk-border-subtle mb-1">
+              <input
+                value={brandSearch}
+                onChange={(e) => setBrandSearch(e.target.value)}
+                placeholder={t("cmn.filterBrands")}
+                className="w-full h-7 px-2 rounded-md bg-dmk-input-well border border-dmk-border-subtle text-[12px] outline-none focus:border-dmk-blue/60"
+              />
+            </div>
+            <SelectItem value="all">{t("cmn.allBrands")}</SelectItem>
+            {brands
+              .filter((b) => b.toLowerCase().includes(brandSearch.toLowerCase()))
+              .map((b) => (
+                <SelectItem key={b} value={b}>
+                  {b}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
         <div className="flex items-center gap-2 sm:ml-auto">
           <Switch id="active-only" checked={activeOnly} onCheckedChange={setActiveOnly} />
           <Label htmlFor="active-only" className="text-[12.5px] text-dmk-text-secondary cursor-pointer">
-            Active only
+            {t("cmn.activeOnly")}
           </Label>
         </div>
       </div>
@@ -369,11 +401,11 @@ export default function ProductsView() {
         <div className="dmk-card">
           <EmptyState
             icon={Package}
-            title="No products found"
-            hint="Adjust the filters, or add products manually / via bulk CSV upload."
+            title={t("prod.noProducts")}
+            hint={t("prod.emptyHint")}
             action={
               <Button variant="outline" size="sm" onClick={() => setView("inventory/bulk-upload")} className="h-9 border-dmk-border-subtle bg-dmk-input-well hover:bg-dmk-hover">
-                Import via CSV
+                {t("prod.importCsv")}
               </Button>
             }
           />
@@ -382,19 +414,19 @@ export default function ProductsView() {
         <DataTable>
           <thead>
             <tr>
-              <th>SKU</th>
-              <th>Name</th>
-              <th>Category</th>
-              <th>Brand</th>
-              <th>Unit</th>
-              <th className="num">GST%</th>
-              <th className="num">Cost</th>
-              <th className="num">MRP</th>
-              <th className="num">Sellable</th>
-              <th className="num">Damaged</th>
-              <th className="num">Threshold</th>
-              <th>Status</th>
-              <th className="text-right">Actions</th>
+              <th>{t("prod.tblSku")}</th>
+              <th>{t("prod.tblName")}</th>
+              <th>{t("prod.tblCategory")}</th>
+              <th>{t("prod.tblBrand")}</th>
+              <th>{t("prod.tblUnit")}</th>
+              <th className="num">{t("prod.tblGst")}</th>
+              <th className="num">{t("prod.tblCost")}</th>
+              <th className="num">{t("prod.tblMrp")}</th>
+              <th className="num">{t("prod.tblSellable")}</th>
+              <th className="num">{t("prod.tblDamaged")}</th>
+              <th className="num">{t("prod.tblThreshold")}</th>
+              <th>{t("cmn.status")}</th>
+              <th className="text-right">{t("cmn.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -434,8 +466,8 @@ export default function ProductsView() {
                       size="sm"
                       className="h-8 w-8 p-0 text-dmk-text-secondary hover:text-dmk-gold hover:bg-dmk-hover"
                       onClick={() => setAdjusting(p)}
-                      aria-label={`Adjust stock for ${p.name}`}
-                      title="Adjust stock (add / remove / transfer / write-off)"
+                      aria-label={`${t("prod.adjustStock")} — ${p.name}`}
+                      title={t("prod.adjustStock")}
                     >
                       <Scale className="h-3.5 w-3.5" />
                     </Button>
@@ -463,23 +495,21 @@ export default function ProductsView() {
                         <AlertDialogContent className="dmk-card border-dmk-border-medium">
                           <AlertDialogHeader>
                             <AlertDialogTitle className="text-dmk-text-primary">
-                              Move “{p.name}” to Deleted Data?
+                              {t("prod.deactivateQ", { n: p.name })}
                             </AlertDialogTitle>
                             <AlertDialogDescription className="text-dmk-text-secondary">
-                              The product is snapshotted into the Deleted Data folder first, so it can be
-                              restored anytime from Intelligence → Deleted Data. It will be hidden from active
-                              lists and billing; historical documents and stock are preserved.
+                              {t("prod.deactivateDesc")}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel className="h-9 bg-dmk-input-well border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover">
-                              Cancel
+                              {t("cmn.cancel")}
                             </AlertDialogCancel>
                             <AlertDialogAction
                               className="h-9 bg-dmk-danger text-white hover:bg-dmk-danger/90"
                               onClick={() => void deactivate(p)}
                             >
-                              Move to Deleted Data
+                              {t("prod.moveToDeleted")}
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
@@ -505,17 +535,15 @@ export default function ProductsView() {
         <DialogContent className="dmk-card border-dmk-border-medium max-h-[88vh] overflow-y-auto sm:w-[760px]">
           <DialogHeader>
             <DialogTitle className="text-dmk-text-primary text-[16px]">
-              {editing ? `Edit ${editing.sku}` : "Add Product"}
+              {editing ? t("prod.editTitle", { n: editing.sku }) : t("prod.addTitle")}
             </DialogTitle>
             <DialogDescription className="text-dmk-text-muted text-[12px]">
-              {editing
-                ? "Stock pools are mutated only through transactions — not editable here."
-                : "Opening stock posts OPENING movements and starts the audit trail."}
+              {editing ? t("prod.editDesc") : t("prod.addDesc")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="SKU *">
+            <Field label={t("prod.skuField")}>
               <Input
                 className={inputCls}
                 value={form.sku}
@@ -523,7 +551,7 @@ export default function ProductsView() {
                 placeholder="DMK-XXXX"
               />
             </Field>
-            <Field label="Product Name *">
+            <Field label={t("prod.nameField")}>
               <Input
                 className={inputCls}
                 value={form.name}
@@ -531,7 +559,7 @@ export default function ProductsView() {
                 placeholder="e.g. Cello Magnum Storage Box"
               />
             </Field>
-            <Field label="Category">
+            <Field label={t("cmn.category")}>
               <Input
                 className={inputCls}
                 value={form.category}
@@ -539,23 +567,23 @@ export default function ProductsView() {
                 placeholder="General"
               />
             </Field>
-            <Field label="Brand / Manufacturer">
+            <Field label={t("prod.brandField")}>
               <Input
                 className={inputCls}
                 value={form.brand}
                 onChange={(e) => set({ brand: e.target.value })}
               />
             </Field>
-            <Field label="Manufactured by" hint="Vendor-specific products for PO scoping">
+            <Field label={t("prod.mfrBy")} hint={t("prod.mfrHint")}>
               <Select
                 value={form.manufacturerVendorId || "none"}
                 onValueChange={(v) => set({ manufacturerVendorId: v === "none" ? "" : v })}
               >
                 <SelectTrigger className="w-full h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
-                  <SelectValue placeholder="No manufacturer link" />
+                  <SelectValue placeholder={t("prod.noMfr")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No manufacturer link</SelectItem>
+                  <SelectItem value="none">{t("prod.noMfr")}</SelectItem>
                   {mfrVendors.map((v) => (
                     <SelectItem key={v.id} value={v.id}>
                       {v.vendorName}
@@ -564,7 +592,7 @@ export default function ProductsView() {
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Unit">
+            <Field label={t("cmn.unit")}>
               <Select value={form.unit} onValueChange={(v) => set({ unit: v })}>
                 <SelectTrigger className="w-full h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
                   <SelectValue />
@@ -578,7 +606,7 @@ export default function ProductsView() {
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="GST Rate">
+            <Field label={t("prod.gstRate")}>
               <Select value={form.gstRate} onValueChange={(v) => set({ gstRate: v })}>
                 <SelectTrigger className="w-full h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
                   <SelectValue />
@@ -592,7 +620,7 @@ export default function ProductsView() {
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="HSN Code">
+            <Field label={t("prod.hsn")}>
               <Input
                 className={inputCls}
                 value={form.hsnCode}
@@ -600,7 +628,7 @@ export default function ProductsView() {
                 placeholder="3924"
               />
             </Field>
-            <Field label="Purchase Cost (₹)">
+            <Field label={t("prod.cost")}>
               <Input
                 type="number"
                 min="0"
@@ -616,18 +644,18 @@ export default function ProductsView() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                5-Tier Pricing (R12)
+                {t("prod.tierPricing")}
               </label>
-              <span className="text-[10.5px] text-dmk-text-muted">must ascend T1 → T5</span>
+              <span className="text-[10.5px] text-dmk-text-muted">{t("prod.tierNote")}</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
               {(
                 [
-                  ["tier1", "T1 Distributor"],
-                  ["tier2", "T2 Wholesale"],
-                  ["tier3", "T3 Semi-Wsl"],
-                  ["tier4", "T4 Retailer"],
-                  ["tier5", "T5 MRP"],
+                  ["tier1", t("prod.tier1")],
+                  ["tier2", t("prod.tier2")],
+                  ["tier3", t("prod.tier3")],
+                  ["tier4", t("prod.tier4")],
+                  ["tier5", t("prod.tier5")],
                 ] as Array<[keyof ProductFormState, string]>
               ).map(([key, label]) => (
                 <Field key={key} label={label}>
@@ -647,7 +675,7 @@ export default function ProductsView() {
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {!editing && (
-              <Field label="Opening Stock">
+              <Field label={t("prod.openingStock")}>
                 <Input
                   type="number"
                   min="0"
@@ -658,7 +686,7 @@ export default function ProductsView() {
               </Field>
             )}
             {!editing && (
-              <Field label="Opening Damaged">
+              <Field label={t("prod.openingDamaged")}>
                 <Input
                   type="number"
                   min="0"
@@ -668,7 +696,7 @@ export default function ProductsView() {
                 />
               </Field>
             )}
-            <Field label="Low Stock Threshold">
+            <Field label={t("prod.lowThreshold")}>
               <Input
                 type="number"
                 min="0"
@@ -677,7 +705,7 @@ export default function ProductsView() {
                 onChange={(e) => set({ lowStockThreshold: e.target.value })}
               />
             </Field>
-            <Field label="Weight (g)">
+            <Field label={t("prod.weight")}>
               <Input
                 type="number"
                 min="0"
@@ -686,7 +714,7 @@ export default function ProductsView() {
                 onChange={(e) => set({ weightGrams: e.target.value })}
               />
             </Field>
-            <Field label="Barcode">
+            <Field label={t("prod.barcode")}>
               <Input
                 className={inputCls}
                 value={form.barcode}
@@ -703,10 +731,10 @@ export default function ProductsView() {
               onClick={() => setDialogOpen(false)}
               className="h-9 border-dmk-border-subtle bg-dmk-input-well text-dmk-text-secondary hover:bg-dmk-hover"
             >
-              Cancel
+              {t("cmn.cancel")}
             </Button>
             <Button onClick={() => void save()} disabled={!canSave} className="h-9">
-              {saving ? "Saving…" : editing ? "Save Changes" : "Create Product"}
+              {saving ? t("prod.saving") : editing ? t("prod.saveChanges") : t("prod.createProduct")}
             </Button>
           </DialogFooter>
         </DialogContent>

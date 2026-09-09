@@ -11,6 +11,9 @@ import { CommandPalette } from "./command-palette";
 import { useErpStore, type ViewId } from "@/store/erp-store";
 import { apiGet, apiPost } from "@/lib/api-client";
 import type { Firm } from "@/types/erp";
+import { useT } from "@/lib/i18n";
+import { useGlobalShortcuts } from "@/hooks/use-global-shortcuts";
+import { ShortcutsDialog } from "./shortcuts-dialog";
 import { LoginGate } from "@/components/auth/login-gate";
 import { VerificationPortal } from "@/components/verify/verification-portal";
 import { FyGate } from "./fy-gate";
@@ -94,6 +97,8 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
 
 export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
   const { view, firms, activeFirmId, financialYear, setFirms, session } = useErpStore();
+  const { t } = useT();
+  useGlobalShortcuts();
   const [mounted, setMounted] = React.useState(false);
   const [booting, setBooting] = React.useState(true);
   const [bootError, setBootError] = React.useState<string | null>(null);
@@ -143,7 +148,7 @@ export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-dmk-bg-primary">
         <img src="/dmk-logo.png" alt="DMK Mart logo" width={56} height={56} className="rounded-full animate-pulse" />
-        <p className="text-[12px] text-dmk-text-muted">Loading workspace…</p>
+        <p className="text-[12px] text-dmk-text-muted">{t("cmn.loadingWs")}</p>
       </div>
     );
   }
@@ -218,6 +223,7 @@ export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
         <Header />
         <Sidebar />
         <CommandPalette />
+        <ShortcutsDialog />
         {/* Desktop: the sidebar is a hover-to-expand rail, so the content offset is always the 64px rail width — the expanded panel overlays instead of pushing content. */}
         <div className="flex-1 flex flex-col transition-none mt-14 lg:ml-16">
           {/* Keyed by view + firm + FY: switching company or financial year remounts the
@@ -229,10 +235,10 @@ export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
           <footer className="mt-auto border-t border-dmk-border-subtle bg-[#0D1527]/60">
             <div className="max-w-[1600px] mx-auto px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-1.5">
               <p className="text-[11px] text-dmk-text-muted">
-                DMK Mart ERP · AI-Native Trading, Distribution &amp; Bookkeeping Platform
+                DMK Mart ERP · {t("ftr.tagline")}
               </p>
               <p className="text-[11px] text-dmk-text-muted font-money">
-                Σ Debits ≡ Σ Credits · Indian Rupees (₹) · FY {financialYear}
+                {t("ftr.balance", { n: financialYear })}
               </p>
             </div>
           </footer>

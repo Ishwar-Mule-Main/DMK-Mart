@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { consumePendingCustomer, consumePendingSettleInvoice } from "@/lib/settle-bus";
+import { filterByQuery } from "@/lib/search-rank";
 import { cn } from "@/lib/utils";
 
 const MODES = ["NEFT", "UPI", "CHEQUE", "CASH"] as const;
@@ -144,17 +145,13 @@ export default function ReceiptsView() {
 
   const visible = React.useMemo(() => {
     const list = receipts ?? [];
-    const q = query.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((r) => {
-      const cust = r.customer?.partyName ?? customerMap.get(r.customerId)?.partyName ?? "";
-      return (
-        cust.toLowerCase().includes(q) ||
-        (r.utrRef ?? "").toLowerCase().includes(q) ||
-        (r.notes ?? "").toLowerCase().includes(q) ||
-        (r.allocations ?? []).some((a) => a.invoiceNumber.toLowerCase().includes(q))
-      );
-    });
+    // Word-wise ranked filtering — register keeps its incoming (date) order.
+    return filterByQuery(list, query, (r) => [
+      r.customer?.partyName ?? customerMap.get(r.customerId)?.partyName ?? "",
+      r.utrRef ?? "",
+      (r.allocations ?? []).map((a) => a.invoiceNumber).join(" "),
+      r.notes ?? "",
+    ]);
   }, [receipts, query, customerMap]);
 
   // ── Customer-wise groups: every receipt of a customer at one place ──

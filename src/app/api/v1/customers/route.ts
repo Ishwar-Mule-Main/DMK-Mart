@@ -17,6 +17,7 @@ import {
   resolveFirm,
 } from "@/app/api/v1/_lib/api";
 import { addCustomerLedger } from "@/app/api/v1/_lib/party";
+import { containsArms, rankSearch } from "@/lib/search-rank";
 
 function composePartyName(customerType: string, city: string, firmName: string): string {
   if (customerType === "B2B") return `${city} ${firmName}`.trim();
@@ -32,26 +33,37 @@ export async function GET(request: NextRequest) {
     const search = getStr(sp.get("search"));
     const type = getStr(sp.get("type"));
 
+    // Word-wise SQL prefilter: every query word must hit at least one
+    // searchable column (AND across words, OR across columns). Case variants
+    // keep the prefilter a superset on Postgres AND SQLite.
+    const words = search
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const fieldContains = (w: string) =>
+      containsArms(w, (v) => [
+        { partyName: { contains: v } },
+        { firmName: { contains: v } },
+        { city: { contains: v } },
+        { phone: { contains: v } },
+        { gstin: { contains: v } },
+      ]);
+
     const customers = await db.customer.findMany({
       where: {
         firmId,
         ...(type ? { customerType: type } : {}),
-        ...(search
-          ? {
-              OR: [
-                { partyName: { contains: search } },
-                { firmName: { contains: search } },
-                { city: { contains: search } },
-                { phone: { contains: search } },
-                { gstin: { contains: search } },
-              ],
-            }
-          : {}),
+        ...(words.length > 0 ? { AND: words.map((w) => ({ OR: fieldContains(w) })) } : {}),
       },
       orderBy: { partyName: "asc" },
       take: 500,
     });
-    return ok(customers);
+
+    // Word-wise / text-wise relevance on top of the SQL prefilter —
+    // party name leads the fields.
+    const ranked = rankSearch(customers, search, (c) => [c.partyName, c.phone, c.city, c.gstin]);
+    return ok(ranked);
   } catch (e) {
     return handleApiError(e);
   }

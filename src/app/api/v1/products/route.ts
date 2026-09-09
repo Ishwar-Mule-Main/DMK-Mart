@@ -23,6 +23,7 @@ import {
   ensureVendorPrefixedName,
   resolveManufacturerVendor,
 } from "@/app/api/v1/_lib/product-naming";
+import { containsArms, rankSearch } from "@/lib/search-rank";
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,22 +33,33 @@ export async function GET(request: NextRequest) {
 
     const search = getStr(sp.get("search"));
     const category = getStr(sp.get("category"));
+    const brand = getStr(sp.get("brand"));
     const activeOnly = sp.get("activeOnly") === "true";
+
+    // Word-wise SQL prefilter: every query word must hit at least one
+    // searchable column (AND across words, OR across columns). Case variants
+    // keep the prefilter a superset on Postgres AND SQLite — the exact
+    // case-insensitive word-wise ranking happens right after with rankSearch.
+    const words = search
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const fieldContains = (w: string) =>
+      containsArms(w, (v) => [
+        { sku: { contains: v } },
+        { name: { contains: v } },
+        { category: { contains: v } },
+        { brand: { contains: v } },
+        { barcode: { contains: v } },
+      ]);
 
     const where = {
       firmId,
       ...(activeOnly ? { isActive: true } : {}),
       ...(category ? { category: { contains: category } } : {}),
-      ...(search
-        ? {
-            OR: [
-              { sku: { contains: search } },
-              { name: { contains: search } },
-              { category: { contains: search } },
-              { brand: { contains: search } },
-            ],
-          }
-        : {}),
+      ...(brand ? { brand: { equals: brand } } : {}),
+      ...(words.length > 0 ? { AND: words.map((w) => ({ OR: fieldContains(w) })) } : {}),
     };
 
     const products = await db.product.findMany({
@@ -56,14 +68,19 @@ export async function GET(request: NextRequest) {
       take: 500,
     });
 
-    const categories = await db.product.findMany({
-      where: { firmId, isActive: true },
-      select: { category: true },
-      distinct: ["category"],
-      orderBy: { category: "asc" },
-    });
+    // Word-wise / text-wise relevance on top of the SQL prefilter —
+    // word-start matches rank above mid-string, SKU/name lead the fields.
+    const ranked = rankSearch(products, search, (p) => [p.sku, p.name, p.brand, p.category, p.barcode]);
 
-    return ok({ products, categories: categories.map((c) => c.category) });
+    const distinct = await db.product.findMany({
+      where: { firmId, isActive: true },
+      select: { category: true, brand: true },
+      // distinct on two columns isn't supported by the connector — dedupe in JS
+    });
+    const categories = [...new Set(distinct.map((p) => p.category))].sort((a, b) => a.localeCompare(b));
+    const brands = [...new Set(distinct.map((p) => p.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+    return ok({ products: ranked, categories, brands });
   } catch (e) {
     return handleApiError(e);
   }

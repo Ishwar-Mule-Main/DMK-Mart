@@ -55,6 +55,7 @@ import {
   inputCls,
   ErrorText,
 } from "@/components/erp/shared";
+import { filterByQuery } from "@/lib/search-rank";
 import { cn } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -166,12 +167,12 @@ export default function PurchaseVerificationView() {
   }, [tick, activeFirmId, load]);
 
   const list = rows ?? [];
-  const filtered = list.filter((r) => {
-    if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return r.po.poNumber.toLowerCase().includes(q) || r.po.vendor.vendorName.toLowerCase().includes(q);
-  });
+  // Status filter first, then word-wise search (PO # / vendor) — order preserved.
+  const filtered = filterByQuery(
+    list.filter((r) => statusFilter === "ALL" || r.status === statusFilter),
+    search,
+    (r) => [r.po.poNumber, r.po.vendor.vendorName]
+  );
 
   const awaiting = list.filter((r) => r.status === "AWAITING_VERIFICATION");
   const submitted = list.filter((r) => r.status === "SUBMITTED");

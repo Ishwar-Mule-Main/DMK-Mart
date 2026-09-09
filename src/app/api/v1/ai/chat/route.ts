@@ -65,10 +65,29 @@ function sanitizeHistory(raw: unknown): HistoryTurn[] {
     }));
 }
 
-function buildSystemPrompt(snapshot: Record<string, unknown>, snapshotAgeSec: number): string {
+function buildSystemPrompt(
+  snapshot: Record<string, unknown>,
+  snapshotAgeSec: number,
+  language = "en",
+  spoken = false
+): string {
   const today = String(snapshot.today ?? "");
   const ageNote =
     snapshotAgeSec > 5 ? ` The snapshot was loaded ${snapshotAgeSec}s ago — treat it as “right now”.` : "";
+  const langInstruction =
+    language === "hi"
+      ? "8. REPLY LANGUAGE: Answer in हिंदी (Hindi, Devanagari script). Keep brand names, SKUs, invoice numbers, person names and the ₹ figures exactly as they appear in the snapshot."
+      : language === "mr"
+        ? "8. REPLY LANGUAGE: Answer in मराठी (Marathi, Devanagari script). Keep brand names, SKUs, invoice numbers, person names and the ₹ figures exactly as they appear in the snapshot."
+        : "8. REPLY LANGUAGE: Answer in English.";
+  const spokenInstruction = spoken
+    ? [
+        "9. SPEECH MODE: This answer will be READ ALOUD. Write plain flowing sentences only:",
+        "   - NO markdown, NO bullets, NO asterisks, NO headings, NO tables, NO line-break symbols.",
+        "   - Say numbers naturally (e.g. “₹2,284” → keep the digits, they are pronounced by the reader).",
+        "   - Maximum 80 words. Direct answer first, then the essential context. End with a short helpful nudge if useful.",
+      ].join("\n")
+    : "";
   return [
     "You are the DMK Mart ERP Copilot — the business assistant of an Indian trading firm (plastic goods distribution).",
     `Today's date is ${today}. All figures are INR and come from the live books snapshot below.${ageNote}`,
@@ -80,10 +99,14 @@ function buildSystemPrompt(snapshot: Record<string, unknown>, snapshotAgeSec: nu
     "4. Use '* ' for bullets and **bold** for key numbers. No headings, no tables, no markdown code blocks.",
     "5. If the snapshot does not contain the answer, say exactly what is missing and suggest where to find it (e.g. Reports, Invoice Register). NEVER invent or estimate numbers that are not in the snapshot.",
     "6. For GST questions use gstSummaryThisMonth and repeat its caveat about the ITC estimate.",
+    langInstruction,
+    spokenInstruction,
     "",
     "DATA SNAPSHOT (JSON):",
     JSON.stringify(snapshot),
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Parse an OpenAI-compatible SSE stream into content deltas. */
@@ -132,6 +155,10 @@ export async function POST(request: NextRequest) {
     const message = getStr(body.message);
     const wantsStream = body.stream === true;
     const history = sanitizeHistory(body.history);
+    // Reply language: en (default) | hi | mr. `spoken` switches the prompt
+    // to speech-friendly output (no markdown, shorter) for voice mode.
+    const language = getStr(body.language) === "hi" ? "hi" : getStr(body.language) === "mr" ? "mr" : "en";
+    const spoken = body.spoken === true;
 
     if (!firmId) {
       return handleApiError(new Error("firmId is required"));
@@ -163,7 +190,7 @@ export async function POST(request: NextRequest) {
     const model = await resolveAiModel();
     const snapshotAgeSec = Math.max(0, Math.round((Date.now() - ctx.builtAt.getTime()) / 1000));
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-      { role: "system", content: buildSystemPrompt(ctx.snapshot, snapshotAgeSec) },
+      { role: "system", content: buildSystemPrompt(ctx.snapshot, snapshotAgeSec, language, spoken) },
       ...history,
       { role: "user", content: message },
     ];

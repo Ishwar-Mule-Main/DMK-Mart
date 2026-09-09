@@ -18,13 +18,16 @@ import {
   CheckCircle2,
   CornerDownLeft,
   Loader2,
+  Mic,
   PackageX,
   Sparkles,
   User,
+  Volume2,
 } from "lucide-react";
 import { apiGet } from "@/lib/api-client";
 import { streamCopilotChat } from "@/lib/copilot-stream";
 import { useErpStore } from "@/store/erp-store";
+import { useVoice } from "@/lib/voice";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -291,6 +294,7 @@ function StockAlertsPanel({ firmId }: { firmId: string | null }) {
 export function DashboardAiChat() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const setView = useErpStore((s) => s.setView);
+  const lang = useErpStore((s) => s.language);
   const { toast } = useToast();
 
   const [messages, setMessages] = React.useState<Msg[]>([]);
@@ -298,6 +302,18 @@ export function DashboardAiChat() {
   const [loading, setLoading] = React.useState(false);
   const [streamText, setStreamText] = React.useState("");
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const loadingRef = React.useRef(false);
+  React.useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  // Voice (speech-to-speech): one-shot mic → send → spoken answer
+  const voice = useVoice({
+    lang,
+    onFinalTranscript: (text) => {
+      if (!loadingRef.current) void send(text, true);
+    },
+  });
 
   React.useEffect(() => {
     const el = scrollRef.current;
@@ -317,7 +333,7 @@ export function DashboardAiChat() {
     });
   }, [activeFirmId]);
 
-  async function send(text?: string) {
+  async function send(text?: string, viaVoice = false) {
     const message = (text ?? input).trim();
     if (!message || loading || !activeFirmId) return;
     setMessages((prev) => [...prev, { id: nextId(), role: "user", text: message }]);
@@ -334,14 +350,18 @@ export function DashboardAiChat() {
     let streamFailed = false;
     try {
       await streamCopilotChat(
-        { firmId: activeFirmId, message, history },
+        { firmId: activeFirmId, message, history, language: lang, spoken: viaVoice },
         {
-          onDelta: (_delta, full) => setStreamText(full),
+          onDelta: (_delta, full) => {
+            setStreamText(full);
+            voice.speakStreamed(full, false);
+          },
           onDone: (full) => {
             setMessages((prev) => [
               ...prev,
               { id: nextId(), role: "copilot", text: full || "I could not generate a response — try again." },
             ]);
+            voice.flushSpeaking(full || "", false);
           },
           onError: (msg) => {
             streamFailed = true;
@@ -360,6 +380,7 @@ export function DashboardAiChat() {
       // Preserve any partial answer produced before a mid-stream error.
       setStreamText((partial) => {
         if (streamFailed && partial) {
+          voice.flushSpeaking(partial, false);
           setMessages((prev) =>
             prev.some((m) => m.text === partial)
               ? prev
@@ -513,10 +534,25 @@ export function DashboardAiChat() {
                     void send();
                   }
                 }}
-                placeholder="Ask about sales, stock, receivables, P&L…"
-                className="h-11 w-full rounded-lg bg-dmk-input-well border border-dmk-border-subtle pl-3 pr-11 text-[13px] text-dmk-text-primary placeholder:text-dmk-text-disabled focus:outline-none focus:border-dmk-yellow/50"
+                placeholder={voice.listening ? "Listening… speak now" : "Ask about sales, stock, receivables, P&L…"}
+                className="h-11 w-full rounded-lg bg-dmk-input-well border border-dmk-border-subtle pl-3 pr-[72px] text-[13px] text-dmk-text-primary placeholder:text-dmk-text-disabled focus:outline-none focus:border-dmk-yellow/50"
                 aria-label="Ask AI Copilot"
               />
+              {/* Voice mic — speech-to-speech */}
+              <button
+                onClick={() => (voice.listening ? void voice.stopListening() : void voice.startListening())}
+                disabled={loading}
+                className={cn(
+                  "absolute right-9.5 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md flex items-center justify-center transition-colors disabled:opacity-40",
+                  voice.listening
+                    ? "bg-dmk-danger text-white animate-pulse"
+                    : "bg-dmk-input-well border border-dmk-border-subtle text-dmk-text-secondary hover:text-dmk-yellow"
+                )}
+                aria-label={voice.listening ? "Stop listening" : "Ask by voice"}
+                title={voice.listening ? "Stop listening" : "Ask by voice (speech-to-speech)"}
+              >
+                {voice.speaking ? <Volume2 className="h-4 w-4 text-dmk-success" /> : <Mic className="h-4 w-4" />}
+              </button>
               <button
                 onClick={() => void send()}
                 disabled={loading || !input.trim()}

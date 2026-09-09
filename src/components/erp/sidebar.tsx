@@ -40,84 +40,94 @@ import {
   Trash2,
 } from "lucide-react";
 import { useErpStore, type ViewId } from "@/store/erp-store";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
   id: ViewId;
   label: string;
+  key: string; // i18n key
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
 }
 
 interface NavSection {
   label: string;
+  labelKey: string; // i18n key
   items: NavItem[];
 }
 
 const SECTIONS: NavSection[] = [
   {
     label: "Overview",
-    items: [{ id: "dashboard", label: "Dashboard", icon: LayoutDashboard }],
+    labelKey: "nav.overview",
+    items: [{ id: "dashboard", label: "Dashboard", key: "nav.dashboard", icon: LayoutDashboard }],
   },
   {
     label: "Sales",
+    labelKey: "nav.sales",
     items: [
-      { id: "sales/billing", label: "Fast Billing (B2B)", icon: Zap },
-      { id: "sales/b2c", label: "B2C Counter", icon: ScanBarcode },
-      { id: "sales/invoices", label: "Invoice Register", icon: FileStack },
-      { id: "sales/returns", label: "Sales Returns", icon: Undo2 },
-      { id: "sales/customers", label: "Customers & Buyers", icon: Users },
-      { id: "sales/receipts", label: "Receipts", icon: Receipt },
-      { id: "sales/recurring", label: "Recurring Billing", icon: CalendarClock },
+      { id: "sales/billing", label: "Fast Billing (B2B)", key: "nav.billing", icon: Zap },
+      { id: "sales/b2c", label: "B2C Counter", key: "nav.b2c", icon: ScanBarcode },
+      { id: "sales/invoices", label: "Invoice Register", key: "nav.invoices", icon: FileStack },
+      { id: "sales/returns", label: "Sales Returns", key: "nav.salesReturns", icon: Undo2 },
+      { id: "sales/customers", label: "Customers & Buyers", key: "nav.customers", icon: Users },
+      { id: "sales/receipts", label: "Receipts", key: "nav.receipts", icon: Receipt },
+      { id: "sales/recurring", label: "Recurring Billing", key: "nav.recurring", icon: CalendarClock },
     ],
   },
   {
     label: "Purchase",
+    labelKey: "nav.purchase",
     items: [
-      { id: "purchase/orders", label: "Purchase Orders", icon: ClipboardList },
-      { id: "purchase/new-order", label: "New Purchase Order", icon: PackagePlus },
-      { id: "purchase/verification", label: "PO Verification", icon: ClipboardCheck },
-      { id: "purchase/returns", label: "Purchase Returns", icon: UndoIcon },
-      { id: "purchase/payments", label: "Vendor Payments", icon: Banknote },
-      { id: "purchase/vendors", label: "Vendors", icon: Truck },
+      { id: "purchase/orders", label: "Purchase Orders", key: "nav.po", icon: ClipboardList },
+      { id: "purchase/new-order", label: "New Purchase Order", key: "nav.newPo", icon: PackagePlus },
+      { id: "purchase/verification", label: "PO Verification", key: "nav.poVerify", icon: ClipboardCheck },
+      { id: "purchase/returns", label: "Purchase Returns", key: "nav.poReturns", icon: UndoIcon },
+      { id: "purchase/payments", label: "Vendor Payments", key: "nav.vendorPayments", icon: Banknote },
+      { id: "purchase/vendors", label: "Vendors", key: "nav.vendors", icon: Truck },
     ],
   },
   {
     label: "Inventory",
+    labelKey: "nav.inventory",
     items: [
-      { id: "inventory/products", label: "Products", icon: Package },
-      { id: "inventory/stock", label: "Stock Levels", icon: Boxes },
-      { id: "inventory/movements", label: "Stock Movements", icon: ArrowLeftRight },
-      { id: "inventory/bulk-upload", label: "Bulk Upload", icon: FileText },
-      { id: "inventory/low-stock", label: "Low Stock Alerts", icon: AlertTriangle },
+      { id: "inventory/products", label: "Products", key: "nav.products", icon: Package },
+      { id: "inventory/stock", label: "Stock Levels", key: "nav.stock", icon: Boxes },
+      { id: "inventory/movements", label: "Stock Movements", key: "nav.movements", icon: ArrowLeftRight },
+      { id: "inventory/bulk-upload", label: "Bulk Upload", key: "nav.bulkUpload", icon: FileText },
+      { id: "inventory/low-stock", label: "Low Stock Alerts", key: "nav.lowStock", icon: AlertTriangle },
     ],
   },
   {
     label: "Finance & Accounting",
+    labelKey: "nav.finance",
     items: [
-      { id: "finance/journals", label: "Journals", icon: BookOpen },
-      { id: "finance/coa", label: "Chart of Accounts", icon: ListTree },
-      { id: "finance/ledgers", label: "Party Ledgers", icon: Landmark },
-      { id: "finance/sundry", label: "Sundry Debtors / Creditors", icon: BookUser },
-      { id: "finance/statements", label: "Statements (TB · P&L · BS)", icon: PieChart },
-      { id: "finance/daybook", label: "Day Book", icon: CalendarDays },
-      { id: "finance/aging", label: "AR / AP Aging", icon: Timer },
-      { id: "finance/gstr2b", label: "GSTR-2B Recon", icon: FileCheck2 },
+      { id: "finance/journals", label: "Journals", key: "nav.journals", icon: BookOpen },
+      { id: "finance/coa", label: "Chart of Accounts", key: "nav.coa", icon: ListTree },
+      { id: "finance/ledgers", label: "Party Ledgers", key: "nav.ledgers", icon: Landmark },
+      { id: "finance/sundry", label: "Sundry Debtors / Creditors", key: "nav.sundry", icon: BookUser },
+      { id: "finance/statements", label: "Statements (TB · P&L · BS)", key: "nav.statements", icon: PieChart },
+      { id: "finance/daybook", label: "Day Book", key: "nav.daybook", icon: CalendarDays },
+      { id: "finance/aging", label: "AR / AP Aging", key: "nav.aging", icon: Timer },
+      { id: "finance/gstr2b", label: "GSTR-2B Recon", key: "nav.gstr2b", icon: FileCheck2 },
     ],
   },
   {
     label: "Documents",
+    labelKey: "nav.documents",
     items: [
-      { id: "docs/invoices", label: "Tax Invoices (A4)", icon: FileCheck2 },
-      { id: "docs/notes", label: "Credit / Debit Notes", icon: FileWarning },
+      { id: "docs/invoices", label: "Tax Invoices (A4)", key: "nav.taxInvoices", icon: FileCheck2 },
+      { id: "docs/notes", label: "Credit / Debit Notes", key: "nav.notes", icon: FileWarning },
     ],
   },
   {
     label: "Intelligence",
+    labelKey: "nav.intelligence",
     items: [
-      { id: "reports", label: "Reports & Exports", icon: BarChart3 },
-      { id: "ai", label: "AI Copilot", icon: Bot },
-      { id: "data/deleted", label: "Deleted Data", icon: Trash2 },
-      { id: "settings", label: "Settings", icon: Settings },
+      { id: "reports", label: "Reports & Exports", key: "nav.reports", icon: BarChart3 },
+      { id: "ai", label: "AI Copilot", key: "nav.ai", icon: Bot },
+      { id: "data/deleted", label: "Deleted Data", key: "nav.deleted", icon: Trash2 },
+      { id: "settings", label: "Settings", key: "nav.settings", icon: Settings },
     ],
   },
 ];
@@ -141,6 +151,7 @@ export function Sidebar() {
   const sidebarOpen = useErpStore((s) => s.sidebarOpen);
   const setSidebarOpen = useErpStore((s) => s.setSidebarOpen);
   const isDesktop = useIsDesktop();
+  const { t } = useT();
 
   // Desktop: the rail is ALWAYS minimized and only expands on hover
   // (or keyboard focus). Mobile: the drawer opens via the header button.
@@ -207,7 +218,7 @@ export function Sidebar() {
                     )}
                     tabIndex={expanded ? 0 : -1}
                   >
-                    <span>{section.label}</span>
+                    <span>{t(section.labelKey)}</span>
                     <ChevronDown className={cn("h-3 w-3 transition-transform", !isOpen && "-rotate-90")} />
                   </button>
                 )}
@@ -218,7 +229,7 @@ export function Sidebar() {
                       !expanded && "lg:hidden"
                     )}
                   >
-                    <span>{section.label}</span>
+                    <span>{t(section.labelKey)}</span>
                   </div>
                 )}
                 {(single || isOpen) && (
@@ -233,7 +244,7 @@ export function Sidebar() {
                               setView(item.id);
                               if (window.innerWidth < 1024) setSidebarOpen(false);
                             }}
-                            title={item.label}
+                            title={t(item.key)}
                             aria-current={active ? "page" : undefined}
                             className={cn(
                               "group w-full flex items-center gap-2.5 h-10 px-2.5 rounded-lg text-[13px] font-medium transition-colors",
@@ -250,7 +261,7 @@ export function Sidebar() {
                               )}
                               strokeWidth={1.75}
                             />
-                            <span className={cn("truncate", !expanded && "lg:hidden")}>{item.label}</span>
+                            <span className={cn("truncate", !expanded && "lg:hidden")}>{t(item.key)}</span>
                           </button>
                         </li>
                       );
@@ -264,7 +275,7 @@ export function Sidebar() {
         <div className="border-t border-dmk-border-subtle p-3">
           <div className={cn("dmk-well px-3 py-2.5", !expanded && "lg:hidden")}>
             <p className="text-[10px] font-bold uppercase tracking-wider text-dmk-gold">DMK Mart ERP</p>
-            <p className="text-[10.5px] text-dmk-text-muted mt-0.5">Owner Workspace · v1.0</p>
+            <p className="text-[10.5px] text-dmk-text-muted mt-0.5">{t("hdr.owner")} Workspace · v1.0</p>
           </div>
           {/* Collapsed rail affordance: hover hint */}
           <div

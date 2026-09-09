@@ -20,6 +20,7 @@ import {
 import { createPurchaseOrder } from "@/app/api/v1/_lib/po";
 import { settledTotalsByPo } from "@/app/api/v1/_lib/settlement-ap";
 import { createVerificationForPo, notifyRealtime } from "@/app/api/v1/_lib/verification";
+import { containsArms, rankSearch } from "@/lib/search-rank";
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,19 +32,26 @@ export async function GET(request: NextRequest) {
     const search = getStr(sp.get("search"));
     const fy = fyRange(sp.get("fy"));
 
+    // Word-wise SQL prefilter: every query word must hit at least one
+    // searchable column (AND across words, OR across columns). Case variants
+    // keep the prefilter a superset on Postgres AND SQLite.
+    const words = search
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const fieldContains = (w: string) =>
+      containsArms(w, (v) => [
+        { poNumber: { contains: v } },
+        { vendor: { vendorName: { contains: v } } },
+      ]);
+
     const orders = await db.purchaseOrder.findMany({
       where: {
         firmId,
         ...(fy ? { poDate: fy } : {}),
         ...(status ? { status } : {}),
-        ...(search
-          ? {
-              OR: [
-                { poNumber: { contains: search } },
-                { vendor: { vendorName: { contains: search } } },
-              ],
-            }
-          : {}),
+        ...(words.length > 0 ? { AND: words.map((w) => ({ OR: fieldContains(w) })) } : {}),
       },
       include: {
         vendor: { select: { id: true, vendorName: true, vendorType: true, brand: true } },
@@ -72,7 +80,11 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return ok(withSettlement);
+    // Word-wise matching (chronological — newest-first register order kept).
+    const ranked = rankSearch(withSettlement, search, (o) => [o.poNumber, o.vendor?.vendorName ?? ""], {
+      chronological: true,
+    });
+    return ok(ranked);
   } catch (e) {
     return handleApiError(e);
   }

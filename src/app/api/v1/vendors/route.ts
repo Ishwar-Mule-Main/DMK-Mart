@@ -16,6 +16,7 @@ import {
   resolveFirm,
 } from "@/app/api/v1/_lib/api";
 import { addVendorLedger } from "@/app/api/v1/_lib/party";
+import { containsArms, rankSearch } from "@/lib/search-rank";
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,25 +27,36 @@ export async function GET(request: NextRequest) {
     const search = getStr(sp.get("search"));
     const type = getStr(sp.get("type"));
 
+    // Word-wise SQL prefilter: every query word must hit at least one
+    // searchable column (AND across words, OR across columns). Case variants
+    // keep the prefilter a superset on Postgres AND SQLite.
+    const words = search
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const fieldContains = (w: string) =>
+      containsArms(w, (v) => [
+        { vendorName: { contains: v } },
+        { brand: { contains: v } },
+        { phone: { contains: v } },
+        { gstin: { contains: v } },
+      ]);
+
     const vendors = await db.vendor.findMany({
       where: {
         firmId,
         ...(type ? { vendorType: type } : {}),
-        ...(search
-          ? {
-              OR: [
-                { vendorName: { contains: search } },
-                { brand: { contains: search } },
-                { phone: { contains: search } },
-                { gstin: { contains: search } },
-              ],
-            }
-          : {}),
+        ...(words.length > 0 ? { AND: words.map((w) => ({ OR: fieldContains(w) })) } : {}),
       },
       orderBy: { vendorName: "asc" },
       take: 500,
     });
-    return ok(vendors);
+
+    // Word-wise / text-wise relevance on top of the SQL prefilter —
+    // vendor name leads the fields.
+    const ranked = rankSearch(vendors, search, (v) => [v.vendorName, v.brand, v.phone, v.gstin]);
+    return ok(ranked);
   } catch (e) {
     return handleApiError(e);
   }

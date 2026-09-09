@@ -80,6 +80,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { filterByQuery } from "@/lib/search-rank";
 import { cn } from "@/lib/utils";
 
 // ── local helpers (mirror server math exactly) ───────────────────
@@ -490,27 +491,24 @@ export default function RecurringView() {
 
   // ── derived KPIs ──────────────────────────────────────────────
   const list = rows ?? [];
-  const filtered = list.filter((t) => {
-    const q = query.trim().toLowerCase();
-    const matchQ =
-      !q ||
-      t.name.toLowerCase().includes(q) ||
-      t.customer?.partyName?.toLowerCase().includes(q) ||
-      (t.items ?? []).some((i) => i.sku.toLowerCase().includes(q) || i.productName.toLowerCase().includes(q));
-    const matchS =
-      statusFilter === "ALL"
-        ? true
-        : statusFilter === "DUE"
-          ? !!t.dueToday && t.isActive
-          : statusFilter === "HOLD"
-            ? !!t.onHold
-            : statusFilter === "AUTO"
-              ? t.autoPost !== false && t.isActive
-              : statusFilter === "ACTIVE"
-              ? t.isActive
-              : !t.isActive;
-    return matchQ && matchS;
-  });
+  // Word-wise search (template / customer / SKU) × status filter — order preserved.
+  const filtered = filterByQuery(list, query, (t) => [
+    t.name,
+    t.customer?.partyName ?? "",
+    (t.items ?? []).map((i) => `${i.sku} ${i.productName}`).join(" "),
+  ]).filter((t) =>
+    statusFilter === "ALL"
+      ? true
+      : statusFilter === "DUE"
+        ? !!t.dueToday && t.isActive
+        : statusFilter === "HOLD"
+          ? !!t.onHold
+          : statusFilter === "AUTO"
+            ? t.autoPost !== false && t.isActive
+            : statusFilter === "ACTIVE"
+            ? t.isActive
+            : !t.isActive
+  );
   const activeCount = list.filter((t) => t.isActive).length;
   const dueRows = list.filter((t) => t.dueToday && t.isActive);
   const dueValue = dueRows.reduce((s, t) => s + (t.estValue?.estTotal ?? 0), 0);
