@@ -332,6 +332,17 @@ function InvoiceSheet({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
               <p>IFSC: {firm?.ifsc || "—"}</p>
             </div>
           </div>
+          {!invoice.isCounterSale && invoice.deliveryOtp ? (
+            <div className="border-2 border-gray-900 rounded p-2.5 bg-gray-50">
+              <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-600 mb-0.5">Delivery Verification OTP</p>
+              <p className="text-[19px] font-black tracking-[0.45em] text-gray-900 leading-tight text-center" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+                [{invoice.deliveryOtp.split("").join(" ")}]
+              </p>
+              <p className="text-[8.5px] text-gray-600 leading-snug mt-0.5">
+                Please check your goods and share this code with the driver upon delivery.
+              </p>
+            </div>
+          ) : null}
         </div>
         <div className="justify-self-end w-full max-w-[300px]">
           <table className="w-full text-[11.5px]">

@@ -24,6 +24,9 @@ export type ViewId =
   | "purchase/returns"
   | "purchase/vendors"
   | "purchase/payments"
+  | "logistics/unassigned"
+  | "logistics/planner"
+  | "logistics/trips"
   | "inventory/products"
   | "inventory/stock"
   | "inventory/movements"
@@ -52,6 +55,9 @@ export interface ErpSession {
   staffId?: string;
   staffName?: string;
   staffUsername?: string;
+  /** Portal role of the team member — VERIFIER | SUPERVISOR | DRIVER.
+   *  Routes the team screen: DRIVER → delivery trip view, others → checkpoint. */
+  staffRole?: string;
 }
 
 /** UI language — English, Hindi, Marathi. */
@@ -68,7 +74,10 @@ interface ErpState {
   session: ErpSession | null;
   /** Interface language, persisted per browser. */
   language: UiLanguage;
+  /** Cross-view handoff: invoice ids ticked in Unassigned Orders, consumed (then cleared) by the Trip Planner. */
+  plannerSeedInvoiceIds: string[];
   setFirms: (firms: Firm[]) => void;
+  seedPlanner: (invoiceIds: string[]) => void;
   setActiveFirm: (id: string) => void;
   setFinancialYear: (fy: string) => void;
   setView: (v: ViewId) => void;
@@ -90,6 +99,8 @@ export const useErpStore = create<ErpState>()(
       notifications: 0,
       session: null,
       language: "en",
+      plannerSeedInvoiceIds: [],
+      seedPlanner: (plannerSeedInvoiceIds) => set({ plannerSeedInvoiceIds }),
       setSession: (session) => set({ session }),
       logout: () => set({ session: null, view: "dashboard" }),
       setFirms: (firms) => {

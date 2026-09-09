@@ -28,6 +28,7 @@ import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { useVerificationBus } from "@/hooks/use-verification-bus";
+import { DriverTripView } from "@/components/verify/driver-trip-view";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,7 +65,40 @@ interface QueueRow {
   items: TeamItem[];
 }
 
+// ─── Team portal router ───────────────────────────────────────────
+// All team members sign in through the SAME username/password door; the
+// account's portal role picks the screen: DRIVER → delivery trip view,
+// VERIFIER / SUPERVISOR → the goods-in checkpoint below. staffRole is
+// fixed for the lifetime of a session, so this branch never flips mid-mount.
 export function VerificationPortal() {
+  const session = useErpStore((s) => s.session);
+  const logout = useErpStore((s) => s.logout);
+
+  if (session?.role === "TEAM" && session.staffRole === "DRIVER") {
+    return (
+      <DriverTripView
+        staff={{
+          id: session.staffId ?? "",
+          name: session.staffName ?? "",
+          username: session.staffUsername ?? "",
+          role: session.staffRole,
+        }}
+        firm={{ id: session.firmId, firmName: session.firmName }}
+        onLogout={() => {
+          // Team members always land back on the TEAM login address.
+          logout();
+          window.location.assign("/team");
+        }}
+      />
+    );
+  }
+
+  return <VerifierWorkspace />;
+}
+
+// ─── Goods-in checkpoint (VERIFIER / SUPERVISOR screens) ─────────
+
+function VerifierWorkspace() {
   const session = useErpStore((s) => s.session);
   const logout = useErpStore((s) => s.logout);
   const firmId = session?.firmId ?? null;

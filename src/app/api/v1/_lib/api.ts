@@ -11,10 +11,13 @@ import { JournalError } from "@/lib/journal";
 export class BusinessError extends Error {
   code: string;
   status: number;
-  constructor(code: string, message: string, status = 422) {
+  /** Optional machine-readable extras merged into the error envelope (e.g. attemptsLeft). */
+  extra?: Record<string, unknown>;
+  constructor(code: string, message: string, status = 422, extra?: Record<string, unknown>) {
     super(message);
     this.code = code;
     this.status = status;
+    this.extra = extra;
   }
 }
 
@@ -22,8 +25,8 @@ export function ok<T>(data: T, status = 200) {
   return NextResponse.json({ ok: true, data }, { status });
 }
 
-export function fail(code: string, message: string, status = 400) {
-  return NextResponse.json({ ok: false, error: message, code }, { status });
+export function fail(code: string, message: string, status = 400, extra?: Record<string, unknown>) {
+  return NextResponse.json({ ok: false, error: message, code, ...(extra ?? {}) }, { status });
 }
 
 // ─── Body / query parsers (no zod, manual narrow parsing) ────────
@@ -100,7 +103,7 @@ export async function resolveFirm(firmId: string) {
 
 export function handleApiError(e: unknown) {
   if (e instanceof BusinessError) {
-    return fail(e.code, e.message, e.status);
+    return fail(e.code, e.message, e.status, e.extra);
   }
   if (e instanceof JournalError) {
     const status = e.code === "ERR_JOURNAL_UNBALANCED" ? 422 : 400;

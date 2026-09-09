@@ -25,6 +25,8 @@ import {
   Truck,
   UndoIcon,
   Boxes,
+  MapPinned,
+  Route as RouteIcon,
   ArrowLeftRight,
   AlertTriangle,
   BookOpen,
@@ -73,6 +75,15 @@ const SECTIONS: NavSection[] = [
       { id: "sales/customers", label: "Customers & Buyers", key: "nav.customers", icon: Users },
       { id: "sales/receipts", label: "Receipts", key: "nav.receipts", icon: Receipt },
       { id: "sales/recurring", label: "Recurring Billing", key: "nav.recurring", icon: CalendarClock },
+    ],
+  },
+  {
+    label: "Logistics",
+    labelKey: "nav.logistics",
+    items: [
+      { id: "logistics/unassigned", label: "Unassigned Orders", key: "nav.unassignedOrders", icon: MapPinned },
+      { id: "logistics/planner", label: "Trip Planner", key: "nav.tripPlanner", icon: RouteIcon },
+      { id: "logistics/trips", label: "Trips & Settlement", key: "nav.tripsRegister", icon: Truck },
     ],
   },
   {

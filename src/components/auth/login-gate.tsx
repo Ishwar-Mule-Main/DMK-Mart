@@ -246,6 +246,9 @@ function TeamDoor({ onSignedIn }: { onSignedIn: (s: ErpSession) => void }) {
         staffId: res.staff.id,
         staffName: res.staff.name,
         staffUsername: res.staff.username,
+        // Portal role (VERIFIER | SUPERVISOR | DRIVER) — picks which team
+        // screen renders: drivers get the delivery trip view.
+        staffRole: res.staff.role,
       });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Sign-in failed. Try again.");

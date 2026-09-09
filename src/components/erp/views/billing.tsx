@@ -784,6 +784,12 @@ export default function BillingView() {
                 <span className="text-dmk-text-muted">Grand total</span>
                 <span className="font-money text-[16px] text-dmk-yellow">{formatINR(lastInvoice.grandTotal)}</span>
               </div>
+              {lastInvoice.deliveryOtp ? (
+                <div className="rounded-md border-2 border-dmk-yellow/70 bg-dmk-yellow/10 px-3 py-2 text-center">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-dmk-text-muted">Delivery Verification OTP (printed on bill)</p>
+                  <p className="font-money text-[22px] font-bold tracking-[0.4em] text-dmk-yellow leading-tight">{lastInvoice.deliveryOtp.split("").join(" ")}</p>
+                </div>
+              ) : null}
             </div>
           )}
           <DialogFooter className="gap-2">

@@ -184,6 +184,8 @@ export interface Invoice {
   amountInWords: string;
   paymentMode: string;
   status: string;
+  /** 4-digit Delivery Verification OTP — printed on the paper bill (non-counter sales). */
+  deliveryOtp?: string;
   lineItems: InvoiceLineItem[];
   createdAt: string;
   /** Subscription stamp — set when the invoice was posted from a recurring template. */

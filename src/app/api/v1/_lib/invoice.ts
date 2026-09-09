@@ -263,6 +263,9 @@ export async function createInvoice(firm: FirmRow, input: CreateInvoiceInput) {
         amountInWords: amountInWords(grandTotal),
         paymentMode,
         status: "POSTED",
+        // Delivery Verification OTP — printed on the paper bill. Counter
+        // sales never leave on a truck, so they carry no OTP.
+        deliveryOtp: isCounterSale ? "" : String(Math.floor(1000 + Math.random() * 9000)),
         ...(input.templateId ? { templateId: input.templateId } : {}),
         lineItems: {
           create: computed.map((l) => ({

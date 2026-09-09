@@ -705,6 +705,14 @@ function ItemsTable({
 
 // ─── Staff create / edit ──────────────────────────────────────────
 
+// Portal roles — DRIVER routes the account to the delivery trip screen
+// on the team portal instead of the goods-in checkpoint.
+const STAFF_ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "VERIFIER", label: "Verifier" },
+  { value: "SUPERVISOR", label: "Supervisor" },
+  { value: "DRIVER", label: "Driver (delivery trips)" },
+];
+
 function StaffDialog({
   staff,
   onClose,
@@ -782,11 +790,11 @@ function StaffDialog({
           </div>
           <div className="col-span-2 space-y-1.5">
             <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Role</Label>
-            <div className="flex items-center gap-4 h-9">
-              {["VERIFIER", "SUPERVISOR"].map((r) => (
-                <label key={r} className="flex items-center gap-2 text-[12.5px] text-dmk-text-secondary cursor-pointer">
-                  <Switch checked={form.role === r} onCheckedChange={() => setForm((f) => ({ ...f, role: r }))} />
-                  {r}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-1">
+              {STAFF_ROLE_OPTIONS.map((r) => (
+                <label key={r.value} className="flex items-center gap-2 text-[12.5px] text-dmk-text-secondary cursor-pointer">
+                  <Switch checked={form.role === r.value} onCheckedChange={() => setForm((f) => ({ ...f, role: r.value }))} />
+                  {r.label}
                 </label>
               ))}
             </div>

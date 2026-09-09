@@ -40,6 +40,8 @@ model Firm {
 
   verificationStaff VerificationStaff[]
   financialYears    FinancialYear[]
+  deliveryRoutes    DeliveryRoute[]
+  trips             Trip[]
 
   products          Product[]
   customers         Customer[]
@@ -128,6 +130,7 @@ model Product {
   lowStockThreshold Float    @default(0)
   manufacturerVendorId String? // MANUFACTURER vendor this product belongs to (PO scoping R10)
   weightGrams       Float?
+  piecesPerBox      Int      @default(1) // logistics: units per full box (boxes/loose split on trip planner)
   barcode           String?
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
@@ -292,10 +295,12 @@ model Invoice {
   paymentMode    String   @default("CREDIT") // CREDIT|CASH|UPI|CARD|NEFT
   status         String   @default("POSTED") // POSTED | CANCELLED
   templateId     String? // set when auto-posted by a recurring template (subscription ledger)
+  deliveryOtp    String @default("") // 4-digit Delivery Verification OTP — printed on the tax invoice bill (non-counter sales)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   lineItems    InvoiceLineItem[]
+  tripStop     TripStop?
   salesReturns SalesReturn[]
   receiptAllocations ReceiptAllocation[]
   recurringTemplate RecurringTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
@@ -729,11 +734,101 @@ model PoVerificationItem {
   @@index([verificationId])
 }
 
+// ─── LOGISTICS (delivery trips) ─────────────────────────────────
+// DeliveryRoute: a highway route owning a list of towns. One town
+// belongs to exactly ONE route — that is what makes the trip
+// planner's route filter instant and unambiguous.
+model DeliveryRoute {
+  id        String   @id @default(cuid())
+  firmId    String
+  firm      Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  name      String // "Nagar Route"
+  towns     String   @default("") // comma-separated, e.g. "Wagholi, Shikrapur, Shirur, Ahmednagar"
+  startFrom String   @default("")
+  endTo     String   @default("")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trips Trip[]
+
+  @@unique([firmId, name])
+  @@index([firmId, isActive])
+}
+
+// Trip: one truck run on one route. Lifecycle:
+// PLANNED → DISPATCHED → IN_PROGRESS → COMPLETED (all stops delivered) → CLOSED (cash settled)
+model Trip {
+  id               String    @id @default(cuid())
+  firmId           String
+  firm             Firm      @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  tripNumber       String
+  routeId          String
+  route            DeliveryRoute @relation(fields: [routeId], references: [id])
+  routeName        String // denormalized for print/register
+  driverId         String? // VerificationStaff id (role DRIVER)
+  driverName       String    @default("")
+  vehicleNumber    String    @default("") // "MH-12 Tata 407"
+  status           String    @default("PLANNED") // PLANNED|DISPATCHED|IN_PROGRESS|COMPLETED|CLOSED|CANCELLED
+  totalStops       Int       @default(0)
+  totalBoxes       Int       @default(0)
+  totalLoosePieces Int       @default(0)
+  totalWeightKg    Float     @default(0)
+  totalAmount      Float     @default(0)
+  expectedCash     Float     @default(0) // sum of stop amounts whose invoice mode is CASH
+  expectedUpi      Float     @default(0)
+  collectedCash    Float     @default(0) // filled from stop actuals at completion
+  collectedUpi     Float     @default(0)
+  dispatchedAt     DateTime?
+  completedAt      DateTime? // last stop delivered
+  closedAt         DateTime? // settlement posted
+  closeNotes       String    @default("")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  stops TripStop[]
+
+  @@unique([firmId, tripNumber])
+  @@index([firmId, status])
+  @@index([firmId, driverId])
+}
+
+// TripStop: one invoice (order) on a trip. The Delivery OTP lives on
+// the Invoice itself (printed on the paper bill) — verification
+// compares the driver's entry against invoice.deliveryOtp.
+model TripStop {
+  id              String    @id @default(cuid())
+  tripId          String
+  trip            Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  invoiceId       String    @unique // an order can be on only ONE trip at a time
+  invoice         Invoice   @relation(fields: [invoiceId], references: [id])
+  sequence        Int // drop order, 1-based
+  shopName        String // denormalized snapshot at dispatch
+  town            String    @default("")
+  address         String    @default("")
+  phone           String    @default("")
+  boxes           Int       @default(0)
+  loosePieces     Int       @default(0)
+  weightKg        Float     @default(0)
+  amount          Float     @default(0) // to collect
+  expectedMode    String    @default("CASH") // from invoice.paymentMode
+  status          String    @default("PENDING") // PENDING | DELIVERED
+  deliveryProof   String    @default("") // OTP | SIGNATURE (bill-misplaced fallback)
+  collectedMode   String    @default("") // CASH | UPI — what the shopkeeper actually paid
+  collectedAmount Float     @default(0)
+  otpAttempts     Int       @default(0)
+  deliveredAt     DateTime?
+  deliveredBy     String    @default("") // VerificationStaff id
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tripId, sequence])
+}
+
 // ── AI copilot provider settings (owner-managed, account-wide) ─────────
 // Lets the owner paste/rotate the OpenRouter (or any OpenAI-compatible)
 // API key and pick a model from the app UI — no redeploy or file edit
 // needed (critical on Vercel where .z-ai-config files don't exist).
-// Resolution order: this row → AI_* env vars → .z-ai-config file → none.
 model AiSettings {
   id        String   @id @default("singleton")
   provider  String   @default("openrouter") // label for the UI

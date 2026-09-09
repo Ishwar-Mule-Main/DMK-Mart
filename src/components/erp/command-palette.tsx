@@ -10,6 +10,7 @@ import * as React from "react";
 import {
   LayoutDashboard, Zap, ScanBarcode, FileStack, Undo2, Users, Receipt,
   ClipboardList, UndoIcon, Banknote, Truck, Package, Boxes, ArrowLeftRight,
+  MapPinned, Route as RouteIcon,
   FileText, AlertTriangle, BookOpen, ListTree, Landmark, BookUser, PieChart,
   CalendarDays, CalendarClock, Timer, FileCheck2, FileWarning, BarChart3, Bot, Settings,
   Plus, Building2, Search, CornerDownLeft, RefreshCw, GitCompareArrows, Trash2,
@@ -38,6 +39,9 @@ const NAV_GROUPS: Array<{ heading: string; items: NavItem[] }> = [
       { id: "sales/customers", label: "Customers & Buyers", icon: Users },
       { id: "sales/receipts", label: "Receipts", icon: Receipt },
       { id: "sales/recurring", label: "Recurring Billing", icon: CalendarClock },
+      { id: "logistics/unassigned", label: "Unassigned Orders", icon: MapPinned },
+      { id: "logistics/planner", label: "Trip Planner", icon: RouteIcon },
+      { id: "logistics/trips", label: "Trips & Settlement", icon: Truck },
       { id: "purchase/orders", label: "Purchase Orders", icon: ClipboardList, shortcut: "G P" },
       { id: "purchase/returns", label: "Purchase Returns", icon: UndoIcon },
       { id: "purchase/payments", label: "Vendor Payments", icon: Banknote },

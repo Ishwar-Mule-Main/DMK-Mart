@@ -45,6 +45,7 @@ import PurchaseOrdersView from "./views/purchase-orders";
 import NewPurchaseOrderView from "./views/new-purchase-order";
 import PurchaseReturnsView from "./views/purchase-returns";
 import VendorPaymentsView from "./views/vendor-payments";
+import { LogisticsUnassignedView, LogisticsTripPlannerView, LogisticsTripsRegisterView } from "./views/logistics";
 import JournalsView from "./views/journals";
 import ChartOfAccountsView from "./views/chart-of-accounts";
 import PartyLedgersView from "./views/party-ledgers";
@@ -81,6 +82,9 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   "purchase/verification": PurchaseVerificationView,
   "purchase/returns": PurchaseReturnsView,
   "purchase/payments": VendorPaymentsView,
+  "logistics/unassigned": LogisticsUnassignedView,
+  "logistics/planner": LogisticsTripPlannerView,
+  "logistics/trips": LogisticsTripsRegisterView,
   "finance/journals": JournalsView,
   "finance/coa": ChartOfAccountsView,
   "finance/ledgers": PartyLedgersView,
