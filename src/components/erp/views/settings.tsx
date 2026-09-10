@@ -105,6 +105,7 @@ interface FirmForm {
   ifsc: string;
   financialYear: string;
   invoicePrefix: string;
+  upiId: string;
   openingCash: string;
   openingBank: string;
 }
@@ -123,6 +124,7 @@ const EMPTY_FORM: FirmForm = {
   ifsc: "",
   financialYear: "2025-26",
   invoicePrefix: "",
+  upiId: "",
   openingCash: "",
   openingBank: "",
 };
@@ -142,6 +144,7 @@ function formFromFirm(f: Firm): FirmForm {
     ifsc: f.ifsc,
     financialYear: f.financialYear || "2025-26",
     invoicePrefix: f.invoicePrefix,
+    upiId: f.upiId ?? "",
     openingCash: "",
     openingBank: "",
   };
@@ -1180,6 +1183,7 @@ function FirmDialog({
           bankName: form.bankName.trim(),
           bankAccount: form.bankAccount.trim(),
           ifsc: form.ifsc.trim().toUpperCase(),
+          upiId: form.upiId.trim(),
           financialYear: form.financialYear,
           invoicePrefix: form.invoicePrefix.trim() || undefined,
           openingCash: Number(form.openingCash) || 0,
@@ -1199,6 +1203,7 @@ function FirmDialog({
           bankName: form.bankName.trim(),
           bankAccount: form.bankAccount.trim(),
           ifsc: form.ifsc.trim().toUpperCase(),
+          upiId: form.upiId.trim(),
           financialYear: form.financialYear,
           invoicePrefix: form.invoicePrefix.trim(),
         });
@@ -1290,7 +1295,7 @@ function FirmDialog({
           </div>
 
           <div className="dmk-well p-3 space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Bank Details (printed on A4 invoices)</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Bank &amp; UPI Details</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Field label="Bank Name">
                 <Input value={form.bankName} onChange={(e) => set("bankName", e.target.value)} placeholder="HDFC Bank" className={inputCls} />
@@ -1302,6 +1307,17 @@ function FirmDialog({
                 <Input value={form.ifsc} onChange={(e) => set("ifsc", e.target.value.toUpperCase())} className={cn(inputCls, "font-money uppercase")} />
               </Field>
             </div>
+            <Field
+              label="Firm UPI ID"
+              hint="Drivers show its QR at delivery — customers pay from the driver's phone"
+            >
+              <Input
+                value={form.upiId}
+                onChange={(e) => set("upiId", e.target.value.trim())}
+                placeholder="dmkmart@hdfcbank / 9822012345@paytm"
+                className={cn(inputCls, "font-money")}
+              />
+            </Field>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -2,6 +2,8 @@
 // /api/v1/logistics/driver/history — staff portal "my past runs"
 // GET ?staffId= — last 10 COMPLETED / CLOSED trips for the driver,
 // stops included. OTP-free by construction (deliveryOtp never selected).
+// Carries the firm's UPI info too, so the collection QR works even on
+// the keep-screen for a COMPLETED-not-yet-settled run.
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
@@ -25,11 +27,19 @@ export async function GET(request: NextRequest) {
       take: 10,
     });
 
+    const firm = await db.firm.findUnique({
+      where: { id: staff.firmId },
+      select: { firmName: true, upiId: true, phone: true },
+    });
+
     return ok({
       trips: trips.map((t) => ({
         ...t,
         deliveredStops: t.stops.filter((s) => s.status === "DELIVERED").length,
       })),
+      paymentInfo: firm
+        ? { payeeName: firm.firmName, upiId: firm.upiId, phone: firm.phone }
+        : null,
     });
   } catch (e) {
     return handleApiError(e);

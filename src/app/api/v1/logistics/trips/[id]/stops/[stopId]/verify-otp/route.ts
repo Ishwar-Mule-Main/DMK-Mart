@@ -9,9 +9,12 @@
 
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { BusinessError, asRecord, getNum, getStr, handleApiError, ok } from "@/app/api/v1/_lib/api";
-import { loadStopForDelivery, markStopDelivered } from "@/app/api/v1/_lib/logistics";
-import { round2 } from "@/lib/gst";
+import { BusinessError, asRecord, getStr, handleApiError, ok } from "@/app/api/v1/_lib/api";
+import {
+  loadStopForDelivery,
+  markStopDelivered,
+  parseCollectionInput,
+} from "@/app/api/v1/_lib/logistics";
 
 const MAX_OTP_ATTEMPTS = 5;
 
@@ -27,14 +30,8 @@ export async function POST(
 
     const { trip, stop } = await loadStopForDelivery({ tripId: id, stopId, firmId, staffId });
 
-    const collectedMode = getStr(body.collectedMode).toUpperCase();
-    if (collectedMode !== "CASH" && collectedMode !== "UPI") {
-      throw new BusinessError("ERR_VALIDATION", "collectedMode must be CASH or UPI", 400);
-    }
-    const collectedAmount = getNum(body.collectedAmount);
-    if (collectedAmount < 0) {
-      throw new BusinessError("ERR_VALIDATION", "collectedAmount cannot be negative", 400);
-    }
+    // CASH | UPI collected on the spot; CREDIT = on-account drop (₹0).
+    const { mode: collectedMode, amount: collectedAmount } = parseCollectionInput(body);
 
     // Lockout check FIRST — a locked stop never consumes another attempt.
     if (stop.otpAttempts >= MAX_OTP_ATTEMPTS) {
@@ -75,7 +72,7 @@ export async function POST(
       stopId: stop.id,
       proof: "OTP",
       collectedMode,
-      collectedAmount: round2(collectedAmount),
+      collectedAmount,
       deliveredBy: staffId,
     });
     return ok(result);

@@ -1,12 +1,14 @@
 // ═══════════════════════════════════════════════════════════════
 // /api/v1/logistics/trips/[id]/complete — settle the day's run
 // POST {firmId, notes?} — every stop delivered → CLOSE the trip:
-//   • collectedCash/collectedUpi summed from stop actuals
+//   • collectedCash/collectedUpi = stop actuals + owner's manual
+//     settlement additions (TripSettlementEntry)
 //   • one CustomerReceipt per delivered stop that collected money
+//   • one CustomerReceipt per manual addition tied to a shop
 //     (SAME posting engine as the manual receipts API — ledger,
-//     balance, optional allocation, RECEIPT journal)
-//   • idempotent: receipts carry utrRef "TRIP <no> Stop <seq>", so a
-//     retried close never double-posts
+//     balance, AR allocation, RECEIPT journal)
+//   • idempotent: receipts carry utrRef "TRIP <no> Stop <seq>" /
+//     "TRIP <no> Add <id>", so a retried close never double-posts
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
@@ -62,21 +64,38 @@ export async function POST(
     }
 
     // Actuals from the driver's stop-level entries.
-    const collectedCash = round2(
+    const stopCash = round2(
       stops.filter((s) => s.collectedMode === "CASH").reduce((sum, s) => sum + s.collectedAmount, 0)
     );
-    const collectedUpi = round2(
+    const stopUpi = round2(
       stops.filter((s) => s.collectedMode === "UPI").reduce((sum, s) => sum + s.collectedAmount, 0)
     );
+
+    // Owner's settlement additions (extra cash/UPI beyond the stop records).
+    const entries = await db.tripSettlementEntry.findMany({ where: { tripId: trip.id } });
+    const manualCash = round2(
+      entries.filter((e) => e.mode === "CASH").reduce((sum, e) => sum + e.amount, 0)
+    );
+    const manualUpi = round2(
+      entries.filter((e) => e.mode === "UPI").reduce((sum, e) => sum + e.amount, 0)
+    );
+
+    const collectedCash = round2(stopCash + manualCash);
+    const collectedUpi = round2(stopUpi + manualUpi);
 
     // Receipt candidates: delivered, money collected, known customer.
     const candidates = stops.filter(
       (s) => s.collectedAmount > 0 && s.invoice.customerId
     );
 
-    // Idempotency — utrRef is unique per trip stop, so a retried close
-    // (crash between receipt posting and trip update) skips what posted.
-    const utrRefs = candidates.map((s) => `TRIP ${trip.tripNumber} Stop ${s.sequence}`);
+    // Idempotency — utrRef is unique per trip stop / manual entry, so a
+    // retried close (crash between receipt posting and trip update)
+    // skips what already posted.
+    const stopUtrRefs = candidates.map((s) => `TRIP ${trip.tripNumber} Stop ${s.sequence}`);
+    const entryUtrRefs = entries
+      .filter((e) => e.customerId)
+      .map((e) => `TRIP ${trip.tripNumber} Add ${e.id.slice(-6).toUpperCase()}`);
+    const utrRefs = [...stopUtrRefs, ...entryUtrRefs];
     const existing = utrRefs.length
       ? await db.customerReceipt.findMany({
           where: { firmId: firm.id, utrRef: { in: utrRefs } },
@@ -114,6 +133,55 @@ export async function POST(
         mode: stop.collectedMode,
         utrRef,
         notes: `Auto: delivery collection — ${stop.shopName}`,
+        allocations,
+      });
+      receiptsCreated += 1;
+    }
+
+    // Manual additions tied to a shop — post AFTER the stop receipts so
+    // their AR allocation sees fresh settled totals, spread across the
+    // shop's credit invoices on this trip in drop order.
+    const stopByInvoice = new Map(stops.map((s) => [s.invoiceId, s]));
+    const creditIdsByCustomer = new Map<string, string[]>();
+    for (const s of stops) {
+      if (s.invoice.paymentMode === "CREDIT" && s.invoice.customerId) {
+        const list = creditIdsByCustomer.get(s.invoice.customerId) ?? [];
+        list.push(s.invoiceId);
+        creditIdsByCustomer.set(s.invoice.customerId, list);
+      }
+    }
+
+    for (const entry of entries) {
+      if (!entry.customerId || entry.amount <= 0) continue;
+      const utrRef = `TRIP ${trip.tripNumber} Add ${entry.id.slice(-6).toUpperCase()}`;
+      if (alreadyPosted.has(utrRef)) continue;
+
+      const creditIds = creditIdsByCustomer.get(entry.customerId) ?? [];
+      const entrySettled = await settledTotalsByInvoice(firm.id, creditIds);
+      const allocations: AllocationInput[] = [];
+      let remaining = entry.amount;
+      for (const invoiceId of creditIds) {
+        if (remaining <= 0.004) break;
+        const inv = stopByInvoice.get(invoiceId)?.invoice;
+        if (!inv) continue;
+        const s = entrySettled.get(invoiceId) ?? { settled: 0, credited: 0 };
+        const outstanding = round2(
+          Math.max(0, round2(inv.grandTotal) - s.settled - s.credited)
+        );
+        const alloc = round2(Math.min(remaining, outstanding));
+        if (alloc > 0) {
+          allocations.push({ invoiceId, amount: alloc });
+          remaining = round2(remaining - alloc);
+        }
+      }
+
+      await createCustomerReceipt(firm, {
+        customerId: entry.customerId,
+        receiptDate: new Date(),
+        amount: entry.amount,
+        mode: entry.mode,
+        utrRef,
+        notes: `Auto: settlement addition${entry.note ? ` — ${entry.note}` : ""} (${entry.customerName})`,
         allocations,
       });
       receiptsCreated += 1;

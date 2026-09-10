@@ -10,7 +10,9 @@
 //   patchy outdoor data, so no websocket here),
 // · every stop in drop order with a one-tap Call button,
 // · delivery = the 4-digit OTP the customer reads off the printed bill
-//   (drivers NEVER see OTPs) + what they collected (CASH/UPI + amount),
+//   (drivers NEVER see OTPs) + what they collected (CASH / UPI with a
+//   pay-to-firm QR the customer scans from THIS phone / CREDIT =
+//   on-account drop, nothing collected),
 // · a paper-signature fallback when the customer lost the bill or the
 //   OTP got locked after 5 wrong tries.
 //
@@ -19,6 +21,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
+import QRCode from "react-qr-code";
 import {
   Truck,
   Phone,
@@ -29,6 +32,8 @@ import {
   WifiOff,
   Banknote,
   Smartphone,
+  NotebookPen,
+  Copy,
   PenLine,
   PartyPopper,
   Loader2,
@@ -69,10 +74,10 @@ interface DriverStop {
   loosePieces: number;
   weightKg: number;
   amount: number;
-  expectedMode: "CASH" | "UPI";
+  expectedMode: string; // CASH | UPI | CREDIT (from the bill's payment mode)
   status: "PENDING" | "DELIVERED";
   deliveryProof: string | null; // "OTP" | "SIGNATURE" ("" on pending)
-  collectedMode: string | null; // CASH | UPI once delivered
+  collectedMode: string | null; // CASH | UPI | CREDIT once delivered
   collectedAmount: number | null;
   otpAttempts: number;
   deliveredAt: string | null;
@@ -95,6 +100,13 @@ interface DriverStaff {
   name: string;
   username: string;
   role: string;
+}
+
+/** Firm identity shown on the driver's UPI screen (pay from THIS phone). */
+interface PaymentInfo {
+  payeeName: string;
+  upiId: string;
+  phone: string;
 }
 
 interface DriverFirm {
@@ -182,6 +194,7 @@ export function DriverTripView({
   const [refreshing, setRefreshing] = React.useState(false);
   const [offline, setOffline] = React.useState(false);
   const [activeStop, setActiveStop] = React.useState<DriverStop | null>(null);
+  const [payInfo, setPayInfo] = React.useState<PaymentInfo | null>(null);
 
   const load = React.useCallback(async () => {
     if (!staff.id) {
@@ -190,18 +203,22 @@ export function DriverTripView({
     }
     setRefreshing(true);
     try {
-      const data = await apiGet<{ trip: DriverTrip | null }>("/api/v1/logistics/driver/active-trip", {
-        staffId: staff.id,
-      });
+      const data = await apiGet<{ trip: DriverTrip | null; paymentInfo?: PaymentInfo | null }>(
+        "/api/v1/logistics/driver/active-trip",
+        { staffId: staff.id }
+      );
+      if (data?.paymentInfo) setPayInfo(data.paymentInfo);
       if (data?.trip) {
         setTrip(data.trip);
       } else {
         // No DISPATCHED/IN_PROGRESS trip — keep a COMPLETED-but-not-yet-settled
         // run on screen (with the "return to warehouse" banner) until the
         // office closes it. Once CLOSED it drops off to the empty state.
-        const hist = await apiGet<{ trips: DriverTrip[] }>("/api/v1/logistics/driver/history", {
-          staffId: staff.id,
-        }).catch(() => null);
+        const hist = await apiGet<{ trips: DriverTrip[]; paymentInfo?: PaymentInfo | null }>(
+          "/api/v1/logistics/driver/history",
+          { staffId: staff.id }
+        ).catch(() => null);
+        if (hist?.paymentInfo) setPayInfo(hist.paymentInfo);
         const completed = hist?.trips?.find((t) => t.status === "COMPLETED");
         setTrip(
           completed
@@ -356,6 +373,7 @@ export function DriverTripView({
           trip={trip}
           stop={activeStop}
           staffId={staff.id}
+          payInfo={payInfo}
           onClose={() => setActiveStop(null)}
           onDone={(shopName) => afterDelivery(shopName)}
         />
@@ -560,10 +578,21 @@ function PendingStopCard({ stop, onDeliver }: { stop: DriverStop; onDeliver: () 
         <span
           className={cn(
             "dmk-badge h-8 px-2.5 gap-1 shrink-0",
-            stop.expectedMode === "CASH" ? "bg-dmk-warning/15 text-dmk-warning" : "bg-dmk-success/15 text-dmk-success"
+            stop.expectedMode === "CASH"
+              ? "bg-dmk-warning/15 text-dmk-warning"
+              : stop.expectedMode === "UPI"
+                ? "bg-dmk-success/15 text-dmk-success"
+                : "bg-dmk-input-well text-dmk-text-secondary"
           )}
+          title={stop.expectedMode === "CREDIT" ? "Billed on credit — collect or mark on account" : "Expected payment mode"}
         >
-          {stop.expectedMode === "CASH" ? <Banknote className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
+          {stop.expectedMode === "CASH" ? (
+            <Banknote className="h-3.5 w-3.5" />
+          ) : stop.expectedMode === "UPI" ? (
+            <Smartphone className="h-3.5 w-3.5" />
+          ) : (
+            <NotebookPen className="h-3.5 w-3.5" />
+          )}
           {stop.expectedMode}
         </span>
       </div>
@@ -622,12 +651,14 @@ function DeliveryDialog({
   trip,
   stop,
   staffId,
+  payInfo,
   onClose,
   onDone,
 }: {
   trip: DriverTrip;
   stop: DriverStop;
   staffId: string;
+  payInfo: PaymentInfo | null;
   onClose: () => void;
   onDone: (shopName: string) => void;
 }) {
@@ -635,17 +666,23 @@ function DeliveryDialog({
   const [mode, setMode] = React.useState<DialogMode>("otp");
   const [returnTo, setReturnTo] = React.useState<DialogMode>("otp");
   const [code, setCode] = React.useState("");
-  // Default the collection mode: UPI-billed → UPI, everything else
-  // (CREDIT/CARD/NEFT/CASH) → CASH — drivers record what the shopkeeper
-  // actually pays, and the API only accepts CASH | UPI.
-  const [payMode, setPayMode] = React.useState<"CASH" | "UPI">(stop.expectedMode === "UPI" ? "UPI" : "CASH");
-  const [amount, setAmount] = React.useState(() => String(stop.amount ?? 0));
+  // Default the collection mode from the bill: UPI-billed → UPI,
+  // credit-billed → CREDIT (on account), everything else → CASH.
+  // Drivers record what the shopkeeper actually pays; the API accepts
+  // CASH | UPI | CREDIT and forces CREDIT to ₹0.
+  const [payMode, setPayMode] = React.useState<"CASH" | "UPI" | "CREDIT">(
+    stop.expectedMode === "UPI" ? "UPI" : stop.expectedMode === "CREDIT" ? "CREDIT" : "CASH"
+  );
+  const [amount, setAmount] = React.useState(() =>
+    stop.expectedMode === "CREDIT" ? "0" : String(stop.amount ?? 0)
+  );
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [shaking, setShaking] = React.useState(false);
 
-  const amountNum = Number(amount);
-  const amountValid = amount.trim() !== "" && Number.isFinite(amountNum) && amountNum >= 0;
+  const amountNum = payMode === "CREDIT" ? 0 : Number(amount);
+  const amountValid =
+    payMode === "CREDIT" || (amount.trim() !== "" && Number.isFinite(amountNum) && amountNum >= 0);
   const canConfirm = amountValid && !busy && (mode !== "otp" || code.length === 4);
 
   async function submit(otpPath: boolean) {
@@ -719,7 +756,17 @@ function DeliveryDialog({
               </InputOTP>
             </div>
 
-            <PayFields payMode={payMode} setPayMode={setPayMode} amount={amount} setAmount={setAmount} disabled={busy} />
+            <PayFields
+              tripNumber={trip.tripNumber}
+              stopSequence={stop.sequence}
+              payInfo={payInfo}
+              payMode={payMode}
+              setPayMode={setPayMode}
+              amount={amount}
+              setAmount={setAmount}
+              stopAmount={stop.amount}
+              disabled={busy}
+            />
 
             {error && (
               <p role="alert" className="text-[12.5px] text-dmk-danger bg-dmk-danger/10 border border-dmk-danger/25 rounded-md px-3 py-2">
@@ -733,7 +780,7 @@ function DeliveryDialog({
               className="w-full h-12 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-bold text-[14.5px]"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              Confirm Delivery
+              {payMode === "CREDIT" ? "Confirm Delivery (On Account)" : "Confirm Delivery"}
             </Button>
 
             <button
@@ -762,7 +809,17 @@ function DeliveryDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <PayFields payMode={payMode} setPayMode={setPayMode} amount={amount} setAmount={setAmount} disabled={busy} />
+            <PayFields
+              tripNumber={trip.tripNumber}
+              stopSequence={stop.sequence}
+              payInfo={payInfo}
+              payMode={payMode}
+              setPayMode={setPayMode}
+              amount={amount}
+              setAmount={setAmount}
+              stopAmount={stop.amount}
+              disabled={busy}
+            />
 
             <Button
               onClick={() => {
@@ -788,7 +845,17 @@ function DeliveryDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <PayFields payMode={payMode} setPayMode={setPayMode} amount={amount} setAmount={setAmount} disabled={busy} />
+            <PayFields
+              tripNumber={trip.tripNumber}
+              stopSequence={stop.sequence}
+              payInfo={payInfo}
+              payMode={payMode}
+              setPayMode={setPayMode}
+              amount={amount}
+              setAmount={setAmount}
+              stopAmount={stop.amount}
+              disabled={busy}
+            />
 
             {error && (
               <p role="alert" className="text-[12.5px] text-dmk-danger bg-dmk-danger/10 border border-dmk-danger/25 rounded-md px-3 py-2">
@@ -824,62 +891,210 @@ function DeliveryDialog({
   );
 }
 
-// ─── Shared money fields — CASH/UPI toggle + collected amount ─────
+// ─── Shared money fields — CASH/UPI/CREDIT toggle + UPI QR + amount ──
+
+type PayMode = "CASH" | "UPI" | "CREDIT";
+
+const PAY_MODE_META: Array<{
+  value: PayMode;
+  label: string;
+  icon: React.ReactNode;
+  activeCls: string;
+}> = [
+  {
+    value: "CASH",
+    label: "Cash",
+    icon: <Banknote className="h-4 w-4" />,
+    activeCls: "bg-dmk-warning text-[#0A0F1D] border-dmk-warning",
+  },
+  {
+    value: "UPI",
+    label: "UPI",
+    icon: <Smartphone className="h-4 w-4" />,
+    activeCls: "bg-dmk-success text-[#0A0F1D] border-dmk-success",
+  },
+  {
+    value: "CREDIT",
+    label: "Credit",
+    icon: <NotebookPen className="h-4 w-4" />,
+    activeCls: "bg-dmk-input-well text-dmk-text-primary border-dmk-text-muted",
+  },
+];
+
+/** UPI deep link — every GPay/PhonePe/Paytm/BHIM scanner understands it. */
+function upiIntent(payInfo: PaymentInfo, amount: number, note: string): string {
+  const params = new URLSearchParams({
+    pa: payInfo.upiId,
+    pn: payInfo.payeeName || "DMK Mart",
+    am: amount.toFixed(2),
+    cu: "INR",
+    tn: note.slice(0, 48),
+  });
+  return `upi://pay?${params.toString()}`;
+}
 
 function PayFields({
+  tripNumber,
+  stopSequence,
+  payInfo,
   payMode,
   setPayMode,
   amount,
   setAmount,
+  stopAmount,
   disabled,
 }: {
-  payMode: "CASH" | "UPI";
-  setPayMode: (m: "CASH" | "UPI") => void;
+  tripNumber: string;
+  stopSequence: number;
+  payInfo: PaymentInfo | null;
+  payMode: PayMode;
+  setPayMode: (m: PayMode) => void;
   amount: string;
   setAmount: (v: string) => void;
+  stopAmount: number;
   disabled: boolean;
 }) {
+  const { toast } = useToast();
+  const amountNum = Number(amount) || 0;
+  const hasUpi = Boolean(payInfo?.upiId && payInfo.upiId.trim() !== "");
+
+  function copyText(text: string, what: string) {
+    navigator.clipboard?.writeText(text).then(
+      () => toast({ title: `${what} copied` }),
+      () => toast({ variant: "destructive", title: "Copy failed — long-press to copy" })
+    );
+  }
+
   return (
     <div className="space-y-2.5">
-      <div className="grid grid-cols-2 gap-2" role="group" aria-label="Payment mode collected">
-        {(["CASH", "UPI"] as const).map((m) => (
+      {/* Mode picker — what the shopkeeper is actually paying with */}
+      <div className="grid grid-cols-3 gap-2" role="group" aria-label="Payment mode collected">
+        {PAY_MODE_META.map((m) => (
           <button
-            key={m}
+            key={m.value}
             type="button"
-            onClick={() => setPayMode(m)}
-            aria-pressed={payMode === m}
+            onClick={() => setPayMode(m.value)}
+            aria-pressed={payMode === m.value}
             disabled={disabled}
             className={cn(
-              "h-12 rounded-lg border font-bold text-[14px] flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50",
-              payMode === m
-                ? "bg-dmk-yellow text-[#0A0F1D] border-dmk-yellow"
+              "h-12 rounded-lg border font-bold text-[13px] flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50",
+              payMode === m.value
+                ? m.activeCls
                 : "bg-dmk-input-well border-dmk-border-subtle text-dmk-text-secondary hover:border-dmk-border-medium"
             )}
           >
-            {m === "CASH" ? <Banknote className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
-            {m}
+            {m.icon}
+            {m.label}
           </button>
         ))}
       </div>
-      <div className="space-y-1.5">
-        <label
-          htmlFor="driver-collected-amount"
-          className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted block"
-        >
-          Amount collected (₹)
-        </label>
-        <Input
-          id="driver-collected-amount"
-          type="number"
-          inputMode="decimal"
-          min={0}
-          step="0.01"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          disabled={disabled}
-          className="h-12 font-money text-[17px] bg-dmk-input-well border-dmk-border-subtle text-dmk-text-primary"
-        />
-      </div>
+
+      {payMode === "CREDIT" && (
+        <p className="rounded-md border border-dmk-border-medium bg-dmk-input-well px-3 py-2 text-[12px] text-dmk-text-secondary">
+          On account — the shop pays later. Nothing is collected now and the bill stays receivable.
+        </p>
+      )}
+
+      {payMode === "UPI" && (
+        <div className="rounded-lg border border-dmk-success/30 bg-dmk-success/5 p-3">
+          {hasUpi && payInfo ? (
+            <>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
+                Show this to the customer — they scan it from their phone
+              </p>
+              <div className="mt-2 flex justify-center rounded-lg bg-white p-2.5 w-fit mx-auto">
+                <QRCode
+                  value={upiIntent(payInfo, amountNum > 0 ? amountNum : stopAmount, `${tripNumber} Stop ${stopSequence}`)}
+                  size={148}
+                  bgColor="#FFFFFF"
+                  fgColor="#0A0F1D"
+                  aria-label={`UPI QR code for ${payInfo.payeeName}`}
+                />
+              </div>
+              <p className="mt-2 text-center font-money text-[15px] font-black text-dmk-success">
+                {formatINR(amountNum > 0 ? amountNum : stopAmount)} → {payInfo.payeeName}
+              </p>
+              <div className="mt-2 space-y-1.5">
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => copyText(payInfo.upiId, "UPI ID")}
+                  className="w-full flex items-center justify-between gap-2 rounded-md bg-dmk-input-well border border-dmk-border-subtle px-2.5 py-2 text-left disabled:opacity-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-[9.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">UPI ID</span>
+                    <span className="block text-[12.5px] font-semibold text-dmk-text-primary truncate font-money">{payInfo.upiId}</span>
+                  </span>
+                  <Copy className="h-4 w-4 shrink-0 text-dmk-text-muted" />
+                </button>
+                {payInfo.phone && (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => copyText(payInfo.phone, "Phone number")}
+                    className="w-full flex items-center justify-between gap-2 rounded-md bg-dmk-input-well border border-dmk-border-subtle px-2.5 py-2 text-left disabled:opacity-50"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-[9.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">Pay to phone</span>
+                      <span className="block text-[12.5px] font-semibold text-dmk-text-primary truncate font-money">{payInfo.phone}</span>
+                    </span>
+                    <Copy className="h-4 w-4 shrink-0 text-dmk-text-muted" />
+                  </button>
+                )}
+              </div>
+              <p className="mt-2 text-[11px] text-dmk-text-muted leading-snug">
+                Customer can also type the UPI ID / phone number manually in their payment app. Confirm below only after
+                the money arrives.
+              </p>
+            </>
+          ) : (
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-dmk-warning shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[12.5px] font-semibold text-dmk-warning">Office UPI ID not set yet</p>
+                <p className="text-[11.5px] text-dmk-text-secondary mt-0.5">
+                  {payInfo?.phone
+                    ? `Customer can pay to ${payInfo.phone} if it is UPI-linked, or collect cash and call the office.`
+                    : "Collect cash for now and ask the office to add the UPI ID in Settings."}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {payMode !== "CREDIT" && (
+        <div className="space-y-1.5">
+          <label
+            htmlFor="driver-collected-amount"
+            className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted block"
+          >
+            Amount collected (₹)
+          </label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="driver-collected-amount"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              disabled={disabled}
+              className="h-12 font-money text-[17px] bg-dmk-input-well border-dmk-border-subtle text-dmk-text-primary"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={disabled || amount === String(stopAmount)}
+              onClick={() => setAmount(String(stopAmount))}
+              className="h-12 shrink-0 border-dmk-border-medium text-[12px] font-semibold text-dmk-text-secondary hover:text-dmk-text-primary"
+            >
+              Full {formatINR(stopAmount)}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

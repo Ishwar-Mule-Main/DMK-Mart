@@ -175,6 +175,8 @@ export interface TripStop {
   invoiceId: string;
   /** Bill number — provided on trip detail by the backend (optional, defensive). */
   invoiceNumber?: string;
+  /** Bill's customer id — trip detail only; feeds the settlement add-money list. */
+  customerId?: string;
   sequence: number;
   shopName: string;
   town: string;
@@ -197,6 +199,17 @@ export interface TripStop {
   /** Delivery OTP — backend may nest it under invoice or flatten it. */
   invoice?: { deliveryOtp?: string | null } | null;
   invoiceDeliveryOtp?: string | null;
+}
+
+/** Owner-added settlement money (see /api/v1/logistics/trips/[id]/settlement-entries). */
+export interface TripSettlementEntryUi {
+  id: string;
+  mode: string; // CASH | UPI
+  amount: number;
+  customerId: string;
+  customerName: string;
+  note: string;
+  createdAt: string;
 }
 
 export interface LogisticsTrip {
@@ -224,6 +237,8 @@ export interface LogisticsTrip {
   stops: TripStop[];
   /** Provided by the trips list endpoint. */
   deliveredStops?: number;
+  /** Trip detail only — owner additions recorded at settlement time. */
+  settlementEntries?: TripSettlementEntryUi[];
 }
 
 /** VerificationStaff row (GET /api/v1/verification/staff — hashes stripped). */
@@ -264,6 +279,11 @@ const STATUS_FILTERS: Array<{ value: "ALL" | TripStatus; label: string }> = [
 
 function fmtInt(n: number): string {
   return Math.round(n).toLocaleString("en-IN");
+}
+
+/** Money rounding for settlement math (matches the server's round2). */
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
 function fmtKg(n: number): string {
@@ -2159,6 +2179,15 @@ function TripDetailDialog({
   const [completeOpen, setCompleteOpen] = React.useState(false);
   const [completing, setCompleting] = React.useState(false);
 
+  // Manual settlement additions — "add money in cash or UPI" flow.
+  const [addMoneyOpen, setAddMoneyOpen] = React.useState(false);
+  const [addMode, setAddMode] = React.useState<"CASH" | "UPI">("CASH");
+  const [addAmount, setAddAmount] = React.useState("");
+  const [addCustomerId, setAddCustomerId] = React.useState("");
+  const [addNote, setAddNote] = React.useState("");
+  const [addingMoney, setAddingMoney] = React.useState(false);
+  const [removingEntryId, setRemovingEntryId] = React.useState<string | null>(null);
+
   const load = React.useCallback(
     async (silent: boolean) => {
       if (!activeFirmId || !tripId) return;
@@ -2308,7 +2337,7 @@ function TripDetailDialog({
       const res = await apiPost<{ trip?: LogisticsTrip }>(`/api/v1/logistics/trips/${trip.id}/complete`, {
         firmId: activeFirmId,
       });
-      const cash = res.trip?.collectedCash ?? trip.collectedCash;
+      const cash = res.trip?.collectedCash ?? settleActuals.cash;
       toast({ title: `Trip closed — ${formatINR(cash)} posted to cash book` });
       setCompleteOpen(false);
       await load(true);
@@ -2325,7 +2354,109 @@ function TripDetailDialog({
     }
   }
 
-  const variance = trip ? trip.collectedCash + trip.collectedUpi - (trip.expectedCash + trip.expectedUpi) : 0;
+  // ── Live settlement actuals — computed from the stops themselves so
+  // a COMPLETED-but-not-yet-closed trip shows what the driver really
+  // collected (trip-level collectedCash/collectedUpi only fill at close).
+  const entries = trip?.settlementEntries ?? [];
+  const stopCash = React.useMemo(
+    () => round2((trip?.stops ?? []).filter((s) => s.collectedMode === "CASH").reduce((a, s) => a + s.collectedAmount, 0)),
+    [trip]
+  );
+  const stopUpi = React.useMemo(
+    () => round2((trip?.stops ?? []).filter((s) => s.collectedMode === "UPI").reduce((a, s) => a + s.collectedAmount, 0)),
+    [trip]
+  );
+  const manualCash = React.useMemo(() => round2(entries.filter((e) => e.mode === "CASH").reduce((a, e) => a + e.amount, 0)), [entries]);
+  const manualUpi = React.useMemo(() => round2(entries.filter((e) => e.mode === "UPI").reduce((a, e) => a + e.amount, 0)), [entries]);
+  const settleActuals = {
+    cash: round2(stopCash + manualCash),
+    upi: round2(stopUpi + manualUpi),
+    stopCash,
+    stopUpi,
+    manualCash,
+    manualUpi,
+  };
+  // CLOSED trips show the posted books numbers; everything else is live.
+  const displayCash = trip?.status === "CLOSED" ? trip.collectedCash : settleActuals.cash;
+  const displayUpi = trip?.status === "CLOSED" ? trip.collectedUpi : settleActuals.upi;
+  const stillOnAccount = trip ? Math.max(0, round2(trip.totalAmount - displayCash - displayUpi)) : 0;
+  const variance = trip ? displayCash + displayUpi - (trip.expectedCash + trip.expectedUpi) : 0;
+
+  // Shops on this trip (deduped) — the "add money" target list.
+  const stopShops = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const s of trip?.stops ?? []) {
+      if (s.customerId && !seen.has(s.customerId)) {
+        seen.set(s.customerId, s.shopName);
+      }
+    }
+    return [...seen.entries()].map(([id, name]) => ({ id, name }));
+  }, [trip]);
+
+  async function addSettlementMoney() {
+    if (!activeFirmId || !trip) return;
+    const amt = Number(addAmount);
+    if (!addAmount.trim() || !Number.isFinite(amt) || amt <= 0) {
+      toast({ variant: "destructive", title: "Enter an amount greater than zero" });
+      return;
+    }
+    if (!addCustomerId) {
+      toast({ variant: "destructive", title: "Pick the shop this money belongs to" });
+      return;
+    }
+    setAddingMoney(true);
+    try {
+      const res = await apiPost<{ trip: LogisticsTrip }>(
+        `/api/v1/logistics/trips/${trip.id}/settlement-entries`,
+        {
+          firmId: activeFirmId,
+          mode: addMode,
+          amount: amt,
+          customerId: addCustomerId,
+          note: addNote.trim() || undefined,
+        }
+      );
+      if (res.trip) setTrip(res.trip);
+      toast({
+        title: `${addMode === "CASH" ? "Cash" : "UPI"} ${formatINR(amt)} added to settlement`,
+        description: "It posts to the books together with the stop collections when the trip closes.",
+      });
+      setAddMoneyOpen(false);
+      setAddAmount("");
+      setAddNote("");
+      setAddCustomerId("");
+      setAddMode("CASH");
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Could not add the collection",
+        description: e instanceof ApiError ? e.message : "Something went wrong — try again.",
+      });
+    } finally {
+      setAddingMoney(false);
+    }
+  }
+
+  async function removeSettlementEntry(entryId: string) {
+    if (!activeFirmId || !trip) return;
+    setRemovingEntryId(entryId);
+    try {
+      const res = await apiDelete<{ trip: LogisticsTrip }>(
+        `/api/v1/logistics/trips/${trip.id}/settlement-entries?firmId=${activeFirmId}`,
+        { body: JSON.stringify({ firmId: activeFirmId, entryId }) }
+      );
+      if (res.trip) setTrip(res.trip);
+      toast({ title: "Entry removed from settlement" });
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Could not remove the entry",
+        description: e instanceof ApiError ? e.message : "Something went wrong — try again.",
+      });
+    } finally {
+      setRemovingEntryId(null);
+    }
+  }
 
   return (
     <>
@@ -2406,37 +2537,220 @@ function TripDetailDialog({
                 })}
               </ol>
 
-              {/* Settlement panel */}
+              {/* Settlement panel — live actuals + manual additions */}
               {settleVisible && (
                 <section className="dmk-well rounded-lg border border-dmk-border-subtle p-4" aria-label="Cash settlement">
-                  <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
-                    Settlement
-                  </h3>
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
+                      Settlement
+                    </h3>
+                    {canComplete && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 border-dmk-border-subtle text-[12px] font-semibold text-dmk-yellow hover:bg-dmk-hover"
+                        onClick={() => setAddMoneyOpen((v) => !v)}
+                        aria-expanded={addMoneyOpen}
+                      >
+                        <Plus className={cn("h-3.5 w-3.5", addMoneyOpen && "rotate-45", "transition-transform")} />
+                        Add money
+                      </Button>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <SettleRow
                       label="Cash"
                       expected={trip.expectedCash}
-                      collected={trip.collectedCash}
+                      collected={displayCash}
+                      sub={
+                        manualCash > 0
+                          ? `Stops ${formatINR(stopCash)} + added ${formatINR(manualCash)}`
+                          : undefined
+                      }
                       icon={<Banknote className="h-3.5 w-3.5" />}
                     />
                     <SettleRow
                       label="UPI"
                       expected={trip.expectedUpi}
-                      collected={trip.collectedUpi}
+                      collected={displayUpi}
+                      sub={
+                        manualUpi > 0
+                          ? `Stops ${formatINR(stopUpi)} + added ${formatINR(manualUpi)}`
+                          : undefined
+                      }
                       icon={<Smartphone className="h-3.5 w-3.5" />}
                     />
                   </div>
-                  <div className="mt-3 flex items-center justify-between border-t border-dmk-border-subtle pt-2.5 text-[12.5px]">
-                    <span className="text-dmk-text-muted">Total variance</span>
-                    <span
-                      className={cn(
-                        "font-money font-bold",
-                        Math.abs(variance) < 0.005 ? "text-dmk-success" : variance > 0 ? "text-dmk-success" : "text-dmk-danger"
-                      )}
-                    >
-                      {variance > 0.005 ? "+" : ""}
-                      {formatINR(variance)}
-                    </span>
+
+                  {/* Add money — cash/UPI the driver's stop records don't show */}
+                  {canComplete && addMoneyOpen && (
+                    <div className="mt-3 space-y-2.5 rounded-lg border border-dmk-border-subtle bg-dmk-input-well p-3 dmk-enter">
+                      <p className="text-[12px] font-semibold text-dmk-text-primary">
+                        Add a collection the driver&apos;s stops don&apos;t show
+                      </p>
+                      <div className="grid grid-cols-2 gap-2" role="group" aria-label="Entry mode">
+                        {(["CASH", "UPI"] as const).map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => setAddMode(m)}
+                            aria-pressed={addMode === m}
+                            className={cn(
+                              "h-10 rounded-lg border text-[12.5px] font-bold flex items-center justify-center gap-1.5 transition-colors",
+                              addMode === m
+                                ? m === "CASH"
+                                  ? "bg-dmk-warning text-[#0A0F1D] border-dmk-warning"
+                                  : "bg-dmk-success text-[#0A0F1D] border-dmk-success"
+                                : "bg-transparent border-dmk-border-subtle text-dmk-text-secondary hover:border-dmk-border-medium"
+                            )}
+                          >
+                            {m === "CASH" ? <Banknote className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div className="space-y-1">
+                          <label htmlFor="add-money-amount" className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted block">
+                            Amount (₹)
+                          </label>
+                          <Input
+                            id="add-money-amount"
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="0.01"
+                            value={addAmount}
+                            onChange={(e) => setAddAmount(e.target.value)}
+                            placeholder="0.00"
+                            className="h-9 border-dmk-border-subtle bg-transparent font-money text-[13.5px] text-dmk-text-primary dmk-input"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted block">
+                            Shop on this trip
+                          </label>
+                          <Select value={addCustomerId} onValueChange={setAddCustomerId}>
+                            <SelectTrigger className="h-9 border-dmk-border-subtle bg-transparent text-[12.5px] text-dmk-text-primary">
+                              <SelectValue placeholder="Pick the shop" />
+                            </SelectTrigger>
+                            <SelectContent className="border-dmk-border-subtle bg-[#111c32] text-dmk-text-primary">
+                              {stopShops.map((s) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                  {s.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <label htmlFor="add-money-note" className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted block">
+                          Note (optional)
+                        </label>
+                        <Input
+                          id="add-money-note"
+                          value={addNote}
+                          onChange={(e) => setAddNote(e.target.value)}
+                          placeholder="e.g. cash handed at office / late UPI"
+                          className="h-9 border-dmk-border-subtle bg-transparent text-[12.5px] text-dmk-text-primary dmk-input"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[10.5px] text-dmk-text-muted">
+                          Posts to the books when the trip closes.
+                        </p>
+                        <Button
+                          className="h-9 bg-dmk-yellow px-4 text-[12.5px] font-bold text-[#0A0F1D] hover:bg-dmk-yellow/90"
+                          disabled={addingMoney}
+                          onClick={addSettlementMoney}
+                        >
+                          {addingMoney ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                          Add to settlement
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recorded manual additions */}
+                  {entries.length > 0 && (
+                    <ul className="mt-3 space-y-1.5" aria-label="Manual settlement additions">
+                      {entries.map((e) => (
+                        <li
+                          key={e.id}
+                          className="flex items-center gap-2.5 rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-3 py-2"
+                        >
+                          <span
+                            className={cn(
+                              "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+                              e.mode === "CASH"
+                                ? "bg-dmk-warning/15 text-dmk-warning"
+                                : "bg-dmk-success/15 text-dmk-success"
+                            )}
+                            title={e.mode}
+                          >
+                            {e.mode === "CASH" ? <Banknote className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[12.5px] font-semibold text-dmk-text-primary truncate">
+                              {e.customerName}
+                              {e.note ? <span className="font-normal text-dmk-text-muted"> · {e.note}</span> : ""}
+                            </p>
+                            <p className="text-[10.5px] text-dmk-text-muted">
+                              {e.mode} · added {fmtDateTime(e.createdAt)}
+                            </p>
+                          </div>
+                          <span className="font-money text-[13px] font-bold text-dmk-text-primary shrink-0">
+                            {formatINR(e.amount)}
+                          </span>
+                          {canComplete && (
+                            <button
+                              type="button"
+                              onClick={() => removeSettlementEntry(e.id)}
+                              disabled={removingEntryId === e.id}
+                              aria-label={`Remove ${e.mode} entry for ${e.customerName}`}
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dmk-text-muted transition-colors hover:bg-dmk-hover hover:text-dmk-danger disabled:opacity-40"
+                            >
+                              {removingEntryId === e.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <div className="mt-3 space-y-1.5 border-t border-dmk-border-subtle pt-2.5 text-[12.5px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-dmk-text-muted">Total collected (cash + UPI)</span>
+                      <span className="font-money font-bold text-dmk-text-primary">
+                        {formatINR(displayCash + displayUpi)}
+                      </span>
+                    </div>
+                    {stillOnAccount > 0.004 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-dmk-text-muted">Still on account (credit)</span>
+                        <span className="font-money font-semibold text-dmk-text-secondary">
+                          {formatINR(stillOnAccount)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-dmk-text-muted">Variance vs expected</span>
+                      <span
+                        className={cn(
+                          "font-money font-bold",
+                          Math.abs(variance) < 0.005 ? "text-dmk-success" : variance > 0 ? "text-dmk-success" : "text-dmk-danger"
+                        )}
+                      >
+                        {variance > 0.005 ? "+" : ""}
+                        {formatINR(variance)}
+                      </span>
+                    </div>
                   </div>
                   {trip.status === "CLOSED" && (
                     <p className="mt-2 text-[11.5px] text-dmk-success">
@@ -2598,10 +2912,19 @@ function TripDetailDialog({
         <AlertDialogContent className="border-dmk-border-subtle bg-[#111c32]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-dmk-text-primary">Close {trip?.tripNumber} and post cash?</AlertDialogTitle>
-            <AlertDialogDescription className="text-dmk-text-muted">
-              Collected cash {formatINR(trip?.collectedCash ?? 0)} posts to the cash book and UPI{" "}
-              {formatINR(trip?.collectedUpi ?? 0)} to the bank. Expected was{" "}
-              {formatINR((trip?.expectedCash ?? 0) + (trip?.expectedUpi ?? 0))}. This settles the trip permanently.
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-dmk-text-muted">
+                <p>
+                  Cash {formatINR(displayCash)} posts to the cash book and UPI {formatINR(displayUpi)} to the bank.
+                  {stillOnAccount > 0.004
+                    ? ` ${formatINR(stillOnAccount)} stays on account (credit bills not collected yet).`
+                    : ""}
+                </p>
+                <p>
+                  Expected was {formatINR((trip?.expectedCash ?? 0) + (trip?.expectedUpi ?? 0))}. Every collection
+                  posts a customer receipt — this settles the trip permanently.
+                </p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2629,11 +2952,14 @@ function SettleRow({
   label,
   expected,
   collected,
+  sub,
   icon,
 }: {
   label: string;
   expected: number;
   collected: number;
+  /** Optional breakdown under the collected number (stops vs added). */
+  sub?: string;
   icon: React.ReactNode;
 }) {
   return (
@@ -2645,6 +2971,7 @@ function SettleRow({
         <span className="text-dmk-text-muted">Expected {formatINR(expected)}</span>
         <span className="font-money text-[14px] font-bold text-dmk-text-primary">{formatINR(collected)}</span>
       </div>
+      {sub && <p className="mt-0.5 text-[10.5px] text-dmk-text-muted">{sub}</p>}
     </div>
   );
 }

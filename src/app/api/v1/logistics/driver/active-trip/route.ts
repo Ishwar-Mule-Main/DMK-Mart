@@ -3,6 +3,8 @@
 // GET ?staffId= — the driver's current DISPATCHED / IN_PROGRESS trip
 // with stops + load-sheet items. CRITICAL: deliveryOtp is never
 // selected here — OTPs travel to the DRIVER only via the paper bill.
+// Also returns the firm's UPI payment info so the driver's phone can
+// show a pay-to-firm QR at collection time (no cost data attached).
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
@@ -29,16 +31,29 @@ export async function GET(request: NextRequest) {
       select: { id: true },
     });
 
-    if (!trip) return ok({ trip: null });
+    if (!trip) return ok({ trip: null, paymentInfo: null });
 
     // OTP-free detail — includeOtp=false keeps deliveryOtp out of the
     // response entirely (driver reads it from the customer's bill).
     const detail = await loadTripDetail(trip.id, false);
-    if (!detail) return ok({ trip: null });
+    if (!detail) return ok({ trip: null, paymentInfo: null });
 
     // deliveredStops convenience for the driver's progress bar.
     const deliveredStops = detail.stops.filter((s) => s.status === "DELIVERED").length;
-    return ok({ trip: { ...detail, deliveredStops } });
+
+    // Firm UPI identity for the driver's QR screen (pay from the
+    // driver's phone — the customer scans it).
+    const firm = await db.firm.findUnique({
+      where: { id: staff.firmId },
+      select: { firmName: true, upiId: true, phone: true },
+    });
+
+    return ok({
+      trip: { ...detail, deliveredStops },
+      paymentInfo: firm
+        ? { payeeName: firm.firmName, upiId: firm.upiId, phone: firm.phone }
+        : null,
+    });
   } catch (e) {
     return handleApiError(e);
   }

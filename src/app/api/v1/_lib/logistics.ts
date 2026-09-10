@@ -12,7 +12,7 @@ import type { Trip, TripStop } from "@prisma/client";
 import { db, dbTx } from "@/lib/db";
 import { nextDocNumber, currentFyLabel } from "@/lib/journal";
 import { round2 } from "@/lib/gst";
-import { BusinessError } from "./api";
+import { BusinessError, getNum, getStr } from "./api";
 
 // ─── Lifecycle status sets ───────────────────────────────────────
 
@@ -269,6 +269,7 @@ export function validateStopsForRoute(
 /** Invoice select used inside stop detail (items math + OTP for owner). */
 const STOP_INVOICE_SELECT = {
   invoiceNumber: true,
+  customerId: true,
   lineItems: {
     select: {
       sku: true,
@@ -305,11 +306,17 @@ export async function loadTripDetail(tripId: string, includeOtp: boolean) {
   const trip = includeOtp
     ? await db.trip.findUnique({
         where: { id: tripId },
-        include: { stops: tripStopsInclude(STOP_INVOICE_WITH_OTP) },
+        include: {
+          stops: tripStopsInclude(STOP_INVOICE_WITH_OTP),
+          settlementEntries: { orderBy: { createdAt: "asc" as const } },
+        },
       })
     : await db.trip.findUnique({
         where: { id: tripId },
-        include: { stops: tripStopsInclude(STOP_INVOICE_SELECT) },
+        include: {
+          stops: tripStopsInclude(STOP_INVOICE_SELECT),
+          settlementEntries: { orderBy: { createdAt: "asc" as const } },
+        },
       });
   if (!trip) return null;
   return shapeTripDetail(trip, includeOtp);
@@ -318,22 +325,38 @@ export async function loadTripDetail(tripId: string, includeOtp: boolean) {
 /** Structural input for shapeTripDetail — fits both OTP / no-OTP payloads. */
 interface DetailStopInvoice {
   invoiceNumber: string;
+  customerId?: string | null;
   deliveryOtp?: string | null;
   lineItems: Array<LineAggSource & { sku: string; productName: string }>;
 }
 
 type DetailTripInput = Omit<Trip, "stops"> & {
   stops: Array<Omit<TripStop, "invoice"> & { invoice: DetailStopInvoice }>;
+  settlementEntries: TripSettlementEntryView[];
 };
 
 export interface TripStopView extends Omit<TripStop, "invoice"> {
   invoiceNumber: string;
+  /** Bill's customer — the settlement "add money" target list. */
+  customerId: string;
   items: TripStopItemView[];
   deliveryOtp?: string;
 }
 
+/** Owner-added settlement addition (see TripSettlementEntry). */
+export interface TripSettlementEntryView {
+  id: string;
+  mode: string; // CASH | UPI
+  amount: number;
+  customerId: string;
+  customerName: string;
+  note: string;
+  createdAt: Date;
+}
+
 export interface TripDetailView extends Omit<Trip, "stops"> {
   stops: TripStopView[];
+  settlementEntries: TripSettlementEntryView[];
 }
 
 /** Shape a trip+stops payload into the shared stop view (items, otp?). */
@@ -356,6 +379,7 @@ export function shapeTripDetail(trip: DetailTripInput, includeOtp: boolean): Tri
       return {
         ...rest,
         invoiceNumber: invoice.invoiceNumber,
+        customerId: invoice.customerId ?? "",
         items,
         ...(includeOtp ? { deliveryOtp: invoice.deliveryOtp ?? "" } : {}),
       };
@@ -383,6 +407,31 @@ export async function getActiveStaff(staffId: string) {
 }
 
 // ─── Delivery guards + stop delivery (OTP / signature shared) ────
+
+/** Collection modes a driver can record on a stop. CREDIT = on-account
+ *  drop (shopkeeper pays later) — no money moves, amount is forced 0. */
+export const COLLECTED_MODES = ["CASH", "UPI", "CREDIT"] as const;
+export type CollectedMode = (typeof COLLECTED_MODES)[number];
+
+/**
+ * Parse + validate a stop collection payload shared by verify-otp and
+ * signature: mode must be CASH | UPI | CREDIT, amount ≥ 0, and CREDIT
+ * always records ₹0 (the bill stays receivable).
+ */
+export function parseCollectionInput(body: Record<string, unknown>): {
+  mode: CollectedMode;
+  amount: number;
+} {
+  const mode = getStr(body.collectedMode).toUpperCase() as CollectedMode;
+  if (!COLLECTED_MODES.includes(mode)) {
+    throw new BusinessError("ERR_VALIDATION", "collectedMode must be CASH, UPI or CREDIT", 400);
+  }
+  const amount = getNum(body.collectedAmount);
+  if (amount < 0) {
+    throw new BusinessError("ERR_VALIDATION", "collectedAmount cannot be negative", 400);
+  }
+  return { mode, amount: mode === "CREDIT" ? 0 : round2(amount) };
+}
 
 export interface DeliveryGuardInput {
   tripId: string;

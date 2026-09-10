@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
         ifsc: getStr(body.ifsc),
         financialYear: getStr(body.financialYear) || currentFyLabel(),
         invoicePrefix: getStr(body.invoicePrefix) || firmCode,
+        upiId: getStr(body.upiId),
         openingCash,
         openingBank,
       },

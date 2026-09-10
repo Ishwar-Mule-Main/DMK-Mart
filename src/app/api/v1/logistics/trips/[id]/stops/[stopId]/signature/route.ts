@@ -6,9 +6,12 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
-import { BusinessError, asRecord, getNum, getStr, handleApiError, ok } from "@/app/api/v1/_lib/api";
-import { loadStopForDelivery, markStopDelivered } from "@/app/api/v1/_lib/logistics";
-import { round2 } from "@/lib/gst";
+import { BusinessError, asRecord, getStr, handleApiError, ok } from "@/app/api/v1/_lib/api";
+import {
+  loadStopForDelivery,
+  markStopDelivered,
+  parseCollectionInput,
+} from "@/app/api/v1/_lib/logistics";
 
 export async function POST(
   request: NextRequest,
@@ -22,21 +25,15 @@ export async function POST(
 
     const { trip, stop } = await loadStopForDelivery({ tripId: id, stopId, firmId, staffId });
 
-    const collectedMode = getStr(body.collectedMode).toUpperCase();
-    if (collectedMode !== "CASH" && collectedMode !== "UPI") {
-      throw new BusinessError("ERR_VALIDATION", "collectedMode must be CASH or UPI", 400);
-    }
-    const collectedAmount = getNum(body.collectedAmount);
-    if (collectedAmount < 0) {
-      throw new BusinessError("ERR_VALIDATION", "collectedAmount cannot be negative", 400);
-    }
+    // CASH | UPI collected on the spot; CREDIT = on-account drop (₹0).
+    const { mode: collectedMode, amount: collectedAmount } = parseCollectionInput(body);
 
     const result = await markStopDelivered({
       trip,
       stopId: stop.id,
       proof: "SIGNATURE",
       collectedMode,
-      collectedAmount: round2(collectedAmount),
+      collectedAmount,
       deliveredBy: staffId,
     });
     return ok(result);

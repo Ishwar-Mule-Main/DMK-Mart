@@ -18,6 +18,7 @@ export interface Firm {
   financialYear: string;
   autoCreateFy: boolean;
   invoicePrefix: string;
+  upiId: string;
   logoUrl?: string | null;
   openingCash: number;
   openingBank: number;

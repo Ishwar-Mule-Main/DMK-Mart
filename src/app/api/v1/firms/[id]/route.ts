@@ -57,6 +57,7 @@ const PATCHABLE = [
   "bankName",
   "bankAccount",
   "ifsc",
+  "upiId",
   "financialYear",
   "invoicePrefix",
   "logoUrl",

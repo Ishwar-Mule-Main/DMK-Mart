@@ -30,6 +30,7 @@ model Firm {
   financialYear  String   @default("2025-26")
   autoCreateFy   Boolean  @default(true) // auto-open the next FY account on 1 April; when OFF the app locks until the owner creates it
   invoicePrefix  String   @default("DMK")
+  upiId          String   @default("") // firm UPI ID — drivers show its QR so customers pay from the driver's phone
   logoUrl        String?
   openingCash    Float    @default(0)
   openingBank    Float    @default(0)
@@ -798,7 +799,8 @@ model Trip {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  stops TripStop[]
+  stops             TripStop[]
+  settlementEntries TripSettlementEntry[]
 
   @@unique([firmId, tripNumber])
   @@index([firmId, status])
@@ -836,6 +838,26 @@ model TripStop {
   updatedAt       DateTime  @updatedAt
 
   @@index([tripId, sequence])
+}
+
+// TripSettlementEntry: money the owner ADDS at settlement time on top of
+// the driver's per-stop records — e.g. extra cash handed over at the
+// office or a UPI that landed after the run. Optionally tied to one of
+// the trip's shops; customer-linked entries post a CustomerReceipt when
+// the trip closes (same ledger engine as the receipts API).
+model TripSettlementEntry {
+  id           String   @id @default(cuid())
+  tripId       String
+  trip         Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  mode         String   // CASH | UPI
+  amount       Float
+  customerId   String   @default("") // "" = unattributed (cash book only, no AR move)
+  customerName String   @default("") // denormalized for the panel
+  note         String   @default("")
+  createdBy    String   @default("") // VerificationStaff/owner marker
+  createdAt    DateTime @default(now())
+
+  @@index([tripId])
 }
 
 // ── AI copilot provider settings (owner-managed, account-wide) ─────────
