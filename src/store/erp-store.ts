@@ -28,6 +28,7 @@ export type ViewId =
   | "logistics/planner"
   | "logistics/trips"
   | "logistics/drivers"
+  | "sales/team"
   | "inventory/products"
   | "inventory/stock"
   | "inventory/movements"
@@ -48,9 +49,10 @@ export type ViewId =
   | "data/deleted"
   | "settings";
 
-// Signed-in persona. OWNER → full ERP shell; TEAM → verification portal.
+// Signed-in persona. OWNER → full ERP shell; TEAM → verification portal;
+// SALES → dedicated /sales workspace (sections gated by owner permissions).
 export interface ErpSession {
-  role: "OWNER" | "TEAM";
+  role: "OWNER" | "TEAM" | "SALES";
   firmId: string;
   firmName: string;
   staffId?: string;
@@ -59,7 +61,37 @@ export interface ErpSession {
   /** Portal role of the team member — VERIFIER | SUPERVISOR | DRIVER.
    *  Routes the team screen: DRIVER → delivery trip view, others → checkpoint. */
   staffRole?: string;
+  /** /sales portal persona. */
+  salesId?: string;
+  salesName?: string;
+  salesUsername?: string;
+  /** Snapshot of the owner's section toggles for this member — the
+   *  sidebar builds itself from these and every view re-checks them. */
+  salesPerms?: SalesPermissions;
 }
+
+/** The 8 owner-controlled section switches for a /sales member. */
+export interface SalesPermissions {
+  canB2BBilling: boolean;
+  canB2CPos: boolean;
+  canSalesOrders: boolean;
+  canManageCustomers: boolean;
+  canViewStock: boolean;
+  canViewInvoices: boolean;
+  canRecordReceipts: boolean;
+  canOverridePrice: boolean;
+}
+
+export const DEFAULT_SALES_PERMS: SalesPermissions = {
+  canB2BBilling: true,
+  canB2CPos: true,
+  canSalesOrders: true,
+  canManageCustomers: true,
+  canViewStock: true,
+  canViewInvoices: true,
+  canRecordReceipts: false,
+  canOverridePrice: false,
+};
 
 /** UI language — English, Hindi, Marathi. */
 export type UiLanguage = "en" | "hi" | "mr";

@@ -14,6 +14,7 @@ import {
   FileText, AlertTriangle, BookOpen, ListTree, Landmark, BookUser, PieChart,
   CalendarDays, CalendarClock, Timer, FileCheck2, FileWarning, BarChart3, Bot, Settings,
   Plus, Building2, Search, CornerDownLeft, RefreshCw, GitCompareArrows, Trash2,
+  UsersRound,
 } from "lucide-react";
 import {
   CommandDialog, CommandInput, CommandList, CommandEmpty,
@@ -65,6 +66,7 @@ const NAV_GROUPS: Array<{ heading: string; items: NavItem[] }> = [
       { id: "reports", label: "Reports & Exports", icon: BarChart3 },
       { id: "ai", label: "AI Copilot", icon: Bot, shortcut: "G A" },
       { id: "data/deleted", label: "Deleted Data (Recycle Bin)", icon: Trash2 },
+      { id: "sales/team", label: "Sales Team Management", icon: UsersRound },
       { id: "settings", label: "Settings", icon: Settings },
     ],
   },

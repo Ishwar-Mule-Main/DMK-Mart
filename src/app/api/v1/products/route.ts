@@ -72,6 +72,16 @@ export async function GET(request: NextRequest) {
     // word-start matches rank above mid-string, SKU/name lead the fields.
     const ranked = rankSearch(products, search, (p) => [p.sku, p.name, p.brand, p.category, p.barcode]);
 
+    // /sales portal isolation: purchase costs and margin data NEVER leave
+    // the server for sales staff — selling tiers + stock quantities only.
+    const salesPortal = sp.get("salesPortal") === "1";
+    const visibleProducts = salesPortal
+      ? ranked.map((p) => {
+          const { purchaseCost: _cost, ...rest } = p;
+          return rest;
+        })
+      : ranked;
+
     const distinct = await db.product.findMany({
       where: { firmId, isActive: true },
       select: { category: true, brand: true },
@@ -80,7 +90,7 @@ export async function GET(request: NextRequest) {
     const categories = [...new Set(distinct.map((p) => p.category))].sort((a, b) => a.localeCompare(b));
     const brands = [...new Set(distinct.map((p) => p.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
-    return ok({ products: ranked, categories, brands });
+    return ok({ products: visibleProducts, categories, brands });
   } catch (e) {
     return handleApiError(e);
   }

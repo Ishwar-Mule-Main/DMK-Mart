@@ -253,6 +253,8 @@ function B2BFormDialog({
 }) {
   const { toast } = useToast();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  // /sales portal — attribution for customers created by a sales member.
+  const session = useErpStore((s) => s.session);
   const [saving, setSaving] = React.useState(false);
   const [form, setForm] = React.useState({
     city: "",
@@ -340,6 +342,8 @@ function B2BFormDialog({
           creditLimit: Number(form.creditLimit) || 0,
           creditDays: Number(form.creditDays) || 0,
           openingBalance: Number(form.openingBalance) || 0,
+          // /sales portal attribution — stamp "Created By" with the signed-in member.
+          ...(session?.role === "SALES" && session.salesId ? { salesMemberId: session.salesId } : {}),
         });
         toast({ title: "Customer created", description: `${form.city.trim()} ${form.firmName.trim()} added to the trade directory.` });
       }

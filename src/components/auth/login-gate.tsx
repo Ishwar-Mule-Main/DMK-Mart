@@ -16,16 +16,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Building2, Users, Lock, ShieldCheck, ArrowRight, Loader2, Plus, CircleUser } from "lucide-react";
-import { useErpStore, type ErpSession } from "@/store/erp-store";
+import { Building2, Users, Lock, ShieldCheck, ArrowRight, Loader2, Plus, CircleUser, ShoppingCart, ShieldAlert } from "lucide-react";
+import { useErpStore, type ErpSession, type SalesPermissions } from "@/store/erp-store";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import type { Firm } from "@/types/erp";
 import { cn } from "@/lib/utils";
 
-type Door = "owner" | "team";
+type Door = "owner" | "team" | "sales";
+
+/** Every door shows the other two cross-links except its own. */
+function isTeamLinkHidden(door: Door): boolean {
+  return door === "team";
+}
 
 export const TEAM_LOGIN_URL = "/team";
 export const OWNER_LOGIN_URL = "/";
+export const SALES_LOGIN_URL = "/sales";
 
 /** The one fixed owner username across every company account. */
 export const OWNER_USERNAME = "Kunal";
@@ -46,54 +52,69 @@ export function LoginGate({ door }: { door: Door }) {
   }, [firms.length, setFirms]);
 
   const isOwner = door === "owner";
+  const isSales = door === "sales";
 
   return (
     <div className="min-h-screen flex flex-col bg-dmk-bg-primary">
       <div className="flex-1 flex items-center justify-center px-4 py-10 relative overflow-hidden">
-        <div aria-hidden className={cn("pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 h-96 w-[720px] rounded-full blur-3xl", isOwner ? "bg-dmk-yellow/10" : "bg-dmk-blue/10")} />
+        <div aria-hidden className={cn("pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 h-96 w-[720px] rounded-full blur-3xl", isOwner ? "bg-dmk-yellow/10" : isSales ? "bg-emerald-500/10" : "bg-dmk-blue/10")} />
         <div className="w-full max-w-[420px] dmk-card p-7 relative dmk-enter">
           <div className="flex flex-col items-center text-center gap-3">
             <img src="/dmk-logo.png" alt="DMK Mart logo" width={72} height={72} className="rounded-full" />
             <div>
               <p className="text-[19px] font-black tracking-tight text-dmk-text-primary">
-                {isOwner ? "DMK Mart ERP" : "DMK Verification Portal"}
+                {isOwner ? "DMK Mart ERP" : isSales ? "DMK Sales Portal" : "DMK Verification Portal"}
               </p>
               <p className="text-[11.5px] text-dmk-text-muted mt-0.5">
-                {isOwner ? "Trading · Distribution · Bookkeeping" : "Owner link · goods-in checkpoint"}
+                {isOwner ? "Trading · Distribution · Bookkeeping" : isSales ? "Sales team workspace · billing & orders" : "Owner link · goods-in checkpoint"}
               </p>
             </div>
             <span
               className={cn(
                 "dmk-badge h-7 px-3 gap-1.5",
-                isOwner ? "bg-dmk-yellow/15 text-dmk-yellow" : "bg-dmk-blue/15 text-dmk-blue"
+                isOwner ? "bg-dmk-yellow/15 text-dmk-yellow" : isSales ? "bg-emerald-500/15 text-emerald-400" : "bg-dmk-blue/15 text-dmk-blue"
               )}
             >
-              {isOwner ? <CircleUser className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
-              {isOwner ? `Signed in as ${OWNER_USERNAME}` : "Verification team login"}
+              {isOwner ? <CircleUser className="h-3.5 w-3.5" /> : isSales ? <ShoppingCart className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+              {isOwner ? `Signed in as ${OWNER_USERNAME}` : isSales ? "Sales team login" : "Verification team login"}
             </span>
           </div>
 
           {isOwner ? (
             <OwnerDoor firms={firms} firmsLoaded={firmsLoaded} onSignedIn={setSession} onPickFirm={setActiveFirm} />
+          ) : isSales ? (
+            <SalesDoor onSignedIn={setSession} />
           ) : (
             <TeamDoor onSignedIn={setSession} />
           )}
 
-          {/* Cross-link — the two doors live at different addresses */}
-          <a
-            href={isOwner ? TEAM_LOGIN_URL : OWNER_LOGIN_URL}
-            className="mt-5 w-full text-[11.5px] font-semibold text-dmk-text-muted hover:text-dmk-yellow flex items-center justify-center gap-1.5 transition-colors"
-          >
-            {isOwner ? (
-              <>
-                <Users className="h-3.5 w-3.5" /> Verification team member? Sign in at the team portal
-              </>
-            ) : (
-              <>
+          {/* Cross-links — the three doors live at different addresses */}
+          <div className="mt-5 flex flex-col gap-1.5">
+            {!isOwner && (
+              <a
+                href={OWNER_LOGIN_URL}
+                className="w-full text-[11.5px] font-semibold text-dmk-text-muted hover:text-dmk-yellow flex items-center justify-center gap-1.5 transition-colors"
+              >
                 <Building2 className="h-3.5 w-3.5" /> Company owner? Sign in at the owner portal
-              </>
+              </a>
             )}
-          </a>
+            {!isSales && (
+              <a
+                href={SALES_LOGIN_URL}
+                className="w-full text-[11.5px] font-semibold text-dmk-text-muted hover:text-emerald-400 flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <ShoppingCart className="h-3.5 w-3.5" /> Sales team member? Sign in at the sales portal
+              </a>
+            )}
+            {!isTeamLinkHidden(door) && (
+              <a
+                href={TEAM_LOGIN_URL}
+                className="w-full text-[11.5px] font-semibold text-dmk-text-muted hover:text-dmk-blue flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Users className="h-3.5 w-3.5" /> Verification team member? Sign in at the team portal
+              </a>
+            )}
+          </div>
         </div>
       </div>
       <footer className="mt-auto border-t border-dmk-border-subtle bg-[#0D1527]/60 py-3 text-center">
@@ -299,6 +320,104 @@ function TeamDoor({ onSignedIn }: { onSignedIn: (s: ErpSession) => void }) {
         Open verification portal
       </Button>
       {firms.length === 0 && <p className="text-[10.5px] text-dmk-text-muted text-center">Create a company first — team accounts belong to a company.</p>}
+    </form>
+  );
+}
+
+// ─── Sales door — dedicated /sales workspace for sales staff ──────
+
+function SalesDoor({ onSignedIn }: { onSignedIn: (s: ErpSession) => void }) {
+  const { firms, setFirms, setActiveFirm } = useErpStore();
+  const [username, setUsername] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (firms.length === 0) {
+      apiGet<Firm[]>("/api/v1/firms")
+        .then((list) => setFirms(list ?? []))
+        .catch(() => undefined);
+    }
+  }, [firms.length, setFirms]);
+
+  async function signIn(e: React.FormEvent) {
+    e.preventDefault();
+    if (!username || !password) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiPost<{
+        member: {
+          id: string;
+          fullName: string;
+          username: string;
+          permissions: SalesPermissions;
+        };
+        firm: { id: string; firmName: string };
+      }>("/api/v1/sales-team/login", { username, password });
+      setActiveFirm(res.firm.id);
+      onSignedIn({
+        role: "SALES",
+        firmId: res.firm.id,
+        firmName: res.firm.firmName,
+        salesId: res.member.id,
+        salesName: res.member.fullName,
+        salesUsername: res.member.username,
+        // Snapshot of the owner's section toggles — the portal sidebar
+        // and every view gate themselves against this snapshot.
+        salesPerms: res.member.permissions,
+      });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Sign-in failed. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={signIn} className="mt-5 space-y-4">
+      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 flex items-start gap-2">
+        <ShieldAlert className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+        <p className="text-[11.5px] leading-relaxed text-dmk-text-secondary">
+          Sales accounts are created by the owner from{" "}
+          <span className="font-semibold text-dmk-text-primary">Settings → Sales Team</span>. Your sidebar shows exactly the
+          sections the owner enabled for you — purchases, costs and accounts stay private.
+        </p>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Username</Label>
+        <Input
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder="e.g. rahul.sales"
+          className="h-11 bg-dmk-input-well border-dmk-border-subtle text-[14px]"
+          aria-label="Sales username"
+          autoComplete="username"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Password</Label>
+        <div className="relative">
+          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted" />
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••"
+            className="pl-9 h-11 bg-dmk-input-well border-dmk-border-subtle text-[14px] tracking-widest"
+            aria-label="Sales password"
+          />
+        </div>
+      </div>
+
+      {error && <p className="text-[12px] text-dmk-danger bg-dmk-danger/10 border border-dmk-danger/25 rounded-md px-3 py-2">{error}</p>}
+
+      <Button type="submit" disabled={busy || !username || !password} className="w-full h-11 bg-emerald-500 text-[#06281B] hover:bg-emerald-500/90 font-bold text-[13.5px]">
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
+        Open sales workspace
+      </Button>
+      {firms.length === 0 && <p className="text-[10.5px] text-dmk-text-muted text-center">Create a company first — sales accounts belong to a company.</p>}
     </form>
   );
 }

@@ -16,13 +16,15 @@ import { useGlobalShortcuts } from "@/hooks/use-global-shortcuts";
 import { ShortcutsDialog } from "./shortcuts-dialog";
 import { LoginGate } from "@/components/auth/login-gate";
 import { VerificationPortal } from "@/components/verify/verification-portal";
+import { SalesPortal } from "@/components/sales/sales-portal";
 import { FyGate } from "./fy-gate";
 
 /**
- * Portal addresses — the two logins live at different URLs and are never
- * shown together: owner door at "/", verification team door at "/team".
- * Each page passes its door explicitly (no query parsing), and sessions
- * are bounced to their own address if they land on the wrong one.
+ * Portal addresses — the three logins live at different URLs and are
+ * never shown together: owner door at "/", verification team door at
+ * "/team", sales team door at "/sales". Each page passes its door
+ * explicitly (no query parsing), and sessions are bounced to their own
+ * address if they land on the wrong one.
  */
 
 import DashboardView from "./views/dashboard";
@@ -64,6 +66,7 @@ import AiCopilotView from "./views/ai-copilot";
 import SettingsView from "./views/settings";
 import DeletedDataView from "./views/deleted-data";
 import PurchaseVerificationView from "./views/verification";
+import SalesTeamView from "./views/sales-team";
 
 const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   dashboard: DashboardView,
@@ -91,6 +94,7 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   "logistics/planner": LogisticsTripPlannerView,
   "logistics/trips": LogisticsTripsRegisterView,
   "logistics/drivers": LogisticsDriversView,
+  "sales/team": SalesTeamView,
   "finance/journals": JournalsView,
   "finance/coa": ChartOfAccountsView,
   "finance/ledgers": PartyLedgersView,
@@ -105,14 +109,14 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   settings: SettingsView,
 };
 
-export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
+export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" | "sales" }) {
   const { view, firms, activeFirmId, financialYear, setFirms, session } = useErpStore();
   const { t } = useT();
   useGlobalShortcuts();
   const [mounted, setMounted] = React.useState(false);
   const [booting, setBooting] = React.useState(true);
   const [bootError, setBootError] = React.useState<string | null>(null);
-  const door: "owner" | "team" = forcedDoor ?? "owner";
+  const door: "owner" | "team" | "sales" = forcedDoor ?? "owner";
 
   // Persisted session (zustand) only exists client-side — render nothing
   // brand-specific until mounted to keep SSR hydration exact.
@@ -125,14 +129,14 @@ export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
     }
   }, []);
 
-  // URL separation is enforced both ways: a team session opening "/" is
-  // bounced to /team, an owner session opening /team is bounced to "/".
-  const crossDoorBounce =
-    mounted && !!session && ((door === "owner" && session.role === "TEAM") || (door === "team" && session.role === "OWNER"));
+  // URL separation is enforced all ways: each persona is bounced to its
+  // own address — OWNER → "/", TEAM → "/team", SALES → "/sales".
+  const expectedRole = door === "owner" ? "OWNER" : door === "team" ? "TEAM" : "SALES";
+  const crossDoorBounce = mounted && !!session && session.role !== expectedRole;
   React.useEffect(() => {
-    if (!crossDoorBounce) return;
-    window.location.replace(door === "owner" ? "/team" : "/");
-  }, [crossDoorBounce, door]);
+    if (!crossDoorBounce || !session) return;
+    window.location.replace(session.role === "OWNER" ? "/" : session.role === "TEAM" ? "/team" : "/sales");
+  }, [crossDoorBounce, session]);
 
   // Boot sequence: ensure seed exists → load firms
   React.useEffect(() => {
@@ -168,7 +172,11 @@ export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-dmk-bg-primary">
         <img src="/dmk-logo.png" alt="DMK Mart logo" width={56} height={56} className="rounded-full animate-pulse" />
         <p className="text-[12px] text-dmk-text-muted">
-          {door === "owner" ? "Team session — opening the verification portal…" : "Owner session — opening the workspace…"}
+          {session?.role === "OWNER"
+            ? "Owner session — opening the workspace…"
+            : session?.role === "SALES"
+              ? "Sales session — opening the sales portal…"
+              : "Team session — opening the verification portal…"}
         </p>
       </div>
     );
@@ -178,6 +186,9 @@ export function AppShell({ forcedDoor }: { forcedDoor?: "owner" | "team" }) {
   }
   if (session.role === "TEAM") {
     return <VerificationPortal />;
+  }
+  if (session.role === "SALES") {
+    return <SalesPortal />;
   }
 
   const ActiveView = VIEW_MAP[view] ?? DashboardView;

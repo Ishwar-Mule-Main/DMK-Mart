@@ -26,6 +26,8 @@ import {
   ArrowLeftRight,
   TriangleAlert,
   Upload,
+  UsersRound,
+  ArrowRight,
 } from "lucide-react";
 
 import { Badge, ErrorText, Field, PageHeader, inputCls } from "../shared";
@@ -152,6 +154,7 @@ export default function SettingsView() {
   const setFirms = useErpStore((s) => s.setFirms);
   const setActiveFirm = useErpStore((s) => s.setActiveFirm);
   const setFinancialYear = useErpStore((s) => s.setFinancialYear);
+  const setView = useErpStore((s) => s.setView);
   const { toast } = useToast();
 
   const [counts, setCounts] = React.useState<Record<string, FirmCounts>>({});
@@ -314,6 +317,29 @@ export default function SettingsView() {
           </p>
         </div>
       )}
+
+      {/* ── Sales team portal — accounts, passwords & section permissions ── */}
+      <div className="dmk-card p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <UsersRound className="h-4 w-4 text-dmk-yellow mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="text-[15px] font-semibold text-dmk-text-primary">Sales Team Management</h2>
+              <p className="text-[12px] text-dmk-text-muted mt-0.5">
+                Create /sales portal accounts, issue passwords, and toggle which sections each member can see.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9 shrink-0 gap-1.5 border-dmk-border-subtle bg-dmk-bg-primary text-[12px] text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
+            onClick={() => setView("sales/team")}
+          >
+            Open <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
 
       {/* ── Firms list ──────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

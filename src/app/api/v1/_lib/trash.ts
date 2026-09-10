@@ -17,6 +17,7 @@ export const TRASH_TYPES = [
   "VENDOR",
   "RECURRING_TEMPLATE",
   "VERIFICATION_STAFF",
+  "SALES_MEMBER",
   "TRIP",
 ] as const;
 
@@ -208,6 +209,60 @@ export async function restoreFromTrash(trashId: string): Promise<RestoreResult> 
         },
       });
 
+    case "SALES_MEMBER":
+      return reactivateOrRecreate(entry, {
+        find: () => db.salesMember.findUnique({ where: { id: entry.entityId } }),
+        reactivate: () =>
+          db.salesMember.update({
+            where: { id: entry.entityId },
+            data: { isActive: true },
+          }),
+        recreate: async () => {
+          const username = str(snap.username);
+          const dupe = await db.salesMember.findFirst({
+            where: { firmId: entry.firmId, username },
+            select: { id: true },
+          });
+          if (dupe) {
+            throw new BusinessError(
+              "ERR_DUPLICATE_USERNAME",
+              `Cannot restore "${entry.label}" — username "${username}" is now taken`,
+              409
+            );
+          }
+          return db.salesMember.create({
+            data: { ...plain(snap), firmId: entry.firmId } as never,
+          });
+        },
+      });
+
+    case "SALES_MEMBER":
+      return reactivateOrRecreate(entry, {
+        find: () => db.salesMember.findUnique({ where: { id: entry.entityId } }),
+        reactivate: () =>
+          db.salesMember.update({
+            where: { id: entry.entityId },
+            data: { isActive: true },
+          }),
+        recreate: async () => {
+          const username = str(snap.username);
+          const dupe = await db.salesMember.findFirst({
+            where: { firmId: entry.firmId, username },
+            select: { id: true },
+          });
+          if (dupe) {
+            throw new BusinessError(
+              "ERR_DUPLICATE_USERNAME",
+              `Cannot restore "${entry.label}" — username "${username}" is now taken`,
+              409
+            );
+          }
+          return db.salesMember.create({
+            data: { ...plain(snap), firmId: entry.firmId } as never,
+          });
+        },
+      });
+
     case "TRIP":
       // Trips are archived for audit only — restoring one would
       // resurrect stop rows that collide with orders now planned
@@ -361,6 +416,24 @@ export async function purgeFromTrash(trashId: string): Promise<PurgeResult> {
           result = {
             recordRemoved: false,
             note: "Team account has verification history — removed from the bin; the inactive row stays.",
+          };
+        }
+      }
+      break;
+    }
+    case "SALES_MEMBER": {
+      const row = await db.salesMember.findUnique({ where: { id } });
+      if (row) {
+        const refs =
+          (await db.invoice.count({ where: { salesMemberId: id } })) +
+          (await db.salesOrder.count({ where: { salesMemberId: id } })) +
+          (await db.customerReceipt.count({ where: { salesMemberId: id } }));
+        if (refs === 0) {
+          await db.salesMember.delete({ where: { id } }).catch(() => undefined);
+        } else {
+          result = {
+            recordRemoved: false,
+            note: "Sales account has billed invoices/orders — removed from the bin; the inactive row stays.",
           };
         }
       }

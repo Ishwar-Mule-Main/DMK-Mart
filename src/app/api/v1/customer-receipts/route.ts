@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import {
   asRecord,
   asRecordArray,
+  BusinessError,
   fyRange,
   getDate,
   getNum,
@@ -27,15 +28,18 @@ export async function GET(request: NextRequest) {
     await resolveFirm(firmId);
 
     const customerId = getStr(sp.get("customerId"));
+    const salesMemberId = getStr(sp.get("salesMemberId"));
     const fy = fyRange(sp.get("fy"));
     const receipts = await db.customerReceipt.findMany({
       where: {
         firmId,
         ...(fy ? { receiptDate: fy } : {}),
         ...(customerId ? { customerId } : {}),
+        ...(salesMemberId ? { salesMemberId } : {}),
       },
       include: {
         customer: { select: { id: true, partyName: true } },
+        salesMember: { select: { id: true, fullName: true, username: true } },
         allocations: {
           include: { invoice: { select: { id: true, invoiceNumber: true } } },
         },
@@ -64,6 +68,16 @@ export async function POST(request: NextRequest) {
     const body = asRecord(await request.json().catch(() => ({})));
     const firm = await resolveFirm(getStr(body.firmId));
 
+    // /sales portal attribution — validate the member belongs to this firm.
+    const salesMemberId = getStr(body.salesMemberId);
+    if (salesMemberId) {
+      const member = await db.salesMember.findFirst({
+        where: { id: salesMemberId, firmId: firm.id },
+        select: { id: true },
+      });
+      if (!member) throw new BusinessError("ERR_VALIDATION", "Sales member not found in this firm", 422);
+    }
+
     const result = await createCustomerReceipt(firm, {
       customerId: getStr(body.customerId),
       receiptDate: getDate(body.receiptDate),
@@ -76,6 +90,13 @@ export async function POST(request: NextRequest) {
         amount: getNum(a.amount),
       })),
     });
+
+    if (salesMemberId) {
+      await db.customerReceipt.update({
+        where: { id: result.receipt.id },
+        data: { salesMemberId },
+      });
+    }
 
     return ok(result, 201);
   } catch (e) {

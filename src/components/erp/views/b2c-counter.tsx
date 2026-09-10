@@ -71,6 +71,8 @@ export default function B2CCounterView() {
   const { toast } = useToast();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
+  // /sales portal — attribution for counter receipts posted by a sales member.
+  const session = useErpStore((s) => s.session);
 
   // ── Counter stats (today) ────────────────────────────────────
   const [counterInvoices, setCounterInvoices] = React.useState<Invoice[] | null>(null);
@@ -225,6 +227,8 @@ export default function B2CCounterView() {
         walkInPhone: buyer ? "" : walkInPhone.trim(),
         invoiceDate,
         paymentMode,
+        // /sales portal attribution — stamp "Billed By" with the signed-in member.
+        ...(session?.role === "SALES" && session.salesId ? { salesMemberId: session.salesId } : {}),
         lines: lines.map((l) => ({ productId: l.product.id, quantity: l.qty })),
       });
       setLastInvoice(inv);

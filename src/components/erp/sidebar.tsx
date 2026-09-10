@@ -41,6 +41,7 @@ import {
   ClipboardCheck,
   PackagePlus,
   Trash2,
+  UsersRound,
 } from "lucide-react";
 import { useErpStore, type ViewId } from "@/store/erp-store";
 import { useT } from "@/lib/i18n";
@@ -140,6 +141,7 @@ const SECTIONS: NavSection[] = [
       { id: "reports", label: "Reports & Exports", key: "nav.reports", icon: BarChart3 },
       { id: "ai", label: "AI Copilot", key: "nav.ai", icon: Bot },
       { id: "data/deleted", label: "Deleted Data", key: "nav.deleted", icon: Trash2 },
+      { id: "sales/team", label: "Sales Team", key: "nav.salesTeam", icon: UsersRound },
       { id: "settings", label: "Settings", key: "nav.settings", icon: Settings },
     ],
   },

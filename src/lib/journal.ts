@@ -57,7 +57,7 @@ export async function nextVoucherNumber(
 
 /** Sequential document numbering for a specific doc family. */
 export async function nextDocNumber(
-  family: "INVOICE" | "PO" | "CN" | "DN" | "TRIP",
+  family: "INVOICE" | "PO" | "CN" | "DN" | "TRIP" | "SO",
   firmId: string,
   invoicePrefix: string,
   fy: string
@@ -67,8 +67,9 @@ export async function nextDocNumber(
   else if (family === "PO") count = await db.purchaseOrder.count({ where: { firmId } });
   else if (family === "CN") count = await db.salesReturn.count({ where: { firmId } });
   else if (family === "TRIP") count = await db.trip.count({ where: { firmId } });
+  else if (family === "SO") count = await db.salesOrder.count({ where: { firmId } });
   else count = await db.purchaseReturn.count({ where: { firmId } });
-  const suffix = { INVOICE: "INV", PO: "PO", CN: "CN", DN: "DN", TRIP: "TRIP" }[family];
+  const suffix = { INVOICE: "INV", PO: "PO", CN: "CN", DN: "DN", TRIP: "TRIP", SO: "SO" }[family];
   return `${invoicePrefix}/${fy}/${suffix}/${String(count + 1).padStart(4, "0")}`;
 }
 

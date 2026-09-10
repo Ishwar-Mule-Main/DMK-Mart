@@ -47,6 +47,8 @@ model Firm {
   updatedAt      DateTime @updatedAt
 
   verificationStaff VerificationStaff[]
+  salesMembers      SalesMember[]
+  salesOrders       SalesOrder[]
   financialYears    FinancialYear[]
   deliveryRoutes    DeliveryRoute[]
   trips             Trip[]
@@ -151,6 +153,7 @@ model Product {
   purchaseReturnItems PurchaseReturnItem[]
   movements           InventoryMovement[]
   recurringTemplateItems RecurringTemplateItem[]
+  salesOrderItems       SalesOrderItem[]
 
   @@unique([firmId, sku])
   @@index([firmId, name])
@@ -187,6 +190,9 @@ model Customer {
   invoices         Invoice[]
   salesReturns     SalesReturn[]
   receipts         CustomerReceipt[]
+  salesOrders      SalesOrder[]
+  createdBySalesMemberId String?
+  createdBySalesMember SalesMember? @relation("SalesCreatedCustomers", fields: [createdBySalesMemberId], references: [id], onDelete: SetNull)
   ledgerEntries    LedgerEntry[]
   recurringTemplates RecurringTemplate[]
 
@@ -304,9 +310,11 @@ model Invoice {
   status         String   @default("POSTED") // POSTED | CANCELLED
   templateId     String? // set when auto-posted by a recurring template (subscription ledger)
   deliveryOtp    String @default("") // 4-digit Delivery Verification OTP — printed on the tax invoice bill (non-counter sales)
+  salesMemberId  String? // set when billed by a /sales portal member (attribution)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  salesMember  SalesMember? @relation("BilledBySalesMember", fields: [salesMemberId], references: [id], onDelete: SetNull)
   lineItems    InvoiceLineItem[]
   tripStop     TripStop?
   salesReturns SalesReturn[]
@@ -316,6 +324,7 @@ model Invoice {
   @@unique([firmId, invoiceNumber])
   @@index([firmId, invoiceDate])
   @@index([firmId, templateId])
+  @@index([firmId, salesMemberId])
 }
 
 model InvoiceLineItem {
@@ -491,7 +500,9 @@ model CustomerReceipt {
   notes       String   @default("")
   createdAt   DateTime @default(now())
 
+  salesMemberId String? // set when collected by a /sales portal member (attribution)
   allocations ReceiptAllocation[]
+  salesMember SalesMember? @relation("CollectedBySalesMember", fields: [salesMemberId], references: [id], onDelete: SetNull)
 
   @@index([firmId, receiptDate])
 }
@@ -759,6 +770,7 @@ model DeliveryRoute {
   updatedAt DateTime @updatedAt
 
   trips Trip[]
+  salesMembers SalesMember[]
 
   @@unique([firmId, name])
   @@index([firmId, isActive])
@@ -845,4 +857,89 @@ model AiSettings {
   apiKey    String? // stored in the owner's own database
   model     String? // model id, e.g. z-ai/glm-5.3-flash
   updatedAt DateTime @updatedAt
+}
+
+// ─── SALES TEAM (dedicated /sales portal) ───────────────────────
+// Owner-created sales staff accounts. They log in at /sales and see
+// ONLY the sections the owner has toggled ON — never purchase costs,
+// P&L, bank figures or any financial confidentialia. Every invoice,
+// sales order, receipt and customer they create is stamped with
+// their id for owner-side attribution ("Billed By: Rahul Shinde").
+model SalesMember {
+  id               String         @id @default(cuid())
+  firmId           String
+  firm             Firm           @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  fullName         String
+  phone            String         @default("")
+  username         String
+  passwordHash     String // sha256 hex (dmk:: prefix) — created & managed from the owner portal
+  isActive         Boolean        @default(true) // suspend = instantly blocks the /sales login
+  assignedRouteId  String?
+  assignedRoute    DeliveryRoute? @relation(fields: [assignedRouteId], references: [id], onDelete: SetNull)
+
+  // Granular section permissions — toggled by the owner per member.
+  canB2BBilling      Boolean @default(true)
+  canB2CPos          Boolean @default(true)
+  canSalesOrders     Boolean @default(true)
+  canManageCustomers Boolean @default(true)
+  canViewStock       Boolean @default(true)
+  canViewInvoices    Boolean @default(true)
+  canRecordReceipts  Boolean @default(false)
+  canOverridePrice   Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices         Invoice[]         @relation("BilledBySalesMember")
+  salesOrders      SalesOrder[]      @relation("BookedBySalesMember")
+  receipts         CustomerReceipt[] @relation("CollectedBySalesMember")
+  customersCreated Customer[]        @relation("SalesCreatedCustomers")
+
+  @@unique([firmId, username])
+  @@index([firmId, isActive])
+}
+
+// ─── SALES ORDERS (SO booking — phone/PDF orders for delivery) ──
+// Sales staff record an order taken on a call or from a PDF; the
+// office converts it to a tax invoice at dispatch. No stock or
+// journal impact until conversion.
+model SalesOrder {
+  id                 String       @id @default(cuid())
+  firmId             String
+  firm               Firm         @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  orderNumber        String
+  orderDate          DateTime
+  customerId         String?
+  customer           Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  status             String       @default("BOOKED") // BOOKED | CONVERTED | CANCELLED
+  estimatedTotal     Float        @default(0)
+  notes              String       @default("")
+  salesMemberId      String?
+  salesMember        SalesMember? @relation("BookedBySalesMember", fields: [salesMemberId], references: [id], onDelete: SetNull)
+  convertedInvoiceId String?      @unique // set when the office bills this order
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  items SalesOrderItem[]
+
+  @@unique([firmId, orderNumber])
+  @@index([firmId, status])
+  @@index([firmId, salesMemberId])
+}
+
+model SalesOrderItem {
+  id          String     @id @default(cuid())
+  orderId     String
+  order       SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product    @relation(fields: [productId], references: [id])
+  sku         String     @default("")
+  productName String     @default("")
+  unit        String     @default("Pcs")
+  quantity    Float
+  unitPrice   Float      @default(0) // tier price snapshot at booking
+  totalAmount Float      @default(0)
+  notes       String     @default("")
+
+  @@index([orderId])
 }

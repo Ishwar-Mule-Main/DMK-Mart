@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import {
   asRecord,
   asRecordArray,
+  BusinessError,
   fyRange,
   getDate,
   getNum,
@@ -31,6 +32,7 @@ export async function GET(request: NextRequest) {
     const search = getStr(sp.get("search"));
     const customerId = getStr(sp.get("customerId"));
     const counterParam = getStr(sp.get("isCounterSale"));
+    const salesMemberId = getStr(sp.get("salesMemberId"));
     const fy = fyRange(sp.get("fy"));
 
     // Word-wise SQL prefilter: every query word must hit at least one
@@ -55,10 +57,12 @@ export async function GET(request: NextRequest) {
         ...(fy ? { invoiceDate: fy } : {}),
         ...(customerId ? { customerId } : {}),
         ...(counterParam !== "" ? { isCounterSale: counterParam === "true" } : {}),
+        ...(salesMemberId ? { salesMemberId } : {}),
         ...(words.length > 0 ? { AND: words.map((w) => ({ OR: fieldContains(w) })) } : {}),
       },
       include: {
         customer: { select: { id: true, partyName: true, customerType: true, stateCode: true } },
+        salesMember: { select: { id: true, fullName: true, username: true } },
       },
       orderBy: { invoiceDate: "desc" },
       take: 200,
@@ -102,6 +106,16 @@ export async function POST(request: NextRequest) {
       manualDiscountPct: l.manualDiscountPct !== undefined ? getNum(l.manualDiscountPct) : undefined,
     }));
 
+    // /sales portal attribution — validate the member belongs to this firm.
+    const salesMemberId = getStr(body.salesMemberId);
+    if (salesMemberId) {
+      const member = await db.salesMember.findFirst({
+        where: { id: salesMemberId, firmId: firm.id },
+        select: { id: true },
+      });
+      if (!member) throw new BusinessError("ERR_VALIDATION", "Sales member not found in this firm", 422);
+    }
+
     const result = await createInvoice(firm, {
       firmId: firm.id,
       customerId: getStr(body.customerId) || null,
@@ -112,6 +126,14 @@ export async function POST(request: NextRequest) {
       paymentMode: getStr(body.paymentMode) || "CREDIT",
       lines,
     });
+
+    const postedInvoice = result.invoice;
+    if (salesMemberId && postedInvoice) {
+      await db.invoice.update({
+        where: { id: postedInvoice.id },
+        data: { salesMemberId },
+      });
+    }
 
     return ok(result.invoice, 201);
   } catch (e) {

@@ -108,6 +108,17 @@ export async function POST(request: NextRequest) {
         creditDays: Math.round(getNum(body.creditDays, 30)),
         openingBalance,
         closingBalance: openingBalance,
+        // /sales portal attribution — validate the member belongs to this firm.
+        ...(await (async () => {
+          const salesMemberId = getStr(body.salesMemberId);
+          if (!salesMemberId) return {};
+          const member = await db.salesMember.findFirst({
+            where: { id: salesMemberId, firmId: firm.id },
+            select: { id: true },
+          });
+          if (!member) throw new BusinessError("ERR_VALIDATION", "Sales member not found in this firm", 422);
+          return { createdBySalesMemberId: salesMemberId };
+        })()),
       },
     });
 

@@ -33,6 +33,7 @@ export async function GET(
           },
         },
         salesReturns: { select: { id: true, creditNoteNo: true, grandTotal: true } },
+        salesMember: { select: { id: true, fullName: true, username: true } },
       },
     });
     if (!invoice) throw new BusinessError("ERR_NOT_FOUND", "Invoice not found", 404);

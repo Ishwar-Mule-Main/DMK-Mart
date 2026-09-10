@@ -137,6 +137,9 @@ export default function BillingView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   const setView = useErpStore((s) => s.setView);
+  // /sales portal — attribution + owner-granted override permission.
+  const session = useErpStore((s) => s.session);
+  const canOverridePrice = session?.role !== "SALES" || Boolean(session.salesPerms?.canOverridePrice);
 
   // Customer picker
   const [custQuery, setCustQuery] = React.useState("");
@@ -323,6 +326,8 @@ export default function BillingView() {
         isCounterSale: false,
         invoiceDate,
         paymentMode,
+        // /sales portal attribution — stamp "Billed By" with the signed-in member.
+        ...(session?.role === "SALES" && session.salesId ? { salesMemberId: session.salesId } : {}),
         lines: lines.map((l) => ({
           productId: l.product.id,
           quantity: l.qty,
@@ -722,8 +727,10 @@ export default function BillingView() {
                               step={0.5}
                               value={l.manualDiscPct}
                               onChange={(e) => setDisc(l.product.id, Number(e.target.value) || 0)}
+                              disabled={!canOverridePrice}
+                              title={canOverridePrice ? undefined : "Discount overrides are not enabled for your account"}
                               aria-label={`Manual discount percent for ${l.product.name}`}
-                              className="h-8 w-16 bg-dmk-input-well border-dmk-border-subtle text-[12.5px] font-money text-right ml-auto dmk-input"
+                              className="h-8 w-16 bg-dmk-input-well border-dmk-border-subtle text-[12.5px] font-money text-right ml-auto dmk-input disabled:opacity-50 disabled:cursor-not-allowed"
                             />
                           </td>
                           <td className="num text-[12.5px] text-dmk-text-primary">{formatINR(bp.unitPrice)}</td>

@@ -421,6 +421,8 @@ function NewReceiptDialog({
 }) {
   const { toast } = useToast();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  // /sales portal — attribution for receipts collected by a sales member.
+  const session = useErpStore((s) => s.session);
   const [customerId, setCustomerId] = React.useState("");
   const [amount, setAmount] = React.useState("");
   const [mode, setMode] = React.useState<(typeof MODES)[number]>("NEFT");
@@ -607,6 +609,8 @@ function NewReceiptDialog({
           utrRef: utrRef.trim(),
           notes: notes.trim(),
           allocations,
+          // /sales portal attribution — stamp "Collected By" with the signed-in member.
+          ...(session?.role === "SALES" && session.salesId ? { salesMemberId: session.salesId } : {}),
         }
       );
       const settledCount = res.applied?.length ?? 0;
