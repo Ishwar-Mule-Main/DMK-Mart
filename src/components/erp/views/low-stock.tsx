@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { apiGet } from "@/lib/api-client";
 import { toast } from "@/hooks/use-toast";
 import { useErpStore } from "@/store/erp-store";
+import { useT } from "@/lib/i18n";
 import { formatINR } from "@/lib/format";
 
 interface LowStockRow {
@@ -40,6 +41,7 @@ function fmtQty(n: number): string {
 export default function LowStockView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const setView = useErpStore((s) => s.setView);
+  const { t } = useT();
 
   const [items, setItems] = React.useState<LowStockRow[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -54,7 +56,7 @@ export default function LowStockView() {
       const rows = await apiGet<LowStockRow[]>("/api/v1/inventory/low-stock", { firmId: activeFirmId });
       setItems(Array.isArray(rows) ? rows : []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load low-stock alerts");
+      setError(e instanceof Error ? e.message : t("low.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -67,8 +69,8 @@ export default function LowStockView() {
   const draftPo = (item: LowStockRow) => {
     setView("purchase/orders");
     toast({
-      title: "Drafting purchase order",
-      description: `Select vendor and add ${item.name}`,
+      title: t("low.toastDrafting"),
+      description: t("low.toastDraftingDesc", { name: item.name }),
     });
   };
 
@@ -77,11 +79,11 @@ export default function LowStockView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Low Stock Alerts"
-        subtitle="Products at or below their reorder threshold · most urgent first (R19)"
+        title={t("low.title")}
+        subtitle={t("low.subtitle")}
         actions={
           <>
-            {items.length > 0 && <Badge tone="danger">{items.length} ALERTS</Badge>}
+            {items.length > 0 && <Badge tone="danger">{t("low.alertsN", { n: items.length })}</Badge>}
             <Button
               variant="outline"
               size="sm"
@@ -90,7 +92,7 @@ export default function LowStockView() {
               className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-              Refresh
+              {t("cmn.refresh")}
             </Button>
           </>
         }
@@ -106,8 +108,8 @@ export default function LowStockView() {
         <div className="dmk-card">
           <EmptyState
             icon={CheckCircle2}
-            title="All stock levels healthy"
-            hint="Every active product is above its configured reorder threshold. Thresholds can be tuned per product in the product master."
+            title={t("low.healthyTitle")}
+            hint={t("low.healthyHint")}
             action={
               <Button
                 variant="outline"
@@ -115,7 +117,7 @@ export default function LowStockView() {
                 onClick={() => setView("inventory/products")}
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well hover:bg-dmk-hover"
               >
-                Open Product Master
+                {t("low.openMaster")}
               </Button>
             }
           />
@@ -124,28 +126,28 @@ export default function LowStockView() {
         <>
           <div className="dmk-well px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1">
             <span className="text-[11.5px] text-dmk-text-muted">
-              Alerts <span className="font-money text-dmk-danger font-semibold">{items.length}</span>
+              {t("low.alertsLabel")} <span className="font-money text-dmk-danger font-semibold">{items.length}</span>
             </span>
             <span className="text-[11.5px] text-dmk-text-muted">
-              Estimated reorder cost{" "}
+              {t("low.estReorderCost")}{" "}
               <span className="font-money text-dmk-text-primary font-semibold">{formatINR(estimatedTotal)}</span>
             </span>
             <span className="text-[11px] text-dmk-text-disabled ml-auto hidden sm:inline">
-              Est. cost = deficit × purchase cost
+              {t("low.estFormula")}
             </span>
           </div>
 
           <DataTable>
             <thead>
               <tr>
-                <th>SKU</th>
-                <th>Product</th>
-                <th>Unit</th>
-                <th className="num">Current</th>
-                <th className="num">Threshold</th>
-                <th className="num">Deficit</th>
-                <th className="num">Est. Cost</th>
-                <th className="text-right">Action</th>
+                <th>{t("cmn.sku")}</th>
+                <th>{t("cmn.product")}</th>
+                <th>{t("cmn.unit")}</th>
+                <th className="num">{t("low.colCurrent")}</th>
+                <th className="num">{t("low.colThreshold")}</th>
+                <th className="num">{t("low.colDeficit")}</th>
+                <th className="num">{t("low.colEstCost")}</th>
+                <th className="text-right">{t("low.colAction")}</th>
               </tr>
             </thead>
             <tbody>
@@ -183,7 +185,7 @@ export default function LowStockView() {
                       className="h-8 px-2.5 gap-1.5 text-[11.5px] border-dmk-border-subtle bg-dmk-input-well hover:bg-dmk-hover"
                     >
                       <ShoppingCart className="h-3 w-3" />
-                      Draft PO
+                      {t("low.draftPo")}
                     </Button>
                   </td>
                 </tr>

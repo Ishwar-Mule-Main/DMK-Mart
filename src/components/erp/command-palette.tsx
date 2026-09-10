@@ -14,7 +14,7 @@ import {
   FileText, AlertTriangle, BookOpen, ListTree, Landmark, BookUser, PieChart,
   CalendarDays, CalendarClock, Timer, FileCheck2, FileWarning, BarChart3, Bot, Settings,
   Plus, Building2, Search, CornerDownLeft, RefreshCw, GitCompareArrows, Trash2,
-  UsersRound,
+  UsersRound, Wallet,
 } from "lucide-react";
 import {
   CommandDialog, CommandInput, CommandList, CommandEmpty,
@@ -55,6 +55,8 @@ const NAV_GROUPS: Array<{ heading: string; items: NavItem[] }> = [
       { id: "inventory/low-stock", label: "Low Stock Alerts", icon: AlertTriangle },
       { id: "finance/journals", label: "Journals", icon: BookOpen },
       { id: "finance/coa", label: "Chart of Accounts", icon: ListTree },
+      { id: "finance/expense-record", label: "Record Expense", icon: Wallet },
+      { id: "finance/expense-reports", label: "Expense Reports", icon: BarChart3 },
       { id: "finance/ledgers", label: "Party Ledgers", icon: Landmark },
       { id: "finance/sundry", label: "Sundry Debtors / Creditors", icon: BookUser },
       { id: "finance/statements", label: "Statements (TB · P&L · BS)", icon: PieChart },

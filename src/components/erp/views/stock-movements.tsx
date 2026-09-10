@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { apiGet } from "@/lib/api-client";
 import { useErpStore } from "@/store/erp-store";
+import { useT, type TFn } from "@/lib/i18n";
 import type { Product, InventoryMovement } from "@/types/erp";
 import { downloadCSV } from "@/lib/format";
 
@@ -43,16 +44,20 @@ const MOVEMENT_TYPES = [
   "STOCK_ADJUSTMENT",
 ] as const;
 
-const TYPE_LABEL: Record<string, string> = {
-  PURCHASE_INWARD: "PURCHASE IN",
-  SALES_OUTWARD: "SALES OUT",
-  DAMAGE_QUARANTINE: "QUARANTINE",
-  SALES_RETURN_DAMAGE: "RETURN → DAMAGED",
-  PURCHASE_RETURN_DAMAGE: "RETURN → VENDOR",
-  WRITE_OFF: "WRITE-OFF",
-  OPENING: "OPENING",
-  STOCK_ADJUSTMENT: "ADJUSTMENT",
-};
+/** Display label for a movement type (the value itself is the API enum). */
+function typeLabel(t: TFn, type: string): string {
+  switch (type) {
+    case "PURCHASE_INWARD": return t("stm.tIn");
+    case "SALES_OUTWARD": return t("stm.tOut");
+    case "DAMAGE_QUARANTINE": return t("stm.tQuarantine");
+    case "SALES_RETURN_DAMAGE": return t("stm.tReturnDamaged");
+    case "PURCHASE_RETURN_DAMAGE": return t("stm.tReturnVendor");
+    case "WRITE_OFF": return t("stm.tWriteOff");
+    case "OPENING": return t("stm.tOpening");
+    case "STOCK_ADJUSTMENT": return t("stm.tAdjustment");
+    default: return type;
+  }
+}
 
 /** IN flows → success/info; OUT flows → warning/danger. */
 function typeTone(m: InventoryMovement): BadgeTone {
@@ -81,6 +86,7 @@ function fmtQty(n: number): string {
 
 export default function StockMovementsView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const { t } = useT();
 
   const [movements, setMovements] = React.useState<InventoryMovement[]>([]);
   const [productOptions, setProductOptions] = React.useState<Product[]>([]);
@@ -104,7 +110,7 @@ export default function StockMovementsView() {
       });
       setMovements(Array.isArray(rows) ? rows : []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load movements");
+      setError(e instanceof Error ? e.message : t("stm.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -132,7 +138,7 @@ export default function StockMovementsView() {
 
   const exportCsv = () => {
     downloadCSV("stock-movements.csv", [
-      ["Date", "SKU", "Product", "Type", "Direction", "Quantity", "Pool", "Reference", "Notes"],
+      [t("cmn.date"), t("cmn.sku"), t("cmn.product"), t("stm.colType"), t("stm.colDirection"), t("cmn.quantity"), t("stm.colPool"), t("stm.colReference"), t("cmn.notes")],
       ...movements.map((m) => [
         new Date(m.createdAt).toISOString().slice(0, 10),
         m.product?.sku ?? "—",
@@ -150,8 +156,8 @@ export default function StockMovementsView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Stock Movements"
-        subtitle="Append-only audit ledger · every pool change is recorded (R3/R4)"
+        title={t("stm.title")}
+        subtitle={t("stm.subtitle")}
         actions={
           <Button
             variant="outline"
@@ -161,7 +167,7 @@ export default function StockMovementsView() {
             className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
           >
             <Download className="h-3.5 w-3.5" />
-            Export CSV
+            {t("stm.exportCsv")}
           </Button>
         }
       />
@@ -170,10 +176,10 @@ export default function StockMovementsView() {
       <div className="flex flex-col sm:flex-row gap-2.5">
         <Select value={productId} onValueChange={setProductId}>
           <SelectTrigger className="w-full sm:w-[260px] h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
-            <SelectValue placeholder="Product" />
+            <SelectValue placeholder={t("cmn.product")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All products</SelectItem>
+            <SelectItem value="all">{t("stm.allProducts")}</SelectItem>
             {productOptions.map((p) => (
               <SelectItem key={p.id} value={p.id}>
                 {p.sku} — {p.name}
@@ -183,13 +189,13 @@ export default function StockMovementsView() {
         </Select>
         <Select value={movementType} onValueChange={setMovementType}>
           <SelectTrigger className="w-full sm:w-[210px] h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
-            <SelectValue placeholder="Movement type" />
+            <SelectValue placeholder={t("stm.movementTypePh")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All movement types</SelectItem>
-            {MOVEMENT_TYPES.map((t) => (
-              <SelectItem key={t} value={t}>
-                {TYPE_LABEL[t]}
+            <SelectItem value="all">{t("stm.allMovementTypes")}</SelectItem>
+            {MOVEMENT_TYPES.map((mt) => (
+              <SelectItem key={mt} value={mt}>
+                {typeLabel(t, mt)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -201,7 +207,7 @@ export default function StockMovementsView() {
           <SelectContent>
             {[50, 100, 200, 300].map((n) => (
               <SelectItem key={n} value={String(n)}>
-                Last {n}
+                {t("stm.lastN", { n })}
               </SelectItem>
             ))}
           </SelectContent>
@@ -218,22 +224,22 @@ export default function StockMovementsView() {
         <div className="dmk-card">
           <EmptyState
             icon={History}
-            title="No movements recorded"
-            hint="Movements appear when stock enters or leaves a pool — purchases, sales, returns, quarantine transfers and write-offs."
+            title={t("stm.emptyTitle")}
+            hint={t("stm.emptyHint")}
           />
         </div>
       ) : (
         <DataTable>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>SKU</th>
-              <th>Product</th>
-              <th>Type</th>
-              <th className="num">Qty</th>
-              <th>Pool</th>
-              <th>Reference</th>
-              <th>Notes</th>
+              <th>{t("cmn.date")}</th>
+              <th>{t("cmn.sku")}</th>
+              <th>{t("cmn.product")}</th>
+              <th>{t("stm.colType")}</th>
+              <th className="num">{t("stm.colQty")}</th>
+              <th>{t("stm.colPool")}</th>
+              <th>{t("stm.colReference")}</th>
+              <th>{t("cmn.notes")}</th>
             </tr>
           </thead>
           <tbody>
@@ -249,7 +255,7 @@ export default function StockMovementsView() {
                   {m.product?.name ?? "—"}
                 </td>
                 <td>
-                  <Badge tone={typeTone(m)}>{TYPE_LABEL[m.movementType] ?? m.movementType}</Badge>
+                  <Badge tone={typeTone(m)}>{typeLabel(t, m.movementType)}</Badge>
                 </td>
                 <td className="num whitespace-nowrap">
                   <span

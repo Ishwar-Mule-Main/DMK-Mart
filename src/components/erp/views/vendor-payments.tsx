@@ -44,6 +44,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { consumePendingVendor, consumePendingPayPo } from "@/lib/settle-bus";
 import { filterByQuery } from "@/lib/search-rank";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 interface PayAllocation {
@@ -88,9 +89,10 @@ function num(s: string): number {
 
 // ── "Settled against" cell (PO chips, mirrors receipts.tsx) ──────
 function SettledAgainstCell({ row }: { row: PayRow }) {
+  const { t } = useT();
   const allocs = row.allocations ?? [];
   if (allocs.length === 0) {
-    return <span className="text-[11.5px] italic text-dmk-text-muted">On account</span>;
+    return <span className="text-[11.5px] italic text-dmk-text-muted">{t("vp.onAccount")}</span>;
   }
   const shown = allocs.slice(0, 2);
   const rest = allocs.length - shown.length;
@@ -108,11 +110,11 @@ function SettledAgainstCell({ row }: { row: PayRow }) {
       ))}
       {rest > 0 && (
         <span className="text-[10px] text-dmk-text-muted block">
-          +{rest} more · {formatINR(allocs.slice(2).reduce((s, a) => s + Number(a.amount), 0))}
+          {t("vp.moreN", { n: rest, amt: formatINR(allocs.slice(2).reduce((s, a) => s + Number(a.amount), 0)) })}
         </span>
       )}
       {remainder > 0.009 && (
-        <span className="text-[10.5px] text-dmk-text-muted font-money block">· on acct {formatINR(remainder)}</span>
+        <span className="text-[10.5px] text-dmk-text-muted font-money block">{t("vp.onAcctShort", { amt: formatINR(remainder) })}</span>
       )}
     </div>
   );
@@ -120,6 +122,7 @@ function SettledAgainstCell({ row }: { row: PayRow }) {
 
 export default function VendorPaymentsView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
 
   const [rows, setRows] = React.useState<PayRow[] | null>(null);
@@ -179,7 +182,7 @@ export default function VendorPaymentsView() {
         if (alive) {
           setRows([]);
           if (e instanceof ApiError)
-            toast({ variant: "destructive", title: "Could not load payments", description: e.message });
+            toast({ variant: "destructive", title: t("vp.toastLoadFail"), description: e.message });
         }
       });
     return () => {
@@ -221,7 +224,7 @@ export default function VendorPaymentsView() {
 
   function exportCsv() {
     downloadCSV("vendor-payments.csv", [
-      ["Date", "Vendor", "Mode", "UTR Ref", "Amount", "Settled Against", "On Account", "Notes"],
+      [t("cmn.date"), t("cmn.vendor"), t("vp.colMode"), t("vp.colUtr"), t("cmn.amount"), t("vp.colSettled"), t("vp.onAccount"), t("cmn.notes")],
       ...visible.map((r) => {
         const allocs = r.allocations ?? [];
         const allocated = allocs.reduce((s, a) => s + Number(a.amount), 0);
@@ -237,14 +240,14 @@ export default function VendorPaymentsView() {
         ];
       }),
     ]);
-    toast({ title: "Exported", description: `${visible.length} payments written to CSV.` });
+    toast({ title: t("vp.toastExported"), description: t("vp.toastExportedDesc", { n: visible.length }) });
   }
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Vendor Payments"
-        subtitle="Pay down vendor payables (Cr) · allocate to open purchase orders for precise AP · NEFT / UPI / Cheque / Cash"
+        title={t("vp.title")}
+        subtitle={t("vp.subtitle")}
         icon={Banknote}
         actions={
           <Button
@@ -252,35 +255,35 @@ export default function VendorPaymentsView() {
             className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
             onClick={() => setPayOpen(true)}
           >
-            <Plus className="h-4 w-4" /> Record Payment
+            <Plus className="h-4 w-4" /> {t("vp.recordPayment")}
           </Button>
         }
       />
 
       <div className="dmk-enter-stagger grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard label="Paid this month" value={formatINR(monthTotal)} tone="orange" icon={Wallet} sub={`${monthRows.length} payments in ${now.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}`} />
-        <KpiCard label="Payments this month" value={String(monthRows.length)} tone="blue" icon={ReceiptText} sub="Against vendor payables" />
-        <KpiCard label="All-time paid" value={formatINR(allTotal)} tone="info" icon={Landmark} sub={`${(rows ?? []).length} payments recorded`} />
+        <KpiCard label={t("vp.kpiPaid")} value={formatINR(monthTotal)} tone="orange" icon={Wallet} sub={t("vp.kpiPaidSub", { n: monthRows.length, month: now.toLocaleDateString("en-IN", { month: "long", year: "numeric" }) })} />
+        <KpiCard label={t("vp.kpiCount")} value={String(monthRows.length)} tone="blue" icon={ReceiptText} sub={t("vp.kpiCountSub")} />
+        <KpiCard label={t("vp.kpiAllTime")} value={formatINR(allTotal)} tone="info" icon={Landmark} sub={t("vp.kpiAllTimeSub", { n: (rows ?? []).length })} />
         <KpiCard
-          label="Bill-wise settled"
+          label={t("vp.kpiSettled")}
           value={`${settlePct.toFixed(0)}%`}
           tone="success"
           icon={Package}
-          sub={`${formatINR(allocatedTotal)} allocated to purchase orders`}
+          sub={t("vp.kpiSettledSub", { amt: formatINR(allocatedTotal) })}
         />
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search vendor, UTR, PO #, notes or mode…" className="pl-9" />
+          <SearchInput value={query} onChange={setQuery} placeholder={t("vp.searchPh")} className="pl-9" />
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
         </div>
         <Select value={vendorFilter} onValueChange={setVendorFilter}>
           <SelectTrigger className={cn(inputCls, "w-full sm:w-[230px]")}>
-            <SelectValue placeholder="All vendors" />
+            <SelectValue placeholder={t("vp.allVendors")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="ALL">All vendors</SelectItem>
+            <SelectItem value="ALL">{t("vp.allVendors")}</SelectItem>
             {vendors.map((v) => (
               <SelectItem key={v.id} value={v.id}>{v.vendorName}</SelectItem>
             ))}
@@ -304,20 +307,20 @@ export default function VendorPaymentsView() {
           ) : visible.length === 0 ? (
             <EmptyState
               icon={Banknote}
-              title="No payments found"
-              hint="Record a payment to reduce a vendor's Cr (payable) balance."
+              title={t("vp.emptyTitle")}
+              hint={t("vp.emptyHint")}
             />
           ) : (
             <table className="dmk-table min-w-[980px]">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Vendor</th>
-                  <th>Mode</th>
-                  <th>UTR / Ref</th>
-                  <th>Settled Against</th>
-                  <th className="text-right">Amount</th>
-                  <th>Notes</th>
+                  <th>{t("cmn.date")}</th>
+                  <th>{t("cmn.vendor")}</th>
+                  <th>{t("vp.colMode")}</th>
+                  <th>{t("vp.colUtr")}</th>
+                  <th>{t("vp.colSettled")}</th>
+                  <th className="text-right">{t("cmn.amount")}</th>
+                  <th>{t("cmn.notes")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -375,6 +378,7 @@ function RecordPaymentDialog({
   onSaved: () => void;
 }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const [saving, setSaving] = React.useState(false);
   const [vendorId, setVendorId] = React.useState("");
@@ -527,8 +531,8 @@ function RecordPaymentDialog({
     if (overAllocated) {
       toast({
         variant: "destructive",
-        title: "Allocation exceeds payment",
-        description: `Allocated ${formatINR(allocationTotal)} but the payment is ${formatINR(amt)}.`,
+        title: t("vp.toastAllocExceeds"),
+        description: t("vp.toastAllocExceedsDesc", { alloc: formatINR(allocationTotal), pay: formatINR(amt) }),
       });
       return;
     }
@@ -552,19 +556,19 @@ function RecordPaymentDialog({
       );
       const settledCount = res.applied?.length ?? 0;
       toast({
-        title: "Payment recorded",
+        title: t("vp.toastRecorded"),
         description:
           settledCount > 0
-            ? `${formatINR(amt)} via ${mode} — settled ${settledCount} bill${settledCount !== 1 ? "s" : ""} (${formatINR(res.allocatedTotal ?? 0)})`
-            : `${selected?.vendorName ?? "Vendor"} · ${formatINR(amt)} via ${mode} · Payable reduced · Journal posted`,
+            ? t("vp.toastSettled", { amt: formatINR(amt), mode, n: settledCount, alloc: formatINR(res.allocatedTotal ?? 0) })
+            : t("vp.toastOnAccount", { name: selected?.vendorName ?? t("vp.vendorFallback"), amt: formatINR(amt), mode }),
       });
       onSaved();
       onOpenChange(false);
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Payment failed",
-        description: e instanceof ApiError ? e.message : "Could not record payment.",
+        title: t("vp.toastFailed"),
+        description: e instanceof ApiError ? e.message : t("vp.toastFailedDesc"),
       });
     } finally {
       setSaving(false);
@@ -575,18 +579,18 @@ function RecordPaymentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-dmk-text-primary">Record vendor payment</DialogTitle>
+          <DialogTitle className="text-dmk-text-primary">{t("vp.dialogTitle")}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
-            Reduces the vendor&apos;s Cr (payable) balance and posts a balanced PAYMENT journal — optionally settle specific bills.
+            {t("vp.dialogDesc")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="sm:col-span-2">
-            <Field label="Vendor *">
+            <Field label={t("vp.vendorField")}>
               <Select value={vendorId} onValueChange={setVendorId}>
                 <SelectTrigger className={cn(inputCls, "w-full")}>
-                  <SelectValue placeholder="Select vendor…" />
+                  <SelectValue placeholder={t("vp.vendorPh")} />
                 </SelectTrigger>
                 <SelectContent>
                   {vendors.map((v) => (
@@ -595,7 +599,7 @@ function RecordPaymentDialog({
                       {" — "}
                       {Number(v.closingBalance) > 0.005
                         ? `Cr ${formatINR(Number(v.closingBalance))}`
-                        : "Clear"}
+                        : t("vp.clear")}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -606,27 +610,27 @@ function RecordPaymentDialog({
           {selected && (
             <div className="sm:col-span-2 dmk-well px-3 py-2.5 text-[12px] flex flex-wrap items-center justify-between gap-2">
               <span className="text-dmk-text-muted">
-                Current payable{" "}
+                {t("vp.currentPayable")}{" "}
                 <span className={cn("font-money font-semibold", payable > 0.005 ? "text-dmk-info" : "text-dmk-success")}>
-                  {payable > 0.005 ? `Cr ${formatINR(payable)}` : "Clear"}
+                  {payable > 0.005 ? `Cr ${formatINR(payable)}` : t("vp.clear")}
                 </span>
               </span>
               {amt > 0 && (
                 <span className="text-dmk-text-muted">
-                  After payment{" "}
+                  {t("vp.afterPayment")}{" "}
                   <span className="font-money font-semibold text-dmk-text-secondary">
                     {payable - amt > 0.005
                       ? `Cr ${formatINR(payable - amt)}`
                       : payable - amt < -0.005
                         ? `Dr ${formatINR(amt - payable)}`
-                        : "Clear"}
+                        : t("vp.clear")}
                   </span>
                 </span>
               )}
             </div>
           )}
 
-          <Field label="Amount *">
+          <Field label={t("vp.amountField")}>
             <Input
               type="number"
               min="0"
@@ -638,7 +642,7 @@ function RecordPaymentDialog({
             />
           </Field>
 
-          <Field label="Mode *">
+          <Field label={t("vp.modeField")}>
             <Select value={mode} onValueChange={setMode}>
               <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -649,22 +653,22 @@ function RecordPaymentDialog({
             </Select>
           </Field>
 
-          <Field label="UTR / Reference" hint="Bank UTR, UPI txn ID or cheque number">
+          <Field label={t("vp.utrField")} hint={t("vp.utrHint")}>
             <Input
               value={utrRef}
               onChange={(e) => setUtrRef(e.target.value)}
               className={cn(inputCls, "font-money")}
-              placeholder="e.g. UTIB2026…"
+              placeholder={t("vp.utrPh")}
             />
           </Field>
 
-          <Field label="Payment date">
+          <Field label={t("vp.dateField")}>
             <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputCls} />
           </Field>
 
           <div className="sm:col-span-2">
-            <Field label="Notes">
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} className={inputCls} placeholder="Optional" />
+            <Field label={t("cmn.notes")}>
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} className={inputCls} placeholder={t("vp.notesPh")} />
             </Field>
           </div>
         </div>
@@ -675,12 +679,12 @@ function RecordPaymentDialog({
             <div className="flex items-center justify-between px-3 py-2 border-b border-dmk-border-subtle">
               <div className="flex items-center gap-2">
                 <CalendarClock className="h-3.5 w-3.5 text-dmk-info" />
-                <span className="text-[12px] font-semibold text-dmk-text-primary">Settle against open bills (purchase orders)</span>
+                <span className="text-[12px] font-semibold text-dmk-text-primary">{t("vp.settleTitle")}</span>
                 {poLoading ? (
                   <Loader2 className="h-3 w-3 animate-spin text-dmk-text-muted" />
                 ) : (
                   <span className="text-[10.5px] text-dmk-text-muted">
-                    {openPoCount > 0 ? `${openPoCount} open` : "none open"}
+                    {openPoCount > 0 ? t("vp.nOpen", { n: openPoCount }) : t("vp.noneOpen")}
                   </span>
                 )}
               </div>
@@ -692,25 +696,25 @@ function RecordPaymentDialog({
                 disabled={amt <= 0 || openPoCount === 0}
                 className="h-7 gap-1.5 px-2 text-[11px] border-dmk-border-medium text-dmk-info hover:bg-dmk-hover"
               >
-                <Sparkles className="h-3 w-3" /> Auto-allocate (oldest first)
+                <Sparkles className="h-3 w-3" /> {t("vp.autoAllocate")}
               </Button>
             </div>
 
             {poLoading ? (
-              <div className="px-3 py-4 text-[12px] text-dmk-text-muted">Loading open bills…</div>
+              <div className="px-3 py-4 text-[12px] text-dmk-text-muted">{t("vp.loadingBills")}</div>
             ) : openPoCount === 0 ? (
               <div className="px-3 py-3 text-[11.5px] text-dmk-text-muted italic">
-                No open CONFIRMED bills for this vendor — the full amount will be recorded <span className="not-italic font-medium text-dmk-text-secondary">on account</span>.
+                {t("vp.noBillsPre")} <span className="not-italic font-medium text-dmk-text-secondary">{t("vp.onAccount")}</span>{t("vp.noBillsPost")}
               </div>
             ) : (
               <div className="max-h-44 overflow-y-auto">
                 <table className="w-full text-[12px]">
                   <thead className="sticky top-0 bg-dmk-bg-tertiary z-10">
                     <tr className="text-[10.5px] uppercase tracking-wide text-dmk-text-muted">
-                      <th className="text-left font-semibold px-3 py-1.5">Bill / PO</th>
-                      <th className="text-left font-semibold px-2 py-1.5">Age</th>
-                      <th className="text-right font-semibold px-2 py-1.5">Outstanding</th>
-                      <th className="text-right font-semibold px-3 py-1.5 w-28">Allocate ₹</th>
+                      <th className="text-left font-semibold px-3 py-1.5">{t("vp.colBillPo")}</th>
+                      <th className="text-left font-semibold px-2 py-1.5">{t("vp.colAge")}</th>
+                      <th className="text-right font-semibold px-2 py-1.5">{t("vp.colOutstanding")}</th>
+                      <th className="text-right font-semibold px-3 py-1.5 w-28">{t("vp.colAllocate")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -721,19 +725,19 @@ function RecordPaymentDialog({
                           <td className="px-3 py-1.5">
                             <span className="font-money text-[11.5px] text-dmk-text-primary">{po.poNumber}</span>
                             {po.vendorBillNo && (
-                              <span className="ml-2 text-[10px] text-dmk-text-muted" title="Vendor bill no.">Bill {po.vendorBillNo}</span>
+                              <span className="ml-2 text-[10px] text-dmk-text-muted" title={t("vp.billTooltip")}>{t("vp.billPrefix")} {po.vendorBillNo}</span>
                             )}
                             <span className="ml-2 text-[10.5px] text-dmk-text-muted">{formatDate(po.poDate)}</span>
                             {(po.settled > 0.009 || po.credited > 0.009) && (
                               <span className="ml-2 text-[10px] text-dmk-text-muted">
-                                {po.settled > 0.009 && <>paid {formatINR(po.settled)} </>}
-                                {po.credited > 0.009 && <>· DN {formatINR(po.credited)}</>}
+                                {po.settled > 0.009 && <>{t("vp.paidN", { amt: formatINR(po.settled) })} </>}
+                                {po.credited > 0.009 && <>{t("vp.dnN", { amt: formatINR(po.credited) })}</>}
                               </span>
                             )}
                           </td>
                           <td className="px-2 py-1.5">
                             <Badge tone={poBucketTone(po.bucket)}>{po.bucket}</Badge>
-                            {po.isOverdue && <span className="ml-1 text-[10px] font-semibold text-dmk-danger">{po.overdueDays}d late</span>}
+                            {po.isOverdue && <span className="ml-1 text-[10px] font-semibold text-dmk-danger">{t("vp.overdueDays", { n: po.overdueDays })}</span>}
                           </td>
                           <td className="px-2 py-1.5 text-right font-money text-dmk-text-secondary">{formatINR(po.outstanding)}</td>
                           <td className="px-3 py-1.5">
@@ -746,7 +750,7 @@ function RecordPaymentDialog({
                               onChange={(e) => setAlloc(po.poId, e.target.value)}
                               className="h-7 bg-dmk-input-well border-dmk-border-subtle text-right font-money text-[11.5px] text-dmk-text-primary dmk-input"
                               placeholder="0.00"
-                              aria-label={`Allocate to ${po.poNumber}`}
+                              aria-label={t("vp.allocAria", { po: po.poNumber })}
                             />
                           </td>
                         </tr>
@@ -761,8 +765,8 @@ function RecordPaymentDialog({
             {amt > 0 && (
               <div className="flex items-center justify-between px-3 py-2 border-t border-dmk-border-subtle bg-dmk-bg-tertiary/70 text-[11.5px]">
                 <span className="text-dmk-text-muted">
-                  Allocated <span className={cn("font-money font-semibold", overAllocated ? "text-dmk-danger" : "text-dmk-info")}>{formatINR(allocationTotal)}</span>
-                  {" · "}On account <span className="font-money font-semibold text-dmk-text-secondary">{formatINR(Math.max(0, onAccount))}</span>
+                  {t("vp.allocated")} <span className={cn("font-money font-semibold", overAllocated ? "text-dmk-danger" : "text-dmk-info")}>{formatINR(allocationTotal)}</span>
+                  {" · "}{t("vp.onAccount")} <span className="font-money font-semibold text-dmk-text-secondary">{formatINR(Math.max(0, onAccount))}</span>
                 </span>
                 {hasAllocations && (
                   <button
@@ -770,7 +774,7 @@ function RecordPaymentDialog({
                     onClick={() => setAllocs({})}
                     className="text-[10.5px] text-dmk-text-muted hover:text-dmk-text-primary underline underline-offset-2"
                   >
-                    Clear all
+                    {t("vp.clearAll")}
                   </button>
                 )}
               </div>
@@ -782,25 +786,24 @@ function RecordPaymentDialog({
           <div className="flex items-start gap-2 rounded-md border border-dmk-danger/30 bg-[rgba(239,68,68,0.08)] px-3 py-2">
             <AlertTriangle className="h-4 w-4 text-dmk-danger shrink-0 mt-0.5" />
             <p className="text-[11.5px] text-dmk-danger leading-snug">
-              Allocated {formatINR(allocationTotal)} exceeds the payment amount {formatINR(amt)} — reduce an allocation or raise the payment amount.
+              {t("vp.allocExceeds", { alloc: formatINR(allocationTotal), pay: formatINR(amt) })}
             </p>
           </div>
         )}
 
         {!overAllocated && overpay && (
           <p className="text-[12px] text-dmk-warning bg-[rgba(245,158,11,0.08)] border border-[rgba(245,158,11,0.25)] rounded-md px-3 py-2">
-            Amount exceeds the current payable by {formatINR(amt - payable)} — the excess will sit as a Dr (advance)
-            balance for this vendor.
+            {t("vp.overpayWarn", { amt: formatINR(amt - payable) })}
           </p>
         )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
-            Cancel
+            {t("cmn.cancel")}
           </Button>
           <Button onClick={submit} disabled={!canSave || saving || overAllocated} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Record payment
+            {t("vp.recordPaymentBtn")}
           </Button>
         </DialogFooter>
       </DialogContent>

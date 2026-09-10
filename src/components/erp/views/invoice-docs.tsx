@@ -266,6 +266,10 @@ function InvoiceSheet({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
         <div>
           <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-500 mb-1">Bill To</p>
           <p className="text-[13.5px] font-bold text-gray-900 leading-snug">{buyerName}</p>
+          {/* Faint invoice number under the party name (A4 doc, ~50% opacity) */}
+          <p className="text-[10.5px] font-normal text-gray-800 opacity-50 leading-tight" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+            {invoice.invoiceNumber}
+          </p>
           {invoice.customer?.address && <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">{invoice.customer.address}</p>}
           {invoice.customer?.city && <p className="text-[11px] text-gray-600">{invoice.customer.city}</p>}
           <p className="text-[11px] text-gray-700 mt-1">
@@ -274,8 +278,6 @@ function InvoiceSheet({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
           {invoice.walkInPhone && <p className="text-[11px] text-gray-600">Ph: {invoice.walkInPhone}</p>}
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11.5px] content-start">
-          <span className="text-gray-500">Invoice No:</span>
-          <span className="font-bold text-right" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>{invoice.invoiceNumber}</span>
           <span className="text-gray-500">Date:</span>
           <span className="font-semibold text-right">{formatDate(invoice.invoiceDate)}</span>
           <span className="text-gray-500">Payment Mode:</span>

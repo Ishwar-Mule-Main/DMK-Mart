@@ -56,6 +56,8 @@ import {
 } from "./views/logistics";
 import JournalsView from "./views/journals";
 import ChartOfAccountsView from "./views/chart-of-accounts";
+import ExpenseRecordView from "./views/expense-record";
+import ExpenseReportsView from "./views/expense-reports";
 import PartyLedgersView from "./views/party-ledgers";
 import StatementsView from "./views/statements";
 import DaybookView from "./views/daybook";
@@ -99,6 +101,8 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   "sales/team": SalesTeamView,
   "finance/journals": JournalsView,
   "finance/coa": ChartOfAccountsView,
+  "finance/expense-record": ExpenseRecordView,
+  "finance/expense-reports": ExpenseReportsView,
   "finance/ledgers": PartyLedgersView,
   "finance/statements": StatementsView,
   "finance/daybook": DaybookView,

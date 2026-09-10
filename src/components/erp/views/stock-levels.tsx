@@ -40,6 +40,7 @@ import {
 import { apiGet, apiPost } from "@/lib/api-client";
 import { toast } from "@/hooks/use-toast";
 import { useErpStore } from "@/store/erp-store";
+import { useT } from "@/lib/i18n";
 import type { Product } from "@/types/erp";
 import { formatINR, toISODate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -50,6 +51,7 @@ function fmtQty(n: number): string {
 
 export default function StockLevelsView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const { t } = useT();
 
   const [products, setProducts] = React.useState<Product[]>([]);
   const [categories, setCategories] = React.useState<string[]>([]);
@@ -70,8 +72,8 @@ export default function StockLevelsView() {
   const [reorderOpen, setReorderOpen] = React.useState(false);
 
   React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 250);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(timer);
   }, [search]);
 
   const load = React.useCallback(async () => {
@@ -94,7 +96,7 @@ export default function StockLevelsView() {
       setCategories(res.categories ?? []);
     } catch (e) {
       if (seq !== seqRef.current) return;
-      setError(e instanceof Error ? e.message : "Failed to load stock levels");
+      setError(e instanceof Error ? e.message : t("stl.loadFailed"));
     } finally {
       if (seq === seqRef.current) setLoading(false);
     }
@@ -134,18 +136,18 @@ export default function StockLevelsView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Stock Levels"
-        subtitle="Dual-stock matrix · sellable vs damaged quarantine (R3/R4)"
+        title={t("stl.title")}
+        subtitle={t("stl.subtitle")}
         actions={
           <div className="dmk-well px-3 py-1.5 flex items-center gap-4">
             <span className="text-[11px] text-dmk-text-muted">
-              Sellable <span className="font-money text-dmk-success">{fmtQty(totals.sellable)}</span>
+              {t("stl.sellable")} <span className="font-money text-dmk-success">{fmtQty(totals.sellable)}</span>
             </span>
             <span className="text-[11px] text-dmk-text-muted">
-              Damaged <span className="font-money text-dmk-danger">{fmtQty(totals.damaged)}</span>
+              {t("stl.damaged")} <span className="font-money text-dmk-danger">{fmtQty(totals.damaged)}</span>
             </span>
             <span className="text-[11px] text-dmk-text-muted">
-              Value <span className="font-money text-dmk-text-primary">{formatINR(totals.valuation)}</span>
+              {t("stl.value")} <span className="font-money text-dmk-text-primary">{formatINR(totals.valuation)}</span>
             </span>
           </div>
         }
@@ -156,15 +158,15 @@ export default function StockLevelsView() {
         <SearchInput
           value={search}
           onChange={setSearch}
-          placeholder="Search SKU, name, brand…"
+          placeholder={t("prod.searchPh")}
           className="sm:max-w-xs"
         />
         <Select value={category} onValueChange={setCategory}>
           <SelectTrigger className="w-full sm:w-[190px] h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
-            <SelectValue placeholder="Category" />
+            <SelectValue placeholder={t("cmn.category")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All categories</SelectItem>
+            <SelectItem value="all">{t("cmn.allCategories")}</SelectItem>
             {categories.map((c) => (
               <SelectItem key={c} value={c}>
                 {c}
@@ -175,7 +177,7 @@ export default function StockLevelsView() {
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           <Switch id="low-only" checked={lowOnly} onCheckedChange={setLowOnly} />
           <Label htmlFor="low-only" className="text-[12.5px] text-dmk-text-secondary cursor-pointer">
-            Low stock only
+            {t("stl.lowOnly")}
           </Label>
           {lowCount > 0 && (
             <Button
@@ -185,7 +187,7 @@ export default function StockLevelsView() {
               onClick={() => setReorderOpen(true)}
             >
               <ClipboardList className="h-3.5 w-3.5" />
-              Reorder assist · {lowCount} low
+              {t("stl.reorderBtn", { n: lowCount })}
             </Button>
           )}
         </div>
@@ -201,11 +203,11 @@ export default function StockLevelsView() {
         <div className="dmk-card">
           <EmptyState
             icon={Boxes}
-            title={lowOnly ? "No low-stock products" : "No stock records"}
+            title={lowOnly ? t("stl.emptyLow") : t("stl.emptyNone")}
             hint={
               lowOnly
-                ? "Every product is above its reorder threshold — all healthy."
-                : "Add products or import via bulk CSV to begin tracking stock."
+                ? t("stl.emptyLowHint")
+                : t("stl.emptyNoneHint")
             }
           />
         </div>
@@ -213,16 +215,16 @@ export default function StockLevelsView() {
         <DataTable>
           <thead>
             <tr>
-              <th>SKU</th>
-              <th>Name</th>
-              <th>Unit</th>
-              <th className="num">Sellable</th>
-              <th className="num">Reserved</th>
-              <th className="num">Damaged</th>
-              <th className="num">Total</th>
-              <th className="num">Valuation</th>
-              <th>Status</th>
-              <th className="text-right">Action</th>
+              <th>{t("cmn.sku")}</th>
+              <th>{t("cmn.name")}</th>
+              <th>{t("cmn.unit")}</th>
+              <th className="num">{t("stl.colSellable")}</th>
+              <th className="num">{t("stl.colReserved")}</th>
+              <th className="num">{t("stl.colDamaged")}</th>
+              <th className="num">{t("cmn.total")}</th>
+              <th className="num">{t("stl.colValuation")}</th>
+              <th>{t("cmn.status")}</th>
+              <th className="text-right">{t("stl.colAction")}</th>
             </tr>
           </thead>
           <tbody>
@@ -251,7 +253,7 @@ export default function StockLevelsView() {
                   <td className="num">
                     <Money value={p.stockQuantity * p.purchaseCost} />
                   </td>
-                  <td>{isLow ? <Badge tone="warning">LOW STOCK</Badge> : <Badge tone="success">OK</Badge>}</td>
+                  <td>{isLow ? <Badge tone="warning">{t("stl.badgeLow")}</Badge> : <Badge tone="success">{t("stl.badgeOk")}</Badge>}</td>
                   <td className="text-right">
                     <Button
                       variant="outline"
@@ -260,7 +262,7 @@ export default function StockLevelsView() {
                       onClick={() => openAdjust(p)}
                     >
                       <Scale className="h-3 w-3 mr-1" />
-                      Adjust
+                      {t("stl.adjust")}
                     </Button>
                   </td>
                 </tr>
@@ -270,7 +272,7 @@ export default function StockLevelsView() {
           <tfoot>
             <tr className="bg-dmk-input-well">
               <td colSpan={3} className="px-3 py-2.5 text-[11.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                Totals · {rows.length} products
+                {t("stl.totalsProducts", { n: rows.length })}
               </td>
               <td className="px-3 py-2.5 text-right font-money text-[12.5px] font-semibold text-dmk-success">
                 {fmtQty(totals.sellable)}
@@ -288,7 +290,7 @@ export default function StockLevelsView() {
                 {formatINR(totals.valuation)}
               </td>
               <td colSpan={2} className="px-3 py-2.5 text-[10.5px] text-dmk-text-muted">
-                Damaged value {formatINR(totals.damagedValue)}
+                {t("stl.damagedValue", { amt: formatINR(totals.damagedValue) })}
               </td>
             </tr>
           </tfoot>
@@ -359,8 +361,9 @@ function roundMoney(n: number): number {
 }
 
 function CoverBadge({ dc }: { dc: number | null }) {
+  const { t } = useT();
   if (dc === null) {
-    return <span className="dmk-badge bg-dmk-input-well text-dmk-text-muted">no sales</span>;
+    return <span className="dmk-badge bg-dmk-input-well text-dmk-text-muted">{t("stl.noSales")}</span>;
   }
   const cls =
     dc <= 7
@@ -379,6 +382,7 @@ function ReorderAssistDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const { t } = useT();
 
   const [phase, setPhase] = React.useState<ReorderPhase>("loading");
   const [rows, setRows] = React.useState<ReorderSuggestion[]>([]);
@@ -413,7 +417,7 @@ function ReorderAssistDialog({
       })
       .catch((e) => {
         if (!alive) return;
-        setError(e instanceof Error ? e.message : "Failed to load reorder suggestions");
+        setError(e instanceof Error ? e.message : t("stl.reorderLoadFailed"));
         setPhase("ready");
       });
     return () => {
@@ -457,21 +461,21 @@ function ReorderAssistDialog({
     let idx = 0;
     for (const [vendorId, g] of groups) {
       idx += 1;
-      setProgressText(`Creating PO ${idx} of ${groups.size} — ${g.vendorName}…`);
+      setProgressText(t("stl.creatingPoN", { idx, total: groups.size, vendor: g.vendorName }));
       const est = roundMoney(g.items.reduce((s, it) => s + it.quantity * it.unitCost, 0));
       try {
         const po = await apiPost<{ poNumber: string }>("/api/v1/purchase-orders", {
           firmId: activeFirmId,
           vendorId,
           poDate: toISODate(new Date()),
-          notes: "Reorder assist draft — auto-built from low-stock suggestions (Stock Levels).",
+          notes: t("stl.reorderNote"),
           items: g.items,
         });
         createdList.push({ vendorName: g.vendorName, poNumber: po.poNumber, itemCount: g.items.length, estCost: est });
       } catch (e) {
         failedList.push({
           vendorName: g.vendorName,
-          message: e instanceof Error ? e.message : "Unknown error",
+          message: e instanceof Error ? e.message : t("cmn.unknown"),
         });
       }
     }
@@ -480,14 +484,14 @@ function ReorderAssistDialog({
     setPhase("done");
     if (createdList.length > 0) {
       toast({
-        title: `${createdList.length} draft PO${createdList.length === 1 ? "" : "s"} created`,
-        description: `${createdList.map((c) => `${c.poNumber} (${c.vendorName})`).join(" · ")} — PENDING until GRN.`,
+        title: t("stl.toastCreated", { n: createdList.length }),
+        description: t("stl.toastCreatedDesc", { list: createdList.map((c) => `${c.poNumber} (${c.vendorName})`).join(" · ") }),
       });
     }
     if (failedList.length > 0) {
       toast({
         variant: "destructive",
-        title: `${failedList.length} PO${failedList.length === 1 ? "" : "s"} failed`,
+        title: t("stl.toastFailed", { n: failedList.length }),
         description: failedList.map((f) => `${f.vendorName}: ${f.message}`).join(" · "),
       });
     }
@@ -499,28 +503,28 @@ function ReorderAssistDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-[16px] text-dmk-text-primary">
             <ClipboardList className="h-4 w-4 text-dmk-gold" />
-            Reorder assist
+            {t("stl.reorderTitle")}
           </DialogTitle>
           <DialogDescription className="text-[12px] text-dmk-text-muted">
             {rows.length > 0
-              ? `${rows.length} low-stock item${rows.length === 1 ? "" : "s"} · est total ${formatINR(estTotal)} · ${vendorCount} vendor${vendorCount === 1 ? "" : "s"}`
-              : "Low-stock reorder suggestions with vendor, cost and velocity basis"}
+              ? t("stl.reorderSummary", { n: rows.length, total: formatINR(estTotal), vendors: vendorCount })
+              : t("stl.reorderSummaryEmpty")}
           </DialogDescription>
         </DialogHeader>
 
         {phase === "loading" ? (
           <div className="flex items-center justify-center gap-2 py-10 text-[12.5px] text-dmk-text-muted">
             <Loader2 className="h-4 w-4 animate-spin text-dmk-gold" />
-            Computing reorder suggestions…
+            {t("stl.computing")}
           </div>
         ) : error ? (
           <ErrorText>{error}</ErrorText>
         ) : rows.length === 0 ? (
           <div className="dmk-well px-4 py-8 text-center">
             <CheckCircle2 className="h-5 w-5 text-dmk-success mx-auto" />
-            <p className="text-[13px] font-medium text-dmk-text-primary mt-2">Nothing to reorder</p>
+            <p className="text-[13px] font-medium text-dmk-text-primary mt-2">{t("stl.nothingToReorder")}</p>
             <p className="text-[11.5px] text-dmk-text-muted mt-1">
-              Every product with a reorder threshold is above it — all healthy.
+              {t("stl.allHealthy")}
             </p>
           </div>
         ) : phase === "done" ? (
@@ -530,7 +534,7 @@ function ReorderAssistDialog({
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-dmk-success" />
                 <p className="text-[13px] font-semibold text-dmk-text-primary">
-                  {created.length} draft purchase order{created.length === 1 ? "" : "s"} created
+                  {t("stl.draftsCreated", { n: created.length })}
                 </p>
               </div>
               {created.map((c) => (
@@ -541,7 +545,7 @@ function ReorderAssistDialog({
                   <span className="font-money text-[12.5px] font-semibold text-dmk-gold">{c.poNumber}</span>
                   <span className="text-[12px] text-dmk-text-secondary">{c.vendorName}</span>
                   <span className="text-[11px] text-dmk-text-muted">
-                    {c.itemCount} item{c.itemCount === 1 ? "" : "s"} · est {formatINR(c.estCost)}
+                    {t("stl.itemEst", { n: c.itemCount, amt: formatINR(c.estCost) })}
                   </span>
                 </div>
               ))}
@@ -554,7 +558,7 @@ function ReorderAssistDialog({
                 </div>
               ))}
               <p className="text-[11px] text-dmk-text-muted">
-                Drafts are PENDING — receive them via GRN to book stock and ITC.
+                {t("stl.pendingNote")}
               </p>
             </div>
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
@@ -563,7 +567,7 @@ function ReorderAssistDialog({
                 onClick={() => onOpenChange(false)}
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-dmk-text-secondary hover:bg-dmk-hover"
               >
-                Close
+                {t("cmn.close")}
               </Button>
               <Button
                 onClick={() => {
@@ -572,7 +576,7 @@ function ReorderAssistDialog({
                 }}
                 className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/85"
               >
-                View Purchase Orders
+                {t("stl.viewPos")}
               </Button>
             </div>
           </div>
@@ -583,16 +587,16 @@ function ReorderAssistDialog({
               <table className="dmk-table min-w-[820px]">
                 <thead>
                   <tr>
-                    <th>SKU</th>
-                    <th>Name</th>
-                    <th className="num text-right">Sellable</th>
-                    <th className="num text-right">Threshold</th>
-                    <th className="num text-right">Avg / day</th>
-                    <th className="num text-right">Cover</th>
-                    <th className="num text-right">Order qty</th>
-                    <th>Preferred vendor</th>
-                    <th className="num text-right">Last cost ₹</th>
-                    <th className="num text-right">Est cost ₹</th>
+                    <th>{t("cmn.sku")}</th>
+                    <th>{t("cmn.name")}</th>
+                    <th className="num text-right">{t("stl.colSellable")}</th>
+                    <th className="num text-right">{t("stl.colThreshold")}</th>
+                    <th className="num text-right">{t("stl.colAvgDay")}</th>
+                    <th className="num text-right">{t("stl.colCover")}</th>
+                    <th className="num text-right">{t("stl.colOrderQty")}</th>
+                    <th>{t("stl.colVendor")}</th>
+                    <th className="num text-right">{t("stl.colLastCost")}</th>
+                    <th className="num text-right">{t("stl.colEstCost")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -615,7 +619,7 @@ function ReorderAssistDialog({
                             type="number"
                             min="1"
                             step="1"
-                            aria-label={`Order quantity for ${r.sku}`}
+                            aria-label={t("stl.orderQtyAria", { sku: r.sku })}
                             value={qtyEdits[r.productId] ?? String(r.suggestedQty)}
                             onChange={(e) =>
                               setQtyEdits((m) => ({ ...m, [r.productId]: e.target.value }))
@@ -641,7 +645,7 @@ function ReorderAssistDialog({
                 <tfoot>
                   <tr className="bg-dmk-input-well">
                     <td colSpan={8} className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
-                      Totals · {rows.length} items · {vendorCount} vendor{vendorCount === 1 ? "" : "s"}
+                      {t("stl.totalsItems", { n: rows.length, vendors: vendorCount })}
                     </td>
                     <td className="num text-right text-dmk-text-muted" />
                     <td className="num text-right font-money font-bold text-dmk-text-primary">{formatINR(estTotal)}</td>
@@ -654,15 +658,15 @@ function ReorderAssistDialog({
               <div className="flex items-start gap-2 rounded-md border border-dmk-border-subtle bg-dmk-input-well px-3 py-2">
                 <AlertTriangle className="h-3.5 w-3.5 text-dmk-warning shrink-0 mt-0.5" />
                 <p className="text-[11.5px] text-dmk-text-muted">
-                  <span className="font-semibold text-dmk-text-secondary">{noVendorRows.length} item{noVendorRows.length === 1 ? "" : "s"} with no vendor on file</span>{" "}
-                  ({noVendorRows.map((r) => r.sku).join(", ")}) — add a vendor and a confirmed PO history first; they will be skipped.
+                  <span className="font-semibold text-dmk-text-secondary">{t("stl.noVendorItems", { n: noVendorRows.length })}</span>{" "}
+                  {t("stl.noVendorHint", { skus: noVendorRows.map((r) => r.sku).join(", ") })}
                 </p>
               </div>
             )}
 
             <div className="dmk-well px-3 py-2">
               <p className="text-[10.5px] leading-relaxed text-dmk-text-muted">
-                <span className="font-semibold text-dmk-text-secondary">Basis:</span> {basis}
+                <span className="font-semibold text-dmk-text-secondary">{t("stl.basis")}</span> {basis}
               </p>
             </div>
 
@@ -673,12 +677,12 @@ function ReorderAssistDialog({
                 disabled={phase === "creating"}
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-dmk-text-secondary hover:bg-dmk-hover"
               >
-                Cancel
+                {t("cmn.cancel")}
               </Button>
               {phase === "creating" ? (
                 <Button disabled className="h-9 gap-2 bg-dmk-yellow text-[#0A0F1D]">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {progressText || "Creating draft POs…"}
+                  {progressText || t("stl.creatingDrafts")}
                 </Button>
               ) : (
                 <Button
@@ -687,7 +691,7 @@ function ReorderAssistDialog({
                   className="h-9 gap-2 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/85"
                 >
                   <ClipboardList className="h-3.5 w-3.5" />
-                  Create draft POs (by vendor)
+                  {t("stl.createDrafts")}
                 </Button>
               )}
             </div>

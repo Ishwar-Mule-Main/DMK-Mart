@@ -76,6 +76,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { requestPayPo } from "@/lib/settle-bus";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 // ── API row shapes (as returned by the routes) ──────────────────
@@ -163,6 +164,7 @@ function normalizeProducts(res: unknown): Product[] {
 
 export default function PurchaseOrdersView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const setView = useErpStore((s) => s.setView);
 
@@ -191,7 +193,7 @@ export default function PurchaseOrdersView() {
         if (alive) {
           setRows([]);
           if (e instanceof ApiError)
-            toast({ variant: "destructive", title: "Could not load purchase orders", description: e.message });
+            toast({ variant: "destructive", title: t("po.toastLoadFail"), description: e.message });
         }
       }
     }, 220);
@@ -207,8 +209,8 @@ export default function PurchaseOrdersView() {
     requestPayPo(po.id, po.vendorId);
     setView("purchase/payments");
     toast({
-      title: "Opening payment dialog",
-      description: `${po.poNumber} · ${formatINR(po.outstanding)} outstanding pre-allocated — confirm there.`,
+      title: t("po.toastPayOpening"),
+      description: t("po.toastPayOpeningDesc", { po: po.poNumber, amt: formatINR(po.outstanding) }),
     });
   }
 
@@ -217,14 +219,14 @@ export default function PurchaseOrdersView() {
     setCancelling(true);
     try {
       await apiPost<PoRow>(`/api/v1/purchase-orders/${cancelOf.id}/cancel`, {});
-      toast({ title: "PO cancelled", description: `${cancelOf.poNumber} — no stock or ledger impact.` });
+      toast({ title: t("po.toastCancelled"), description: t("po.toastCancelledDesc", { po: cancelOf.poNumber }) });
       setCancelOf(null);
       setRefresh((r) => r + 1);
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Cancel failed",
-        description: e instanceof ApiError ? e.message : "Could not cancel this PO.",
+        title: t("po.toastCancelFail"),
+        description: e instanceof ApiError ? e.message : t("po.toastCancelFailDesc"),
       });
     } finally {
       setCancelling(false);
@@ -258,8 +260,8 @@ export default function PurchaseOrdersView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Purchase Orders"
-        subtitle="PENDING → team verification → your acceptance → CONFIRMED · damaged units quarantined"
+        title={t("po.title")}
+        subtitle={t("po.subtitle")}
         icon={ClipboardList}
         actions={
           <Button
@@ -267,7 +269,7 @@ export default function PurchaseOrdersView() {
             className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
             onClick={() => setView("purchase/new-order")}
           >
-            <Plus className="h-4 w-4" /> New PO
+            <Plus className="h-4 w-4" /> {t("po.newPo")}
           </Button>
         }
       />
@@ -275,36 +277,36 @@ export default function PurchaseOrdersView() {
       <SectionGrid
         list={
           <RegisterCard
-            title="Purchase orders"
+            title={t("po.cardTitle")}
             icon={ClipboardList}
             count={list.length}
-            countLabel="orders"
+            countLabel={t("po.countOrders")}
             filters={
               <>
                 <div className="relative flex-1 min-w-0">
-                  <SearchInput value={query} onChange={setQuery} placeholder="Search PO number or vendor…" className="pl-9" />
+                  <SearchInput value={query} onChange={setQuery} placeholder={t("po.searchPh")} className="pl-9" />
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
                 </div>
                 <Select value={status} onValueChange={setStatus}>
                   <SelectTrigger className={cn(inputCls, "w-full sm:w-[170px] shrink-0")}>
-                    <SelectValue placeholder="All statuses" />
+                    <SelectValue placeholder={t("po.allStatuses")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ALL">All statuses</SelectItem>
-                    <SelectItem value="PENDING">Pending</SelectItem>
-                    <SelectItem value="CONFIRMED">Confirmed</SelectItem>
-                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                    <SelectItem value="ALL">{t("po.allStatuses")}</SelectItem>
+                    <SelectItem value="PENDING">{t("po.stPending")}</SelectItem>
+                    <SelectItem value="CONFIRMED">{t("po.stConfirmed")}</SelectItem>
+                    <SelectItem value="CANCELLED">{t("po.stCancelled")}</SelectItem>
                   </SelectContent>
                 </Select>
               </>
             }
             footer={
               <>
-                <span><span className="font-money text-dmk-warning">{pendingCount}</span> at the verification team</span>
+                <span><span className="font-money text-dmk-warning">{pendingCount}</span> {t("po.footerAtVerification")}</span>
                 {openPayable > 0.009 && (
-                  <span><span className="font-money text-dmk-blue">{formatINR(openPayable)}</span> open payable — hover a row to <span className="text-dmk-info font-semibold">Pay</span></span>
+                  <span><span className="font-money text-dmk-blue">{formatINR(openPayable)}</span> {t("po.footerOpenPayable")} <span className="text-dmk-info font-semibold">{t("po.pay")}</span></span>
                 )}
-                <span className="hidden sm:inline">Acceptance posts: stock IN · payable Cr · PURCHASE journal</span>
+                <span className="hidden sm:inline">{t("po.footerAcceptance")}</span>
               </>
             }
           >
@@ -313,8 +315,8 @@ export default function PurchaseOrdersView() {
             ) : list.length === 0 ? (
               <EmptyState
                 icon={ClipboardList}
-                title="No purchase orders"
-                hint="Create a PO to a manufacturer or distributor — the verification team counts the delivery, then you accept it to book stock and payable."
+                title={t("po.emptyTitle")}
+                hint={t("po.emptyHint")}
               />
             ) : (
               list.map((po) => {
@@ -329,8 +331,8 @@ export default function PurchaseOrdersView() {
                         <span className="font-money text-[12px] text-dmk-text-primary shrink-0">
                           {po.poNumber}
                           {po.vendorBillNo && (
-                            <span className="block text-[10px] text-dmk-text-muted" title="Vendor bill no.">
-                              Bill {po.vendorBillNo}
+                            <span className="block text-[10px] text-dmk-text-muted" title={t("po.billTooltip")}>
+                              {t("po.billPrefix")} {po.vendorBillNo}
                             </span>
                           )}
                         </span>
@@ -341,7 +343,7 @@ export default function PurchaseOrdersView() {
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <span className="text-[12px] text-dmk-text-secondary truncate">
                         <span className="font-medium">{po.vendor?.vendorName ?? "—"}</span>
-                        <span className="text-dmk-text-muted"> · {po.items.length} item{po.items.length === 1 ? "" : "s"} · tax {formatINR(tax)}</span>
+                        <span className="text-dmk-text-muted">{t("po.itemsTax", { n: po.items.length, tax: formatINR(tax) })}</span>
                       </span>
                       <span className="flex items-baseline gap-2 shrink-0">
                         <span className="font-money text-[13px] font-semibold text-dmk-text-primary">{formatINR(po.grandTotal)}</span>
@@ -350,13 +352,13 @@ export default function PurchaseOrdersView() {
                     <div className="mt-1.5 flex items-center justify-between gap-2">
                       <span className="text-[11px] shrink-0">
                         {po.status !== "CONFIRMED" ? (
-                          <span className="text-dmk-text-muted">balance —</span>
+                          <span className="text-dmk-text-muted">{t("po.balanceDash")}</span>
                         ) : settled ? (
-                          <Badge tone="success">SETTLED</Badge>
+                          <Badge tone="success">{t("po.settled")}</Badge>
                         ) : osd !== undefined ? (
-                          <span className="font-money font-semibold text-dmk-blue">balance {formatINR(osd)}</span>
+                          <span className="font-money font-semibold text-dmk-blue">{t("po.balanceAmt", { amt: formatINR(osd) })}</span>
                         ) : (
-                          <span className="text-dmk-text-muted">balance …</span>
+                          <span className="text-dmk-text-muted">{t("po.balanceEllipsis")}</span>
                         )}
                       </span>
                       <span className="flex items-center gap-1.5 shrink-0">
@@ -364,10 +366,10 @@ export default function PurchaseOrdersView() {
                           <button
                             type="button"
                             onClick={() => payFromRow(po)}
-                            title={`Record a payment against ${po.poNumber} (${formatINR(osd ?? 0)})`}
+                            title={t("po.payTooltip", { po: po.poNumber, amt: formatINR(osd ?? 0) })}
                             className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover text-dmk-info hover:border-dmk-info/40"
                           >
-                            <HandCoins className="h-3 w-3" /> Pay
+                            <HandCoins className="h-3 w-3" /> {t("po.pay")}
                           </button>
                         )}
                         {po.status === "PENDING" && (
@@ -377,22 +379,22 @@ export default function PurchaseOrdersView() {
                               className="h-7 px-2.5 text-[11px] bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-semibold"
                               onClick={() => {
                                 setView("purchase/verification");
-                                toast({ title: `${po.poNumber} is in verification`, description: "The team portal counts sellable vs damaged — you accept the counts to book stock & payable." });
+                                toast({ title: t("po.toastInVerification", { po: po.poNumber }), description: t("po.toastInVerificationDesc") });
                               }}
                             >
-                              <PackageSearch className="h-3 w-3" /> Verify
+                              <PackageSearch className="h-3 w-3" /> {t("po.verify")}
                             </Button>
-                            <Button size="sm" variant="outline" className="h-7 w-7 p-0 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setEditOf(po)} aria-label={`Edit ${po.poNumber}`}>
+                            <Button size="sm" variant="outline" className="h-7 w-7 p-0 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setEditOf(po)} aria-label={t("po.editAria", { po: po.poNumber })}>
                               <Pencil className="h-3 w-3" />
                             </Button>
-                            <Button size="sm" variant="outline" className="h-7 w-7 p-0 border-dmk-border-subtle text-dmk-danger hover:bg-dmk-hover" onClick={() => setCancelOf(po)} aria-label={`Cancel ${po.poNumber}`}>
+                            <Button size="sm" variant="outline" className="h-7 w-7 p-0 border-dmk-border-subtle text-dmk-danger hover:bg-dmk-hover" onClick={() => setCancelOf(po)} aria-label={t("po.cancelAria", { po: po.poNumber })}>
                               <X className="h-3 w-3" />
                             </Button>
                           </>
                         )}
                         {po.status !== "PENDING" && (
                           <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px] border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setViewOf(po)}>
-                            <Eye className="h-3 w-3" /> View
+                            <Eye className="h-3 w-3" /> {t("po.view")}
                           </Button>
                         )}
                       </span>
@@ -406,16 +408,16 @@ export default function PurchaseOrdersView() {
         aside={
           <>
             <div className="grid grid-cols-2 gap-3">
-              <KpiCard label="PO value" value={formatINR(totalValue)} sub={`${list.length} orders listed`} icon={IndianRupee} tone="orange" />
-              <KpiCard label="In verification" value={String(pendingCount)} sub={`${formatINR(pendingValue)} awaiting counts`} icon={Timer} tone={pendingCount > 0 ? "gold" : "success"} />
-              <KpiCard label="Confirmed value" value={formatINR(confirmedValue)} sub="booked on acceptance" icon={PackageCheck} tone="success" />
-              <KpiCard label="Open payable" value={formatINR(openPayable)} sub="owed to vendors" icon={Truck} tone="blue" />
+              <KpiCard label={t("po.kpiValue")} value={formatINR(totalValue)} sub={t("po.kpiValueSub", { n: list.length })} icon={IndianRupee} tone="orange" />
+              <KpiCard label={t("po.kpiVerification")} value={String(pendingCount)} sub={t("po.kpiVerificationSub", { amt: formatINR(pendingValue) })} icon={Timer} tone={pendingCount > 0 ? "gold" : "success"} />
+              <KpiCard label={t("po.kpiConfirmed")} value={formatINR(confirmedValue)} sub={t("po.kpiConfirmedSub")} icon={PackageCheck} tone="success" />
+              <KpiCard label={t("po.kpiOpenPayable")} value={formatINR(openPayable)} sub={t("po.kpiOpenPayableSub")} icon={Truck} tone="blue" />
             </div>
 
-            <AsideCard title="Status mix" icon={Layers} iconClass="text-dmk-info" footnote="Only PENDING orders can be edited or cancelled — CONFIRMED orders change via Purchase Returns.">
+            <AsideCard title={t("po.statusMix")} icon={Layers} iconClass="text-dmk-info" footnote={t("po.statusMixNote")}>
               <div className="space-y-2.5">
                 {statusRows.length === 0 ? (
-                  <p className="text-[12px] text-dmk-text-muted">No orders in the current filter.</p>
+                  <p className="text-[12px] text-dmk-text-muted">{t("po.noOrdersFiltered")}</p>
                 ) : (
                   statusRows.map((x) => (
                     <MixBar
@@ -431,19 +433,19 @@ export default function PurchaseOrdersView() {
             </AsideCard>
 
             <AsideCard
-              title="Top vendors"
+              title={t("po.topVendors")}
               icon={Truck}
               iconClass="text-dmk-yellow"
-              footnote="Manufacturers are brand-scoped (R10) — their POs only list that brand's products."
+              footnote={t("po.topVendorsNote")}
             >
               <div className="space-y-2.5">
                 {topVendors.length === 0 ? (
-                  <p className="text-[12px] text-dmk-text-muted">No vendors yet.</p>
+                  <p className="text-[12px] text-dmk-text-muted">{t("po.noVendorsYet")}</p>
                 ) : (
                   topVendors.map(([, v]) => (
                     <MixBar
                       key={v.name}
-                      label={<>{v.name} <span className="text-dmk-text-muted">· {v.count} PO</span></>}
+                      label={<>{v.name} <span className="text-dmk-text-muted">{t("po.poCount", { n: v.count })}</span></>}
                       value={formatINR(v.value)}
                       pct={(v.value / topVendorMax) * 100}
                       barClass="bg-dmk-yellow"
@@ -473,22 +475,21 @@ export default function PurchaseOrdersView() {
       <AlertDialog open={!!cancelOf} onOpenChange={(o) => !o && setCancelOf(null)}>
         <AlertDialogContent className="dmk-elevated border-dmk-border-medium">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-dmk-text-primary">Cancel PO {cancelOf?.poNumber}?</AlertDialogTitle>
+            <AlertDialogTitle className="text-dmk-text-primary">{t("po.cancelQ", { po: cancelOf?.poNumber ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription className="text-dmk-text-secondary">
-              Only PENDING orders can be cancelled. Cancelled orders have no stock, payable or journal impact.
-              This action cannot be undone.
+              {t("po.cancelDesc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
-              Keep PO
+              {t("po.keepPo")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmCancel}
               disabled={cancelling}
               className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
             >
-              Cancel PO
+              {t("po.cancelPo")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -512,6 +513,7 @@ function PoFormDialog({
   onSaved: () => void;
 }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   const firmStateCode = firm?.stateCode ?? "27";
@@ -650,7 +652,7 @@ function PoFormDialog({
     try {
       if (editing) {
         await apiPatch<PoRow>(`/api/v1/purchase-orders/${editing.id}`, body);
-        toast({ title: "PO updated", description: `${editing.poNumber} re-priced and saved.` });
+        toast({ title: t("po.toastUpdated"), description: t("po.toastUpdatedDesc", { po: editing.poNumber }) });
       } else {
         const created = await apiPost<PoRow>("/api/v1/purchase-orders", {
           firmId: activeFirmId,
@@ -661,7 +663,7 @@ function PoFormDialog({
           vendorBillDate: vendorBillDate || null,
           items: body.items,
         });
-        toast({ title: `PO ${created.poNumber} created`, description: "Sent to the verification team portal — stock & payable book when you accept their counts." });
+        toast({ title: t("po.toastCreated", { po: created.poNumber }), description: t("po.toastCreatedDesc") });
       }
       onSaved();
       onOpenChange(false);
@@ -669,8 +671,8 @@ function PoFormDialog({
       const isLocked = e instanceof ApiError && (e.code === "ERR_NOT_EDITABLE" || e.status === 409);
       toast({
         variant: "destructive",
-        title: isLocked ? "PO is locked" : "Save failed",
-        description: e instanceof ApiError ? e.message : "Could not save purchase order.",
+        title: isLocked ? t("po.toastLocked") : t("po.toastSaveFail"),
+        description: e instanceof ApiError ? e.message : t("po.toastSaveFailDesc"),
       });
       if (isLocked) {
         onSaved();
@@ -686,18 +688,18 @@ function PoFormDialog({
       <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[94vh] overflow-y-auto sm:w-[880px]">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">
-            {editing ? `Edit PO ${editing.poNumber}` : "New purchase order"}
+            {editing ? t("po.editTitle", { po: editing.poNumber }) : t("po.newTitle")}
           </DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
             {editing
-              ? "Only PENDING orders can be edited — items are replaced and totals re-computed."
-              : "Draft a PENDING order — it goes to the verification team portal; nothing is booked until you accept their counts."}
+              ? t("po.editDesc")
+              : t("po.newDesc")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="sm:col-span-2">
-            <Field label="Vendor *">
+            <Field label={t("po.vendorField")}>
               <Select
                 value={vendorId}
                 onValueChange={(v) => {
@@ -707,35 +709,35 @@ function PoFormDialog({
                 disabled={!!editing}
               >
                 <SelectTrigger className={cn(inputCls, "w-full")}>
-                  <SelectValue placeholder="Select vendor…" />
+                  <SelectValue placeholder={t("po.vendorPh")} />
                 </SelectTrigger>
                 <SelectContent>
                   {vendors.map((v) => (
                     <SelectItem key={v.id} value={v.id}>
                       {v.vendorName}
-                      {v.vendorType === "MANUFACTURER" && v.brand ? ` — Mfr · ${v.brand}` : " — Distributor"}
+                      {v.vendorType === "MANUFACTURER" && v.brand ? t("po.mfrSuffix", { brand: v.brand }) : t("po.distributorSuffix")}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </Field>
           </div>
-          <Field label="PO date">
+          <Field label={t("po.dateField")}>
             <Input type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} className={inputCls} />
           </Field>
         </div>
 
         {/* Vendor bill identity — powers bill-first GSTR-2B matching */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Field label="Vendor bill no." hint="Supplier's sales-invoice number">
+          <Field label={t("po.billNoField")} hint={t("po.billNoHint")}>
             <Input
               value={vendorBillNo}
               onChange={(e) => setVendorBillNo(e.target.value)}
               className={inputCls}
-              placeholder="e.g. SB/26-27/4512"
+              placeholder={t("po.billNoPh")}
             />
           </Field>
-          <Field label="Vendor bill date">
+          <Field label={t("po.billDateField")}>
             <Input
               type="date"
               value={vendorBillDate}
@@ -744,24 +746,23 @@ function PoFormDialog({
             />
           </Field>
           <div className="hidden sm:block self-end pb-1 text-[10.5px] text-dmk-text-muted leading-snug">
-            Optional — capturing the supplier's bill no. lets GSTR-2B matching
-            key on the bill itself instead of amount guesses.
+            {t("po.billNoNote")}
           </div>
         </div>
 
         {isManufacturer && vendor && (
           <div className="dmk-well px-3 py-2 text-[11.5px] text-dmk-gold flex items-center gap-2">
-            <span className="dmk-badge bg-dmk-gold/15 text-dmk-gold">Brand scope</span>
-            Only <span className="font-semibold">{vendor.brand}</span> products appear in the picker (R10).
+            <span className="dmk-badge bg-dmk-gold/15 text-dmk-gold">{t("po.brandScope")}</span>
+            {t("po.brandScopePre")} <span className="font-semibold">{vendor.brand}</span>{t("po.brandScopePost")}
           </div>
         )}
         {vendor && (
           <div className="dmk-well px-3 py-2 text-[11.5px] text-dmk-text-muted">
-            GST mode:{" "}
+            {t("po.gstMode")}{" "}
             {intra ? (
-              <span className="text-dmk-info">Intra-state — CGST + SGST (vendor & firm both in {vendor.stateCode})</span>
+              <span className="text-dmk-info">{t("po.gstIntra", { state: vendor.stateCode })}</span>
             ) : (
-              <span className="text-dmk-gold">Inter-state — IGST (vendor {vendor.stateCode} ≠ firm {firmStateCode})</span>
+              <span className="text-dmk-gold">{t("po.gstInter", { v: vendor.stateCode, f: firmStateCode })}</span>
             )}
           </div>
         )}
@@ -772,17 +773,17 @@ function PoFormDialog({
             <SearchInput
               value={pickQuery}
               onChange={setPickQuery}
-              placeholder={vendor ? "Search products to add (SKU, name, category)…" : "Select a vendor first"}
+              placeholder={vendor ? t("po.pickPh") : t("po.pickNoVendorPh")}
               className="pl-9"
             />
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
           </div>
           <div className="dmk-card max-h-44 overflow-y-auto overflow-x-hidden">
             {!vendor ? (
-              <p className="text-[12px] text-dmk-text-muted px-3 py-4 text-center">Pick a vendor to list products.</p>
+              <p className="text-[12px] text-dmk-text-muted px-3 py-4 text-center">{t("po.pickVendorFirst")}</p>
             ) : pickable.length === 0 ? (
               <p className="text-[12px] text-dmk-text-muted px-3 py-4 text-center">
-                {isManufacturer ? `No ${vendor?.brand} products match.` : "No products match your search."}
+                {isManufacturer ? t("po.noBrandMatch", { brand: vendor?.brand ?? "" }) : t("po.noMatch")}
               </p>
             ) : (
               <table className="dmk-table">
@@ -797,7 +798,7 @@ function PoFormDialog({
                       <td className="num text-[12px] text-dmk-text-secondary w-[110px]">GST {p.gstRate}%</td>
                       <td className="num text-[12.5px] w-[110px]">{formatINR(p.purchaseCost)}</td>
                       <td className="w-[90px] text-right">
-                        <span className="dmk-badge dmk-badge-info">+ Add</span>
+                        <span className="dmk-badge dmk-badge-info">{t("po.addChip")}</span>
                       </td>
                     </tr>
                   ))}
@@ -812,18 +813,18 @@ function PoFormDialog({
           <div className="overflow-x-auto">
             {lines.length === 0 ? (
               <p className="text-[12px] text-dmk-text-muted px-3 py-5 text-center">
-                No items yet — click products above to add lines.
+                {t("po.noLines")}
               </p>
             ) : (
               <table className="dmk-table min-w-[760px]">
                 <thead>
                   <tr>
-                    <th>Product</th>
-                    <th className="text-right w-[92px]">Qty</th>
-                    <th className="text-right w-[118px]">Unit cost</th>
-                    <th className="text-right">Taxable</th>
-                    <th className="text-right">{intra ? "CGST + SGST" : "IGST"}</th>
-                    <th className="text-right">Line total</th>
+                    <th>{t("cmn.product")}</th>
+                    <th className="text-right w-[92px]">{t("po.colQty")}</th>
+                    <th className="text-right w-[118px]">{t("po.colUnitCost")}</th>
+                    <th className="text-right">{t("po.colTaxable")}</th>
+                    <th className="text-right">{intra ? t("po.colCgstSgst") : t("po.colIgst")}</th>
+                    <th className="text-right">{t("po.colLineTotal")}</th>
                     <th className="w-[44px]" />
                   </tr>
                 </thead>
@@ -846,7 +847,7 @@ function PoFormDialog({
                             value={line.qty}
                             onChange={(e) => updateLine(i, { qty: e.target.value })}
                             className={cn(inputCls, "h-8 text-right font-money")}
-                            aria-label={`Quantity for ${line.name}`}
+                            aria-label={t("po.qtyAria", { name: line.name })}
                           />
                         </td>
                         <td>
@@ -857,7 +858,7 @@ function PoFormDialog({
                             value={line.cost}
                             onChange={(e) => updateLine(i, { cost: e.target.value })}
                             className={cn(inputCls, "h-8 text-right font-money")}
-                            aria-label={`Unit cost for ${line.name}`}
+                            aria-label={t("po.costAria", { name: line.name })}
                           />
                         </td>
                         <td className="num text-[12.5px]">{formatINR(taxable)}</td>
@@ -871,7 +872,7 @@ function PoFormDialog({
                             variant="ghost"
                             className="h-7 w-7 p-0 text-dmk-text-muted hover:text-dmk-danger hover:bg-dmk-hover"
                             onClick={() => removeLine(i)}
-                            aria-label={`Remove ${line.name}`}
+                            aria-label={t("po.removeAria", { name: line.name })}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -886,7 +887,7 @@ function PoFormDialog({
           {lines.length > 0 && (
             <div className="dmk-well px-4 py-3 space-y-1">
               <div className="flex justify-between text-[12px] text-dmk-text-secondary">
-                <span>Taxable</span>
+                <span>{t("po.colTaxable")}</span>
                 <Money value={totals.taxable} />
               </div>
               {intra ? (
@@ -904,23 +905,23 @@ function PoFormDialog({
                 </div>
               )}
               <div className="flex justify-between text-[13.5px] font-semibold text-dmk-text-primary pt-1 border-t border-dmk-border-subtle">
-                <span>Grand Total</span>
+                <span>{t("po.grandTotal")}</span>
                 <Money value={grand} className="text-dmk-yellow text-[15px]" />
               </div>
             </div>
           )}
         </div>
 
-        <Field label="Notes">
-          <Input value={notes} onChange={(e) => setNotes(e.target.value)} className={inputCls} placeholder="Optional — delivery instructions, packaging…" />
+        <Field label={t("cmn.notes")}>
+          <Input value={notes} onChange={(e) => setNotes(e.target.value)} className={inputCls} placeholder={t("po.notesPh")} />
         </Field>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
-            Cancel
+            {t("cmn.cancel")}
           </Button>
           <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
-            {editing ? "Save changes" : "Create PO"}
+            {editing ? t("cmn.saveChanges") : t("po.createPo")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -949,6 +950,7 @@ interface PoDetail extends Omit<PoRow, "vendor"> {
 }
 
 function ViewPoDialog({ po, onClose }: { po: PoRow | null; onClose: () => void }) {
+  const { t } = useT();
   const [detail, setDetail] = React.useState<PoDetail | null>(null);
 
   React.useEffect(() => {
@@ -987,24 +989,24 @@ function ViewPoDialog({ po, onClose }: { po: PoRow | null; onClose: () => void }
         {d?.vendorBillNo && (
           <div className="dmk-well px-3 py-2 text-[12px] text-dmk-text-secondary flex flex-wrap items-center gap-x-4 gap-y-1">
             <span>
-              <span className="text-dmk-text-muted font-semibold uppercase tracking-wider text-[10.5px] mr-2">Vendor bill</span>
+              <span className="text-dmk-text-muted font-semibold uppercase tracking-wider text-[10.5px] mr-2">{t("po.vendorBillLabel")}</span>
               <span className="font-money text-dmk-text-primary">{d.vendorBillNo}</span>
             </span>
             {d.vendorBillDate && (
-              <span className="text-dmk-text-muted">dated {formatDate(d.vendorBillDate)}</span>
+              <span className="text-dmk-text-muted">{t("po.dated", { date: formatDate(d.vendorBillDate) })}</span>
             )}
-            <span className="text-[10.5px] text-dmk-gold">used for GSTR-2B bill-first matching</span>
+            <span className="text-[10.5px] text-dmk-gold">{t("po.billMatching")}</span>
           </div>
         )}
         {d?.receivedNote && (
           <div className="dmk-well px-3 py-2 text-[12px] text-dmk-text-secondary">
-            <span className="text-dmk-text-muted font-semibold uppercase tracking-wider text-[10.5px] mr-2">Received note</span>
+            <span className="text-dmk-text-muted font-semibold uppercase tracking-wider text-[10.5px] mr-2">{t("po.receivedNote")}</span>
             {d.receivedNote}
           </div>
         )}
         {d?.notes && (
           <div className="dmk-well px-3 py-2 text-[12px] text-dmk-text-secondary">
-            <span className="text-dmk-text-muted font-semibold uppercase tracking-wider text-[10.5px] mr-2">Notes</span>
+            <span className="text-dmk-text-muted font-semibold uppercase tracking-wider text-[10.5px] mr-2">{t("cmn.notes")}</span>
             {d.notes}
           </div>
         )}
@@ -1014,14 +1016,14 @@ function ViewPoDialog({ po, onClose }: { po: PoRow | null; onClose: () => void }
             <table className="dmk-table min-w-[720px]">
               <thead>
                 <tr>
-                  <th>SKU</th>
-                  <th>Product</th>
-                  <th className="text-right">Qty</th>
-                  <th className="text-right">Received</th>
-                  <th className="text-right">Unit cost</th>
-                  <th className="text-right">Taxable</th>
+                  <th>{t("cmn.sku")}</th>
+                  <th>{t("cmn.product")}</th>
+                  <th className="text-right">{t("po.colQty")}</th>
+                  <th className="text-right">{t("po.colReceived")}</th>
+                  <th className="text-right">{t("po.colUnitCost")}</th>
+                  <th className="text-right">{t("po.colTaxable")}</th>
                   <th className="text-right">GST</th>
-                  <th className="text-right">Total</th>
+                  <th className="text-right">{t("cmn.total")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1045,14 +1047,14 @@ function ViewPoDialog({ po, onClose }: { po: PoRow | null; onClose: () => void }
           </div>
           <div className="dmk-well px-4 py-3 space-y-1">
             <div className="flex justify-between text-[12px] text-dmk-text-secondary">
-              <span>Taxable</span><Money value={d?.subtotal ?? 0} />
+              <span>{t("po.colTaxable")}</span><Money value={d?.subtotal ?? 0} />
             </div>
             <div className="flex justify-between text-[12px] text-dmk-text-secondary">
               <span>GST (CGST {formatINR(d?.totalCgst ?? 0)} + SGST {formatINR(d?.totalSgst ?? 0)} + IGST {formatINR(d?.totalIgst ?? 0)})</span>
               <Money value={tax} />
             </div>
             <div className="flex justify-between text-[13.5px] font-semibold text-dmk-text-primary pt-1 border-t border-dmk-border-subtle">
-              <span>Grand Total</span>
+              <span>{t("po.grandTotal")}</span>
               <Money value={d?.grandTotal ?? 0} className="text-dmk-yellow text-[15px]" />
             </div>
           </div>
@@ -1060,7 +1062,7 @@ function ViewPoDialog({ po, onClose }: { po: PoRow | null; onClose: () => void }
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
-            Close
+            {t("cmn.close")}
           </Button>
         </DialogFooter>
       </DialogContent>

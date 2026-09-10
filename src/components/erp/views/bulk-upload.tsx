@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiPost, ApiError } from "@/lib/api-client";
 import { toast } from "@/hooks/use-toast";
 import { useErpStore } from "@/store/erp-store";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 // ─── API response types (per bulk-upload route) ─────────────────
@@ -121,7 +122,8 @@ function csvToRecords(text: string): Record<string, string>[] {
 // ─── Step indicator ─────────────────────────────────────────────
 
 function StepDots({ step }: { step: number }) {
-  const steps = ["Source CSV", "Validate", "Import"];
+  const { t } = useT();
+  const steps = [t("bul.step1"), t("bul.step2"), t("bul.step3")];
   return (
     <div className="flex items-center gap-2 flex-wrap">
       {steps.map((label, i) => (
@@ -161,6 +163,7 @@ function StepDots({ step }: { step: number }) {
 
 export default function BulkUploadView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const { t } = useT();
 
   const [step, setStep] = React.useState(1);
   const [csvText, setCsvText] = React.useState("");
@@ -192,7 +195,7 @@ export default function BulkUploadView() {
       setCsvText(text);
       setError(null);
     } catch {
-      setError("Could not read the selected file.");
+      setError(t("bul.fileReadErr"));
     }
   };
 
@@ -200,7 +203,7 @@ export default function BulkUploadView() {
     if (!activeFirmId) return;
     const recs = csvToRecords(csvText);
     if (recs.length === 0) {
-      setError("No data rows found — upload a CSV file or paste rows first (header + at least 1 row).");
+      setError(t("bul.noRows"));
       return;
     }
     setBusy(true);
@@ -215,7 +218,7 @@ export default function BulkUploadView() {
       setDryRun(res);
       setStep(2);
     } catch (e) {
-      const msg = e instanceof ApiError ? `${e.message} (${e.code})` : e instanceof Error ? e.message : "Validation failed";
+      const msg = e instanceof ApiError ? `${e.message} (${e.code})` : e instanceof Error ? e.message : t("bul.validationFailed");
       setError(msg);
     } finally {
       setBusy(false);
@@ -235,14 +238,14 @@ export default function BulkUploadView() {
       setCommitRes(res);
       setStep(3);
       toast({
-        title: "Import complete",
-        description: `${res.created} created · ${res.updated} updated · ${res.failed} failed`,
+        title: t("bul.toastComplete"),
+        description: t("bul.toastCompleteDesc", { c: res.created, u: res.updated, f: res.failed }),
         variant: res.failed > 0 ? "destructive" : "default",
       });
     } catch (e) {
-      const msg = e instanceof ApiError ? `${e.message} (${e.code})` : e instanceof Error ? e.message : "Import failed";
+      const msg = e instanceof ApiError ? `${e.message} (${e.code})` : e instanceof Error ? e.message : t("bul.importFailed");
       setError(msg);
-      toast({ title: "Import failed", description: msg, variant: "destructive" });
+      toast({ title: t("bul.importFailed"), description: msg, variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -253,8 +256,8 @@ export default function BulkUploadView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Bulk Upload"
-        subtitle="Import the product master from CSV · validated against R12 tier order (R2)"
+        title={t("prod.bulkUpload")}
+        subtitle={t("bul.subtitle")}
       />
 
       <div className="dmk-card p-4">
@@ -272,16 +275,14 @@ export default function BulkUploadView() {
                 <Download className="h-4 w-4 text-dmk-yellow" />
               </div>
               <div>
-                <h2 className="text-[14px] font-semibold text-dmk-text-primary">1 · Get the template</h2>
+                <h2 className="text-[14px] font-semibold text-dmk-text-primary">{t("bul.step1Title")}</h2>
                 <p className="text-[11.5px] text-dmk-text-muted">
-                  Canonical headers: SKU, Product Name, tiers T1–T5, GST, stock…
+                  {t("bul.templateHint")}
                 </p>
               </div>
             </div>
             <p className="text-[12px] text-dmk-text-secondary leading-relaxed">
-              Fill the template with your catalogue. Keep the header row exactly as provided —
-              the import engine matches columns by name. Tier prices must ascend
-              Distributor ≤ Wholesale ≤ Semi-Wholesale ≤ Retailer ≤ MRP (R12).
+              {t("bul.templateDesc")}
             </p>
             <a
               href="/api/v1/products/template"
@@ -289,7 +290,7 @@ export default function BulkUploadView() {
               className="inline-flex h-9 items-center gap-2 rounded-lg bg-dmk-blue px-3.5 text-[12.5px] font-semibold text-white hover:brightness-110 transition-all"
             >
               <Download className="h-3.5 w-3.5" />
-              Download CSV Template
+              {t("bul.downloadTemplate")}
             </a>
           </div>
 
@@ -299,8 +300,8 @@ export default function BulkUploadView() {
                 <Upload className="h-4 w-4 text-dmk-gold" />
               </div>
               <div>
-                <h2 className="text-[14px] font-semibold text-dmk-text-primary">2 · Provide the file</h2>
-                <p className="text-[11.5px] text-dmk-text-muted">Upload a .csv or paste contents below</p>
+                <h2 className="text-[14px] font-semibold text-dmk-text-primary">{t("bul.step2Title")}</h2>
+                <p className="text-[11.5px] text-dmk-text-muted">{t("bul.provideHint")}</p>
               </div>
             </div>
             <input
@@ -318,7 +319,7 @@ export default function BulkUploadView() {
                 className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well hover:bg-dmk-hover text-[12.5px]"
               >
                 <FileSpreadsheet className="h-3.5 w-3.5" />
-                Choose CSV file
+                {t("bul.chooseFile")}
               </Button>
               {fileName && <span className="text-[11.5px] text-dmk-text-secondary truncate">{fileName}</span>}
             </div>
@@ -334,10 +335,10 @@ export default function BulkUploadView() {
             />
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] text-dmk-text-muted">
-                {csvText.trim() ? `${csvToRecords(csvText).length} data row(s) detected` : "Waiting for input…"}
+                {csvText.trim() ? t("bul.rowsDetected", { n: csvToRecords(csvText).length }) : t("bul.waiting")}
               </span>
               <Button size="sm" onClick={() => void validate()} disabled={busy || !csvText.trim()} className="h-9">
-                {busy ? "Validating…" : "Validate Rows →"}
+                {busy ? t("bul.validating") : t("bul.validateBtn")}
               </Button>
             </div>
           </div>
@@ -349,10 +350,10 @@ export default function BulkUploadView() {
         <div className="space-y-4">
           <div className="dmk-card p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
             <div className="flex items-center gap-2 flex-wrap">
-              <Badge tone="neutral">Total {dryRun.totalRows}</Badge>
-              <Badge tone="success">Valid {dryRun.validRows.length}</Badge>
+              <Badge tone="neutral">{t("bul.totalN", { n: dryRun.totalRows })}</Badge>
+              <Badge tone="success">{t("bul.validN", { n: dryRun.validRows.length })}</Badge>
               <Badge tone={dryRun.invalidRows.length > 0 ? "danger" : "neutral"}>
-                Invalid {dryRun.invalidRows.length}
+                {t("bul.invalidN", { n: dryRun.invalidRows.length })}
               </Badge>
             </div>
             <div className="flex items-center gap-2">
@@ -362,7 +363,7 @@ export default function BulkUploadView() {
                 onClick={() => setStep(1)}
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-dmk-text-secondary hover:bg-dmk-hover"
               >
-                ← Back
+                {t("bul.back")}
               </Button>
               <Button
                 size="sm"
@@ -370,7 +371,7 @@ export default function BulkUploadView() {
                 disabled={busy || dryRun.validRows.length === 0}
                 className="h-9"
               >
-                {busy ? "Importing…" : `Import Valid Rows (${dryRun.validRows.length})`}
+                {busy ? t("bul.importing") : t("bul.importBtn", { n: dryRun.validRows.length })}
               </Button>
             </div>
           </div>
@@ -378,16 +379,16 @@ export default function BulkUploadView() {
           {dryRun.invalidRows.length > 0 && (
             <div className="dmk-card">
               <div className="px-4 py-3 border-b border-dmk-border-subtle">
-                <h3 className="text-[13.5px] font-semibold text-dmk-danger">Invalid rows</h3>
-                <p className="text-[11px] text-dmk-text-muted">These rows will be skipped on import.</p>
+                <h3 className="text-[13.5px] font-semibold text-dmk-danger">{t("bul.invalidRows")}</h3>
+                <p className="text-[11px] text-dmk-text-muted">{t("bul.invalidRowsHint")}</p>
               </div>
               <div className="max-h-64 overflow-y-auto">
                 <table className="dmk-table">
                   <thead>
                     <tr>
-                      <th className="w-16">Row</th>
-                      <th className="w-36">SKU</th>
-                      <th>Errors</th>
+                      <th className="w-16">{t("bul.colRow")}</th>
+                      <th className="w-36">{t("cmn.sku")}</th>
+                      <th>{t("bul.colErrors")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -407,21 +408,21 @@ export default function BulkUploadView() {
           <div className="dmk-card">
             <div className="px-4 py-3 border-b border-dmk-border-subtle">
               <h3 className="text-[13.5px] font-semibold text-dmk-text-primary">
-                Valid rows {dryRun.validRows.length > 100 && <span className="text-dmk-text-muted font-normal">(showing first 100)</span>}
+                {t("bul.validRows")} {dryRun.validRows.length > 100 && <span className="text-dmk-text-muted font-normal">{t("bul.showingFirst", { n: 100 })}</span>}
               </h3>
             </div>
             <div className="max-h-96 overflow-y-auto">
               <table className="dmk-table">
                 <thead>
                   <tr>
-                    <th className="w-16">Row</th>
-                    <th>SKU</th>
-                    <th>Name</th>
-                    <th>Category</th>
-                    <th className="num">GST%</th>
-                    <th className="num">Cost</th>
-                    <th className="num">MRP</th>
-                    <th className="num">Opening</th>
+                    <th className="w-16">{t("bul.colRow")}</th>
+                    <th>{t("cmn.sku")}</th>
+                    <th>{t("cmn.name")}</th>
+                    <th>{t("cmn.category")}</th>
+                    <th className="num">{t("prod.tblGst")}</th>
+                    <th className="num">{t("prod.tblCost")}</th>
+                    <th className="num">{t("prod.tblMrp")}</th>
+                    <th className="num">{t("bul.colOpening")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -457,21 +458,21 @@ export default function BulkUploadView() {
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-dmk-success/15 border border-dmk-success/30">
               <Check className="h-6 w-6 text-dmk-success" />
             </div>
-            <h2 className="text-[16px] font-bold text-dmk-text-primary mt-2">Import finished</h2>
-            <p className="text-[12px] text-dmk-text-muted">Products upserted by SKU — updates never touch stock pools.</p>
+            <h2 className="text-[16px] font-bold text-dmk-text-primary mt-2">{t("bul.finishedTitle")}</h2>
+            <p className="text-[12px] text-dmk-text-muted">{t("bul.finishedDesc")}</p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="dmk-kpi p-4">
-              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Created</span>
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("bul.created")}</span>
               <p className="font-money text-[24px] font-semibold text-dmk-success mt-1">{commitRes.created}</p>
             </div>
             <div className="dmk-kpi p-4">
-              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Updated</span>
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("bul.updated")}</span>
               <p className="font-money text-[24px] font-semibold text-dmk-info mt-1">{commitRes.updated}</p>
             </div>
             <div className="dmk-kpi p-4">
-              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Failed</span>
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("bul.failed")}</span>
               <p className={cn("font-money text-[24px] font-semibold mt-1", commitRes.failed > 0 ? "text-dmk-danger" : "text-dmk-text-primary")}>
                 {commitRes.failed}
               </p>
@@ -481,7 +482,7 @@ export default function BulkUploadView() {
           {(commitRes.errors.length > 0 || commitRes.invalidRows.length > 0) && (
             <div className="dmk-card">
               <div className="px-4 py-3 border-b border-dmk-border-subtle">
-                <h3 className="text-[13.5px] font-semibold text-dmk-danger">Row-level failures</h3>
+                <h3 className="text-[13.5px] font-semibold text-dmk-danger">{t("bul.rowFailures")}</h3>
               </div>
               <ul className="max-h-64 overflow-y-auto px-4 py-2 space-y-1.5">
                 {commitRes.errors.map((err, i) => (
@@ -491,7 +492,7 @@ export default function BulkUploadView() {
                 ))}
                 {commitRes.invalidRows.map((r) => (
                   <li key={`inv-${r.rowNumber}`} className="text-[12px] text-dmk-danger">
-                    Row {r.rowNumber} ({r.sku || "no SKU"}): {r.errors.join(" · ")}
+                    {t("bul.rowFailure", { row: r.rowNumber, sku: r.sku || t("bul.noSku"), errors: r.errors.join(" · ") })}
                   </li>
                 ))}
               </ul>
@@ -501,7 +502,7 @@ export default function BulkUploadView() {
           <div className="flex justify-center">
             <Button onClick={reset} className="h-9 gap-2">
               <RotateCcw className="h-3.5 w-3.5" />
-              Done — Upload Another
+              {t("bul.doneAnother")}
             </Button>
           </div>
         </div>
@@ -512,8 +513,8 @@ export default function BulkUploadView() {
         <div className="dmk-card">
           <EmptyState
             icon={FileSpreadsheet}
-            title="Nothing to preview"
-            hint="Go back and validate a CSV first."
+            title={t("bul.nothingToPreview")}
+            hint={t("bul.nothingToPreviewHint")}
           />
         </div>
       )}

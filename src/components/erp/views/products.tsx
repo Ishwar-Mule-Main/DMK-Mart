@@ -136,17 +136,19 @@ function numOr(s: string, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function tierErrorOf(f: ProductFormState): string | null {
+function tierErrorOf(t: TFn, f: ProductFormState): string | null {
   const vals = [f.tier1, f.tier2, f.tier3, f.tier4, f.tier5].map((s) => s.trim());
-  if (vals.some((v) => v === "")) return "All five tier prices are required (R12).";
+  if (vals.some((v) => v === "")) return t("prod.tierErrRequired");
   const nums = vals.map(Number);
-  if (nums.some((n) => !Number.isFinite(n))) return "Tier prices must be valid numbers.";
-  if (nums.some((n) => n < 0)) return "Tier prices cannot be negative.";
+  if (nums.some((n) => !Number.isFinite(n))) return t("prod.tierErrInvalid");
+  if (nums.some((n) => n < 0)) return t("prod.tierErrNegative");
   const ordered =
     nums[0] <= nums[1] && nums[1] <= nums[2] && nums[2] <= nums[3] && nums[3] <= nums[4];
-  if (!ordered) return "Tier order violated: Distributor ≤ Wholesale ≤ Semi-Wholesale ≤ Retailer ≤ MRP (R12).";
+  if (!ordered) return t("prod.tierErrOrder");
   return null;
 }
+
+type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
 export default function ProductsView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
@@ -182,14 +184,14 @@ export default function ProductsView() {
   const [brandSearch, setBrandSearch] = React.useState("");
 
   const set = (patch: Partial<ProductFormState>) => setForm((f) => ({ ...f, ...patch }));
-  const tierError = React.useMemo(() => tierErrorOf(form), [form]);
+  const tierError = React.useMemo(() => tierErrorOf(t, form), [form, t]);
   const canSave =
     form.sku.trim() !== "" && form.name.trim() !== "" && tierError === null && !saving;
 
   // Debounce search 250ms
   React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 250);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(timer);
   }, [search]);
 
   const load = React.useCallback(async () => {
@@ -214,7 +216,7 @@ export default function ProductsView() {
       setBrands(res.brands ?? []);
     } catch (e) {
       if (seq !== seqRef.current) return;
-      setError(e instanceof Error ? e.message : "Failed to load products");
+      setError(e instanceof Error ? e.message : t("prod.loadFailed"));
     } finally {
       if (seq === seqRef.current) setLoading(false);
     }
@@ -288,9 +290,9 @@ export default function ProductsView() {
       setDialogOpen(false);
       setReloadKey((k) => k + 1);
     } catch (e) {
-      const msg = e instanceof ApiError ? `${e.message} (${e.code})` : e instanceof Error ? e.message : "Save failed";
+      const msg = e instanceof ApiError ? `${e.message} (${e.code})` : e instanceof Error ? e.message : t("prod.saveFailed");
       setFormError(msg);
-      toast({ title: "Could not save product", description: msg, variant: "destructive" });
+      toast({ title: t("prod.toastSaveFail"), description: msg, variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -303,8 +305,8 @@ export default function ProductsView() {
       setReloadKey((k) => k + 1);
     } catch (e) {
       toast({
-        title: "Deactivate failed",
-        description: e instanceof Error ? e.message : "Unknown error",
+        title: t("prod.toastDeactivateFail"),
+        description: e instanceof Error ? e.message : t("cmn.unknown"),
         variant: "destructive",
       });
     }
@@ -349,7 +351,7 @@ export default function ProductsView() {
         />
         <Select value={category} onValueChange={setCategory}>
           <SelectTrigger className="w-full sm:w-[170px] h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
-            <SelectValue placeholder="Category" />
+            <SelectValue placeholder={t("cmn.category")} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t("cmn.allCategories")}</SelectItem>
@@ -362,7 +364,7 @@ export default function ProductsView() {
         </Select>
         <Select value={brand} onValueChange={setBrand} disabled={brands.length === 0}>
           <SelectTrigger className="w-full sm:w-[170px] h-9 bg-dmk-input-well border-dmk-border-subtle text-[13px]">
-            <SelectValue placeholder="Brand" />
+            <SelectValue placeholder={t("cmn.brand")} />
           </SelectTrigger>
           <SelectContent className="max-h-72">
             <div className="px-2 py-1.5 border-b border-dmk-border-subtle mb-1">
@@ -476,7 +478,7 @@ export default function ProductsView() {
                       size="sm"
                       className="h-8 w-8 p-0 text-dmk-text-secondary hover:text-dmk-text-primary hover:bg-dmk-hover"
                       onClick={() => openEdit(p)}
-                      aria-label={`Edit ${p.name}`}
+                      aria-label={t("prod.editAria", { n: p.name })}
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -487,7 +489,7 @@ export default function ProductsView() {
                             variant="ghost"
                             size="sm"
                             className="h-8 w-8 p-0 text-dmk-danger/80 hover:text-dmk-danger hover:bg-dmk-hover"
-                            aria-label={`Deactivate ${p.name}`}
+                            aria-label={t("prod.deactivateAria", { n: p.name })}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -556,7 +558,7 @@ export default function ProductsView() {
                 className={inputCls}
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
-                placeholder="e.g. Cello Magnum Storage Box"
+                placeholder={t("prod.namePh")}
               />
             </Field>
             <Field label={t("cmn.category")}>

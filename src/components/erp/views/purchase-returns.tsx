@@ -58,6 +58,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 // ── API row shapes ──────────────────────────────────────────────
@@ -89,6 +90,18 @@ interface PrRow {
 
 const REASONS = ["Transit Damage", "Defective", "Wrong Item", "Expired", "Other"] as const;
 
+export type TFn = (key: string, vars?: Record<string, string | number>) => string;
+
+/** Display label for a return reason (the value itself is the API enum). */
+function reasonLabel(t: TFn, reason: string): string {
+  if (reason === "Transit Damage") return t("pret.rnTransit");
+  if (reason === "Defective") return t("pret.rnDefective");
+  if (reason === "Wrong Item") return t("pret.rnWrong");
+  if (reason === "Expired") return t("pret.rnExpired");
+  if (reason === "Other") return t("pret.rnOther");
+  return reason;
+}
+
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
@@ -113,6 +126,7 @@ function gstPreview(taxable: number, gstRate: number, intra: boolean) {
 
 export default function PurchaseReturnsView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
 
   const [rows, setRows] = React.useState<PrRow[] | null>(null);
@@ -129,7 +143,7 @@ export default function PurchaseReturnsView() {
         if (alive) {
           setRows([]);
           if (e instanceof ApiError)
-            toast({ variant: "destructive", title: "Could not load purchase returns", description: e.message });
+            toast({ variant: "destructive", title: t("pret.toastLoadFail"), description: e.message });
         }
       });
     return () => {
@@ -163,7 +177,7 @@ export default function PurchaseReturnsView() {
   };
   const vendorAgg = new Map<string, { name: string; count: number; value: number }>();
   for (const r of list) {
-    const name = r.vendor?.vendorName ?? "No vendor on file";
+    const name = r.vendor?.vendorName ?? t("pret.noVendorOnFile");
     const key = r.vendorId ?? "NONE";
     const cur = vendorAgg.get(key) ?? { name, count: 0, value: 0 };
     vendorAgg.set(key, { name, count: cur.count + 1, value: cur.value + Number(r.grandTotal) });
@@ -174,8 +188,8 @@ export default function PurchaseReturnsView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Purchase Returns"
-        subtitle="Debit notes to vendors · Damaged (quarantine) stock goes back, payable reduces"
+        title={t("pret.title")}
+        subtitle={t("pret.subtitle")}
         icon={Undo2}
         actions={
           <Button
@@ -186,11 +200,11 @@ export default function PurchaseReturnsView() {
           >
             {newOpen ? (
               <>
-                <X className="h-4 w-4" /> Close form
+                <X className="h-4 w-4" /> {t("pret.closeForm")}
               </>
             ) : (
               <>
-                <Plus className="h-4 w-4" /> New Debit Note
+                <Plus className="h-4 w-4" /> {t("pret.newDn")}
               </>
             )}
           </Button>
@@ -208,15 +222,15 @@ export default function PurchaseReturnsView() {
       <SectionGrid
         list={
           <RegisterCard
-            title="Debit notes"
+            title={t("pret.cardTitle")}
             icon={Undo2}
             count={list.length}
-            countLabel="returns"
+            countLabel={t("pret.countReturns")}
             footer={
               <>
-                <span><span className="font-money text-dmk-text-secondary">{formatINR(totalValue)}</span> returned value</span>
-                <span><span className="font-money text-dmk-info">{formatINR(totalTax)}</span> ITC reversed</span>
-                <span className="hidden sm:inline">damaged pool ↓ · payable ↓ · sellable untouched (R3/R5)</span>
+                <span><span className="font-money text-dmk-text-secondary">{formatINR(totalValue)}</span> {t("pret.footerReturned")}</span>
+                <span><span className="font-money text-dmk-info">{formatINR(totalTax)}</span> {t("pret.footerItc")}</span>
+                <span className="hidden sm:inline">{t("pret.footerPool")}</span>
               </>
             }
           >
@@ -225,8 +239,8 @@ export default function PurchaseReturnsView() {
             ) : list.length === 0 ? (
               <EmptyState
                 icon={RotateCcw}
-                title="No debit notes yet"
-                hint="Return damaged goods to a vendor — damaged stock and payable reduce together."
+                title={t("pret.emptyTitle")}
+                hint={t("pret.emptyHint")}
               />
             ) : (
               list.map((r) => (
@@ -235,17 +249,17 @@ export default function PurchaseReturnsView() {
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="font-money text-[12px] text-dmk-text-primary shrink-0">{r.debitNoteNo}</span>
                       <span className="text-[11px] text-dmk-text-muted shrink-0">{formatDate(r.returnDate)}</span>
-                      {r.poRef && <span className="font-money text-[10.5px] text-dmk-text-muted truncate" title={`Against PO ${r.poRef}`}>ref {r.poRef}</span>}
+                      {r.poRef && <span className="font-money text-[10.5px] text-dmk-text-muted truncate" title={t("pret.refTooltip", { po: r.poRef })}>{t("pret.refPrefix", { po: r.poRef })}</span>}
                     </div>
                     <Badge tone="dr">DEBIT NOTE</Badge>
                   </div>
                   <div className="mt-1 flex items-center justify-between gap-2">
                     <span className="text-[12px] text-dmk-text-secondary truncate">
-                      {r.vendor?.vendorName ?? <span className="text-dmk-text-muted">No vendor on file</span>}
-                      <span className="text-dmk-text-muted"> · {r.items.length} item{r.items.length === 1 ? "" : "s"}</span>
+                      {r.vendor?.vendorName ?? <span className="text-dmk-text-muted">{t("pret.noVendorOnFile")}</span>}
+                      <span className="text-dmk-text-muted">{t("pret.itemsN", { n: r.items.length })}</span>
                     </span>
                     <span className="flex items-baseline gap-2 shrink-0">
-                      <span className="text-[10.5px] text-dmk-text-muted hidden sm:inline">sub {formatINR(r.subtotal)} · tax {formatINR(r.totalTax)}</span>
+                      <span className="text-[10.5px] text-dmk-text-muted hidden sm:inline">{t("pret.subTax", { sub: formatINR(r.subtotal), tax: formatINR(r.totalTax) })}</span>
                       <span className="font-money text-[13px] font-semibold text-dmk-info">{formatINR(r.grandTotal)}</span>
                     </span>
                   </div>
@@ -257,34 +271,33 @@ export default function PurchaseReturnsView() {
         aside={
           <>
             <div className="grid grid-cols-2 gap-3">
-              <KpiCard label="Debit notes" value={String(list.length)} sub={`${totalItems} line items`} icon={Undo2} />
-              <KpiCard label="Returned value" value={formatINR(totalValue)} sub={`${formatINR(monthValue)} this month`} icon={IndianRupee} tone="blue" />
-              <KpiCard label="ITC reversed" value={formatINR(totalTax)} sub="input tax credit adjusted" icon={FileWarning} tone="gold" />
-              <KpiCard label="This month" value={formatINR(monthValue)} sub="debit notes issued" icon={AlertTriangle} tone={monthValue > 0 ? "orange" : "default"} />
+              <KpiCard label={t("pret.kpiNotes")} value={String(list.length)} sub={t("pret.kpiNotesSub", { n: totalItems })} icon={Undo2} />
+              <KpiCard label={t("pret.kpiReturned")} value={formatINR(totalValue)} sub={t("pret.kpiReturnedSub", { amt: formatINR(monthValue) })} icon={IndianRupee} tone="blue" />
+              <KpiCard label={t("pret.kpiItc")} value={formatINR(totalTax)} sub={t("pret.kpiItcSub")} icon={FileWarning} tone="gold" />
+              <KpiCard label={t("pret.kpiMonth")} value={formatINR(monthValue)} sub={t("pret.kpiMonthSub")} icon={AlertTriangle} tone={monthValue > 0 ? "orange" : "default"} />
             </div>
 
             <AsideCard
-              title="Return policy"
+              title={t("pret.policyTitle")}
               icon={AlertTriangle}
               iconClass="text-dmk-warning"
-              footnote="Quantities are drawn from the Damaged pool only — the server rejects returns larger than the available damaged stock."
+              footnote={t("pret.policyNote")}
             >
               <p className="text-[12px] text-dmk-text-secondary leading-relaxed">
-                A debit note reduces <span className="font-semibold text-dmk-warning">Damaged (quarantine) stock</span> and{' '}
-                <span className="font-semibold text-dmk-info">vendor payable</span>, and reverses Input Tax Credit. Sellable
-                stock is never touched (R3/R5).
+                {t("pret.policyPre")}<span className="font-semibold text-dmk-warning">{t("pret.policyDamaged")}</span>{t("pret.policyMid")}
+                <span className="font-semibold text-dmk-info">{t("pret.policyPayable")}</span>{t("pret.policyPost")}
               </p>
             </AsideCard>
 
-            <AsideCard title="Reason mix" icon={PackageX} iconClass="text-dmk-danger" footnote="Grouped by the reason recorded on each returned line.">
+            <AsideCard title={t("pret.reasonMix")} icon={PackageX} iconClass="text-dmk-danger" footnote={t("pret.reasonMixNote")}>
               <div className="space-y-2.5">
                 {reasonRows.length === 0 ? (
-                  <p className="text-[12px] text-dmk-text-muted">No returns recorded yet.</p>
+                  <p className="text-[12px] text-dmk-text-muted">{t("pret.noReturns")}</p>
                 ) : (
                   reasonRows.map(([reason, v]) => (
                     <MixBar
                       key={reason}
-                      label={<>{reason} <span className="text-dmk-text-muted">· {v.count} qty</span></>}
+                      label={<>{reasonLabel(t, reason)} <span className="text-dmk-text-muted">{t("pret.qtyN", { n: v.count })}</span></>}
                       value={formatINR(v.value)}
                       pct={(v.value / reasonTotal) * 100}
                       barClass={reasonBar[reason] ?? "bg-dmk-yellow"}
@@ -295,19 +308,19 @@ export default function PurchaseReturnsView() {
             </AsideCard>
 
             <AsideCard
-              title="Vendor recovery"
+              title={t("pret.recoveryTitle")}
               icon={Truck}
               iconClass="text-dmk-info"
-              footnote="Returned value by vendor — each debit note also reduces that vendor's payable balance."
+              footnote={t("pret.recoveryNote")}
             >
               <div className="space-y-2.5">
                 {topVendors.length === 0 ? (
-                  <p className="text-[12px] text-dmk-text-muted">No vendors yet.</p>
+                  <p className="text-[12px] text-dmk-text-muted">{t("pret.noVendorsYet")}</p>
                 ) : (
                   topVendors.map(([key, v]) => (
                     <MixBar
                       key={key}
-                      label={<>{v.name} <span className="text-dmk-text-muted">· {v.count} DN</span></>}
+                      label={<>{v.name} <span className="text-dmk-text-muted">{t("pret.dnCount", { n: v.count })}</span></>}
                       value={formatINR(v.value)}
                       pct={(v.value / topVendorMax) * 100}
                       barClass="bg-dmk-blue"
@@ -339,11 +352,14 @@ interface DnLine {
 
 type SettlementMode = "CREDIT" | "UPI_NEFT" | "CASH";
 
-const SETTLEMENT_MODES: Array<{ value: SettlementMode; short: string; sub: string }> = [
-  { value: "CREDIT", short: "Adjust in credit", sub: "Amount adjusts the vendor's payable (opening balance) — credited against what we owe them" },
-  { value: "UPI_NEFT", short: "UPI / NEFT", sub: "Vendor pays the amount back instantly via bank transfer" },
-  { value: "CASH", short: "Cash", sub: "Vendor pays the amount back instantly in cash" },
-];
+/** Settlement options — display labels come from the dict (value is the API enum). */
+function settlementModes(t: TFn): Array<{ value: SettlementMode; short: string; sub: string }> {
+  return [
+    { value: "CREDIT", short: t("pret.settleCredit"), sub: t("pret.settleCreditSub") },
+    { value: "UPI_NEFT", short: t("pret.settleUpi"), sub: t("pret.settleUpiSub") },
+    { value: "CASH", short: t("pret.settleCash"), sub: t("pret.settleCashSub") },
+  ];
+}
 
 interface PoLite {
   id: string;
@@ -362,9 +378,11 @@ function NewDebitNotePanel({
   onSaved: () => void;
 }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   const firmStateCode = firm?.stateCode ?? "27";
+  const SETTLEMENT_MODES = settlementModes(t);
 
   const [saving, setSaving] = React.useState(false);
   const [vendors, setVendors] = React.useState<Vendor[]>([]);
@@ -518,21 +536,21 @@ function NewDebitNotePanel({
       });
       const settleNote =
         settlementMode === "CREDIT"
-          ? "amount adjusted in vendor credit (payable reduced)"
+          ? t("pret.noteCredit")
           : settlementMode === "UPI_NEFT"
-            ? `${formatINR(res.purchaseReturn?.grandTotal ?? 0)} receivable from vendor via UPI/NEFT`
-            : `${formatINR(res.purchaseReturn?.grandTotal ?? 0)} receivable from vendor in Cash`;
+            ? t("pret.noteUpi", { amt: formatINR(res.purchaseReturn?.grandTotal ?? 0) })
+            : t("pret.noteCash", { amt: formatINR(res.purchaseReturn?.grandTotal ?? 0) });
       toast({
-        title: `Debit note ${res.purchaseReturn?.debitNoteNo ?? ""} created`,
-        description: `Damaged stock reduced · ITC reversed · ${settleNote}`,
+        title: t("pret.toastCreated", { dn: res.purchaseReturn?.debitNoteNo ?? "" }),
+        description: t("pret.toastCreatedDesc", { note: settleNote }),
       });
       onSaved();
       onClose();
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not create debit note.";
+      const msg = e instanceof ApiError ? e.message : t("pret.toastFailDesc");
       toast({
         variant: "destructive",
-        title: e instanceof ApiError && (e.code === "ERR_NEGATIVE_STOCK" || e.code === "ERR_RETURN_EXCEEDS_PO") ? "Invalid return quantity" : "Save failed",
+        title: e instanceof ApiError && (e.code === "ERR_NEGATIVE_STOCK" || e.code === "ERR_RETURN_EXCEEDS_PO") ? t("pret.toastInvalidQty") : t("pret.toastSaveFail"),
         description: msg,
       });
     } finally {
@@ -544,7 +562,7 @@ function NewDebitNotePanel({
     <div
       ref={panelRef}
       role="region"
-      aria-label="New debit note form"
+      aria-label={t("pret.formAria")}
       className="dmk-card relative overflow-hidden dmk-enter"
     >
       {/* Accent strip */}
@@ -558,17 +576,16 @@ function NewDebitNotePanel({
               <Undo2 className="h-4 w-4 text-dmk-info" />
             </span>
             <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold text-dmk-text-primary">New debit note — purchase return</h2>
+              <h2 className="text-[15px] font-semibold text-dmk-text-primary">{t("pret.panelTitle")}</h2>
               <p className="text-[11.5px] text-dmk-text-muted leading-snug">
-                Pick a vendor PO to auto-load its products at the PO prices, then set the damaged qty per row (0 = not returned).
-                Quantities are drawn from the Damaged pool only — the server rejects returns larger than available damaged stock.
+                {t("pret.panelDesc")}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close new debit note form"
+            aria-label={t("pret.formCloseAria")}
             className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md text-dmk-text-muted hover:text-dmk-text-primary hover:bg-dmk-hover transition-colors"
           >
             <X className="h-4 w-4" />
@@ -576,7 +593,7 @@ function NewDebitNotePanel({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-          <Field label="Vendor" hint="Optional — omit for stock-only write-back">
+          <Field label={t("cmn.vendor")} hint={t("pret.vendorHint")}>
             <Select
               value={vendorId}
               onValueChange={(v) => {
@@ -586,31 +603,31 @@ function NewDebitNotePanel({
               }}
             >
               <SelectTrigger className={cn(inputCls, "w-full")}>
-                <SelectValue placeholder="Select vendor…" />
+                <SelectValue placeholder={t("pret.vendorPh")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="NONE">— No vendor —</SelectItem>
+                <SelectItem value="NONE">{t("pret.noVendorOption")}</SelectItem>
                 {vendors.map((v) => (
                   <SelectItem key={v.id} value={v.id}>
                     {v.vendorName}
-                    {v.vendorType === "MANUFACTURER" && v.brand ? ` — Mfr · ${v.brand}` : " — Distributor"}
+                    {v.vendorType === "MANUFACTURER" && v.brand ? t("pret.mfrSuffix", { brand: v.brand }) : t("pret.distributorSuffix")}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
 
-          <Field label="Vendor invoices (confirmed POs)">
+          <Field label={t("pret.invoicesLabel")}>
             <Select
               value={poId}
               onValueChange={setPoId}
               disabled={vendorId === "NONE"}
             >
               <SelectTrigger className={cn(inputCls, "w-full")}>
-                <SelectValue placeholder={vendorId === "NONE" ? "Pick a vendor first" : "Pick a PO — loads its products"} />
+                <SelectValue placeholder={vendorId === "NONE" ? t("pret.pickVendorFirst") : t("pret.pickPoPh")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="NONE">— None —</SelectItem>
+                <SelectItem value="NONE">{t("pret.noneOption")}</SelectItem>
                 {sortedPoOptions.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.poNumber} · {formatDate(p.poDate)} · {formatINR(Number(p.grandTotal))}
@@ -619,15 +636,15 @@ function NewDebitNotePanel({
               </SelectContent>
             </Select>
             <p className="mt-1 text-[11px] leading-tight text-dmk-text-muted">
-              Newest POs first — picking one loads its products &amp; PO prices below.
+              {t("pret.newestFirst")}
             </p>
           </Field>
 
-          <Field label="Return date">
+          <Field label={t("pret.returnDate")}>
             <Input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
           </Field>
 
-          <Field label="Settlement by vendor">
+          <Field label={t("pret.settlementLabel")}>
             <div className="grid grid-cols-3 gap-1.5">
               {SETTLEMENT_MODES.map((m) => (
                 <button
@@ -657,23 +674,23 @@ function NewDebitNotePanel({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-              {refPo ? `Products from ${refPo.poNumber} — PO prices` : "Returned items (damaged pool)"}
+              {refPo ? t("pret.fromPo", { po: refPo.poNumber }) : t("pret.returnedItems")}
             </span>
             {refPo ? (
-              <span className="text-[11px] text-dmk-text-muted">Set damaged qty — rows left at 0 are not returned</span>
+              <span className="text-[11px] text-dmk-text-muted">{t("pret.setQtyHint")}</span>
             ) : (
               <Select onValueChange={(pid) => {
                 const p = productMap.get(pid);
                 if (p) addProduct(p);
               }} value="">
                 <SelectTrigger className={cn(inputCls, "w-full sm:w-[320px]")}>
-                  <SelectValue placeholder="+ Add product…" />
+                  <SelectValue placeholder={t("pret.addProductPh")} />
                 </SelectTrigger>
                 <SelectContent>
                   {products.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.sku} · {p.name}
-                      {p.brand ? ` (${p.brand})` : ""} — damaged {p.damagedStock}
+                      {p.brand ? ` (${p.brand})` : ""} {t("pret.damagedQtyN", { n: p.damagedStock })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -683,7 +700,7 @@ function NewDebitNotePanel({
 
           {lines.length === 0 ? (
             <p className="text-[12px] text-dmk-text-muted dmk-well px-3 py-4 text-center">
-              {refPo ? "No product lines on this PO." : vendorId === "NONE" ? "Select a vendor (and optionally their PO) to begin, or add products manually." : "Pick a PO above to auto-load its products, or add products manually."}
+              {refPo ? t("pret.noLinesOnPo") : vendorId === "NONE" ? t("pret.beginWithVendor") : t("pret.beginWithPo")}
             </p>
           ) : (
             <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
@@ -701,10 +718,10 @@ function NewDebitNotePanel({
                         <p className="text-[10.5px] text-dmk-text-muted mt-0.5">
                           {line.fromPo && (
                             <span className="mr-2">
-                              PO <span className="font-money">{line.poQty}</span> × <span className="font-money">{formatINR(num(line.cost))}</span> — PO price ·{" "}
+                              {t("pret.poLinePrefix", { qty: line.poQty, cost: formatINR(num(line.cost)) })}{" "}
                             </span>
                           )}
-                          Damaged in stock:{" "}
+                          {t("pret.damagedInStock")}{" "}
                           <span className={cn("font-money", overStock ? "text-dmk-danger" : "text-dmk-text-secondary")}>
                             {product?.damagedStock ?? 0}
                           </span>
@@ -712,7 +729,7 @@ function NewDebitNotePanel({
                       </div>
                       <div className="sm:col-span-2">
                         {line.fromPo && (
-                          <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">Damaged qty</label>
+                          <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">{t("pret.damagedQtyLabel")}</label>
                         )}
                         <Input
                           type="number"
@@ -720,19 +737,19 @@ function NewDebitNotePanel({
                           step="1"
                           value={line.qty}
                           onChange={(e) => updateLine(i, { qty: line.fromPo ? String(Math.max(0, Math.floor(Number(e.target.value) || 0))) : e.target.value })}
-                          aria-label={line.fromPo ? "Damaged quantity" : "Return quantity"}
+                          aria-label={line.fromPo ? t("pret.damagedQtyAria") : t("pret.returnQtyAria")}
                           className={cn(inputCls, "h-8 text-right font-money", (overStock || overPo) && "border-dmk-danger/60")}
                         />
-                        {overPo && <span className="mt-0.5 block text-[10px] text-dmk-danger">Max {line.poQty}</span>}
+                        {overPo && <span className="mt-0.5 block text-[10px] text-dmk-danger">{t("pret.maxQty", { n: line.poQty })}</span>}
                       </div>
                       {line.fromPo ? (
                         <div className="sm:col-span-2 text-right">
-                          <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted sm:text-left">Line total</span>
+                          <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted sm:text-left">{t("pret.colLineTotal")}</span>
                           <span className="font-money text-[12.5px] text-dmk-text-primary">{formatINR(total)}</span>
                         </div>
                       ) : (
                         <div className="sm:col-span-2">
-                          <Field label="Unit cost">
+                          <Field label={t("pret.colUnitCost")}>
                             <Input
                               type="number"
                               min="0"
@@ -740,14 +757,14 @@ function NewDebitNotePanel({
                               value={line.cost}
                               onChange={(e) => updateLine(i, { cost: e.target.value })}
                               className={cn(inputCls, "h-8 text-right font-money")}
-                              aria-label="Unit cost"
+                              aria-label={t("pret.colUnitCost")}
                             />
                           </Field>
                         </div>
                       )}
                       <div className="sm:col-span-3">
                         {line.fromPo && (
-                          <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">Reason</label>
+                          <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">{t("pret.reasonLabel")}</label>
                         )}
                         <Select value={line.reason} onValueChange={(v) => updateLine(i, { reason: v })}>
                           <SelectTrigger className={cn(inputCls, "h-8 w-full")}>
@@ -755,7 +772,7 @@ function NewDebitNotePanel({
                           </SelectTrigger>
                           <SelectContent>
                             {REASONS.map((r) => (
-                              <SelectItem key={r} value={r}>{r}</SelectItem>
+                              <SelectItem key={r} value={r}>{reasonLabel(t, r)}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -766,21 +783,21 @@ function NewDebitNotePanel({
                           variant="ghost"
                           className="h-8 w-8 p-0 text-dmk-text-muted hover:text-dmk-danger hover:bg-dmk-hover"
                           onClick={() => removeLine(i)}
-                          aria-label="Remove line"
+                          aria-label={t("pret.removeLineAria")}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[11.5px] text-dmk-text-muted">
-                      <span>Taxable <span className="num text-dmk-text-secondary">{formatINR(taxable)}</span></span>
+                      <span>{t("pret.colTaxable")} <span className="num text-dmk-text-secondary">{formatINR(taxable)}</span></span>
                       <span>
-                        {intra ? "CGST+SGST" : "IGST"}{" "}
+                        {intra ? t("pret.colCgstSgst") : t("pret.colIgst")}{" "}
                         <span className="num text-dmk-text-secondary">
                           {intra ? `${formatINR(gst.cgst)} + ${formatINR(gst.sgst)}` : formatINR(gst.igst)}
                         </span>
                       </span>
-                      <span>Total <span className="num text-dmk-text-primary font-semibold">{formatINR(total)}</span></span>
+                      <span>{t("cmn.total")} <span className="num text-dmk-text-primary font-semibold">{formatINR(total)}</span></span>
                     </div>
                   </div>
                 );
@@ -791,45 +808,45 @@ function NewDebitNotePanel({
 
         {overPoRows.length > 0 && (
           <ErrorText>
-            {overPoRows.length} row{overPoRows.length === 1 ? "" : "s"} exceed the PO quantity — reduce the damaged qty before posting.
+            {t("pret.overPoErr", { n: overPoRows.length })}
           </ErrorText>
         )}
 
         {stockErrors.length > 0 && (
           <ErrorText>
-            Damaged stock is insufficient:{" "}
+            {t("pret.stockErrPre")}{" "}
             {stockErrors
-              .map((c) => `${c.product?.name ?? "item"} (available ${c.product?.damagedStock ?? 0})`)
+              .map((c) => t("pret.stockErrItem", { name: c.product?.name ?? t("pret.itemFallback"), avail: c.product?.damagedStock ?? 0 }))
               .join(", ")}
-            . Reduce the quantities or check the quarantine pool.
+            {t("pret.stockErrPost")}
           </ErrorText>
         )}
 
         {lines.length > 0 && (
           <div className="dmk-well px-4 py-3 space-y-1">
             <div className="flex justify-between text-[12px] text-dmk-text-secondary">
-              <span>Subtotal (taxable)</span>
+              <span>{t("pret.subtotalTaxable")}</span>
               <Money value={totals.taxable} />
             </div>
             {intra ? (
               <>
                 <div className="flex justify-between text-[12px] text-dmk-text-secondary">
-                  <span>CGST reversal</span><Money value={totals.cgst} />
+                  <span>{t("pret.cgstReversal")}</span><Money value={totals.cgst} />
                 </div>
                 <div className="flex justify-between text-[12px] text-dmk-text-secondary">
-                  <span>SGST reversal</span><Money value={totals.sgst} />
+                  <span>{t("pret.sgstReversal")}</span><Money value={totals.sgst} />
                 </div>
               </>
             ) : (
               <div className="flex justify-between text-[12px] text-dmk-text-secondary">
-                <span>IGST reversal</span><Money value={totals.igst} />
+                <span>{t("pret.igstReversal")}</span><Money value={totals.igst} />
               </div>
             )}
             <div className="flex justify-between text-[13.5px] font-semibold text-dmk-text-primary pt-1 border-t border-dmk-border-subtle">
               <span>
-                Debit note total
+                {t("pret.dnTotal")}
                 <span className="ml-2 text-[10.5px] font-normal uppercase tracking-wide text-dmk-text-muted">
-                  {settlementMode === "CREDIT" ? "adjusted in vendor credit" : settlementMode === "UPI_NEFT" ? "vendor pays via UPI/NEFT" : "vendor pays in Cash"}
+                  {settlementMode === "CREDIT" ? t("pret.chipCredit") : settlementMode === "UPI_NEFT" ? t("pret.chipUpi") : t("pret.chipCash")}
                 </span>
               </span>
               <Money value={grand} className="text-dmk-yellow text-[15px]" />
@@ -840,11 +857,11 @@ function NewDebitNotePanel({
         {/* Panel footer actions */}
         <div className="flex items-center justify-end gap-2 border-t border-dmk-border-subtle pt-3">
           <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
-            Cancel
+            {t("cmn.cancel")}
           </Button>
           <Button onClick={submit} disabled={!canSave || saving} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {returnRows.length > 0 ? `Create debit note · ${returnRows.length} item${returnRows.length === 1 ? "" : "s"}` : "Create debit note"}
+            {returnRows.length > 0 ? t("pret.createBtnN", { n: returnRows.length }) : t("pret.createBtn")}
           </Button>
         </div>
       </div>
@@ -865,6 +882,7 @@ function reasonTone(reason: string): "warning" | "danger" | "info" | "neutral" {
 }
 
 function ViewReturnDialog({ row, onClose }: { row: PrRow | null; onClose: () => void }) {
+  const { t } = useT();
   return (
     <Dialog open={!!row} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="dmk-elevated border-dmk-border-medium">
@@ -873,8 +891,8 @@ function ViewReturnDialog({ row, onClose }: { row: PrRow | null; onClose: () => 
             <FileWarning className="h-5 w-5 text-dmk-warning" /> {row?.debitNoteNo}
           </DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
-            {row?.vendor?.vendorName ?? "No vendor"} · {row ? formatDate(row.returnDate) : ""}
-            {row?.poRef ? ` · Ref PO ${row.poRef}` : ""}
+            {row?.vendor?.vendorName ?? t("pret.noVendor")} · {row ? formatDate(row.returnDate) : ""}
+            {row?.poRef ? t("pret.refPo", { po: row.poRef }) : ""}
           </DialogDescription>
         </DialogHeader>
 
@@ -883,12 +901,12 @@ function ViewReturnDialog({ row, onClose }: { row: PrRow | null; onClose: () => 
             <table className="dmk-table min-w-[560px]">
               <thead>
                 <tr>
-                  <th>Product</th>
-                  <th className="text-right">Qty</th>
-                  <th className="text-right">Unit cost</th>
+                  <th>{t("cmn.product")}</th>
+                  <th className="text-right">{t("pret.colQty")}</th>
+                  <th className="text-right">{t("pret.colUnitCost")}</th>
                   <th className="text-right">GST</th>
-                  <th className="text-right">Total</th>
-                  <th>Reason</th>
+                  <th className="text-right">{t("cmn.total")}</th>
+                  <th>{t("pret.reasonLabel")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -902,7 +920,7 @@ function ViewReturnDialog({ row, onClose }: { row: PrRow | null; onClose: () => 
                     <td className="num text-[12.5px]">{formatINR(it.unitCost)}</td>
                     <td className="num text-[12px] text-dmk-text-secondary">{it.gstRate}%</td>
                     <td className="num text-[12.5px] font-semibold">{formatINR(it.totalAmount)}</td>
-                    <td><Badge tone={reasonTone(it.reason)}>{it.reason}</Badge></td>
+                    <td><Badge tone={reasonTone(it.reason)}>{reasonLabel(t, it.reason)}</Badge></td>
                   </tr>
                 ))}
               </tbody>
@@ -910,13 +928,13 @@ function ViewReturnDialog({ row, onClose }: { row: PrRow | null; onClose: () => 
           </div>
           <div className="dmk-well px-4 py-3 space-y-1">
             <div className="flex justify-between text-[12px] text-dmk-text-secondary">
-              <span>Subtotal</span><Money value={row?.subtotal ?? 0} />
+              <span>{t("pret.subtotal")}</span><Money value={row?.subtotal ?? 0} />
             </div>
             <div className="flex justify-between text-[12px] text-dmk-text-secondary">
-              <span>Tax reversal</span><Money value={row?.totalTax ?? 0} />
+              <span>{t("pret.taxReversal")}</span><Money value={row?.totalTax ?? 0} />
             </div>
             <div className="flex justify-between text-[13.5px] font-semibold text-dmk-text-primary pt-1 border-t border-dmk-border-subtle">
-              <span>Debit note total</span>
+              <span>{t("pret.dnTotal")}</span>
               <Money value={row?.grandTotal ?? 0} className="text-dmk-yellow text-[15px]" />
             </div>
           </div>
@@ -924,14 +942,14 @@ function ViewReturnDialog({ row, onClose }: { row: PrRow | null; onClose: () => 
 
         {row?.notes && (
           <p className="text-[12px] text-dmk-text-secondary">
-            <span className="text-dmk-text-muted uppercase tracking-wider text-[10.5px] font-semibold mr-2">Notes</span>
+            <span className="text-dmk-text-muted uppercase tracking-wider text-[10.5px] font-semibold mr-2">{t("cmn.notes")}</span>
             {row.notes}
           </p>
         )}
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
-            Close
+            {t("cmn.close")}
           </Button>
         </DialogFooter>
       </DialogContent>

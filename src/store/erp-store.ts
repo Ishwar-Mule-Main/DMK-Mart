@@ -37,6 +37,8 @@ export type ViewId =
   | "inventory/low-stock"
   | "finance/journals"
   | "finance/coa"
+  | "finance/expense-record"
+  | "finance/expense-reports"
   | "finance/ledgers"
   | "finance/statements"
   | "finance/daybook"

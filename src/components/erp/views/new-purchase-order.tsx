@@ -50,6 +50,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 interface PoLine {
@@ -116,6 +117,7 @@ function scopedProducts(products: Product[], vendor: Vendor | null): Product[] {
 
 export default function NewPurchaseOrderView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   const setView = useErpStore((s) => s.setView);
@@ -285,8 +287,8 @@ export default function NewPurchaseOrderView() {
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Could not create purchase order",
-        description: e instanceof ApiError ? e.message : "Something went wrong.",
+        title: t("npo.toastFail"),
+        description: e instanceof ApiError ? e.message : t("npo.toastFailDesc"),
       });
     } finally {
       setSubmitting(false);
@@ -294,26 +296,26 @@ export default function NewPurchaseOrderView() {
   }
 
   if (!activeFirmId) {
-    return <EmptyState icon={ClipboardList} title="No active firm" hint="Select a firm from the header switcher." />;
+    return <EmptyState icon={ClipboardList} title={t("npo.noFirm")} hint={t("npo.noFirmHint")} />;
   }
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="New Purchase Order"
+        title={t("npo.title")}
         subtitle={
           vendor
-            ? `${vendor.vendorName} · GST ${intra ? "CGST+SGST (intra-state)" : "IGST (inter-state)"} · goes to the verification team on create`
-            : "Pick a vendor to see its products — manufacturers show only their own make"
+            ? t("npo.subtitleVendor", { name: vendor.vendorName, gst: t(intra ? "npo.gstIntra" : "npo.gstInter") })
+            : t("npo.subtitleNoVendor")
         }
         icon={ClipboardList}
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setView("purchase/orders")}>
-              <Truck className="h-4 w-4" /> All purchase orders
+              <Truck className="h-4 w-4" /> {t("npo.allPos")}
             </Button>
             <Button variant="outline" size="sm" onClick={() => resetForm(true)} disabled={!vendor && lines.length === 0} className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover">
-              <Trash2 className="h-4 w-4" /> Clear form
+              <Trash2 className="h-4 w-4" /> {t("npo.clearForm")}
             </Button>
           </div>
         }
@@ -328,14 +330,14 @@ export default function NewPurchaseOrderView() {
         {/* Vendor picker */}
         <div className="dmk-card p-4 space-y-3 min-w-0 lg:col-start-1 lg:row-start-1">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Vendor / Manufacturer</span>
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("npo.vendorHeading")}</span>
               <Button
                 size="sm"
                 variant="outline"
                 className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
                 onClick={() => setView("purchase/vendors")}
               >
-                <Plus className="h-3.5 w-3.5" /> New Vendor
+                <Plus className="h-3.5 w-3.5" /> {t("npo.newVendor")}
               </Button>
             </div>
 
@@ -349,16 +351,16 @@ export default function NewPurchaseOrderView() {
                       <Badge tone={vendor.vendorType === "MANUFACTURER" ? "dr" : "info"}>
                         {vendor.vendorType === "MANUFACTURER" ? "MANUFACTURER" : "DISTRIBUTOR"}
                       </Badge>
-                      {isManufacturer && vendor.brand && <Badge tone="warning">Brand · {vendor.brand}</Badge>}
+                      {isManufacturer && vendor.brand && <Badge tone="warning">{t("npo.brandChip", { brand: vendor.brand })}</Badge>}
                     </div>
                     <div className="text-[11.5px] text-dmk-text-muted mt-1 flex flex-wrap gap-x-3">
                       <span>GSTIN <span className="font-money text-dmk-text-secondary">{vendor.gstin || "—"}</span></span>
-                      <span>State {vendor.stateCode} {intra ? "(intra)" : "(inter)"}</span>
-                      <span>Terms {vendor.paymentTerms.replace("_", "-")}</span>
+                      <span>{t("npo.stateLabel", { state: vendor.stateCode })} {intra ? t("npo.intra") : t("npo.inter")}</span>
+                      <span>{t("npo.termsLabel", { terms: vendor.paymentTerms.replace("_", "-") })}</span>
                     </div>
                   </div>
                   <button
-                    aria-label="Change vendor"
+                    aria-label={t("npo.changeVendor")}
                     onClick={() => {
                       setVendor(null);
                       setVendorQuery("");
@@ -374,10 +376,10 @@ export default function NewPurchaseOrderView() {
                 <div className="rounded-md border border-dmk-border-subtle bg-dmk-bg-primary/60 p-2.5 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[9.5px] uppercase tracking-widest font-bold text-dmk-text-muted inline-flex items-center gap-1.5">
-                      <BookUser className="h-3 w-3 text-dmk-gold" /> Sundry Creditor · A/c 2000
+                      <BookUser className="h-3 w-3 text-dmk-gold" /> {t("npo.sundryCreditor")}
                     </span>
                     {sundryLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 text-dmk-text-muted animate-spin" aria-label="Loading sundry standing" />
+                      <Loader2 className="h-3.5 w-3.5 text-dmk-text-muted animate-spin" aria-label={t("npo.sundryLoadingAria")} />
                     ) : null}
                   </div>
 
@@ -385,20 +387,20 @@ export default function NewPurchaseOrderView() {
                     <>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">We owe (ledger)</p>
+                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">{t("npo.weOwe")}</p>
                           <p className={cn("font-money text-[13.5px] font-semibold", sundryCreditor.ledgerBalance > 0.005 ? "text-dmk-yellow" : sundryCreditor.ledgerBalance < -0.005 ? "text-dmk-success" : "text-dmk-text-muted")}>
                             {sundryCreditor.ledgerBalance > 0.005
                               ? `Cr ${formatINR(sundryCreditor.ledgerBalance)}`
                               : sundryCreditor.ledgerBalance < -0.005
-                                ? `Dr ${formatINR(-sundryCreditor.ledgerBalance)} adv.`
-                                : "Clear"}
+                                ? `Dr ${formatINR(-sundryCreditor.ledgerBalance)} ${t("npo.adv")}`
+                                : t("npo.clearStanding")}
                           </p>
                         </div>
                         <div>
-                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">Open PO exposure</p>
+                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">{t("npo.openPoExposure")}</p>
                           <p className="font-money text-[13.5px] font-semibold text-dmk-text-primary">
                             {formatINR(sundryCreditor.openPOValue)}
-                            <span className="text-[10.5px] font-normal text-dmk-text-muted"> · {sundryCreditor.openPOCount} PO</span>
+                            <span className="text-[10.5px] font-normal text-dmk-text-muted">{t("npo.poCountShort", { n: sundryCreditor.openPOCount })}</span>
                           </p>
                         </div>
                       </div>
@@ -406,12 +408,12 @@ export default function NewPurchaseOrderView() {
                         <Banknote className="h-3 w-3 shrink-0" />
                         {sundryCreditor.lastPayment ? (
                           <>
-                            Last payment <span className="font-money text-dmk-success">{formatINR(sundryCreditor.lastPayment.amount)}</span>
+                            {t("npo.lastPayment")} <span className="font-money text-dmk-success">{formatINR(sundryCreditor.lastPayment.amount)}</span>
                             <span className="text-dmk-text-muted">({sundryCreditor.lastPayment.mode})</span>
                             <span className="text-dmk-text-secondary">{new Date(sundryCreditor.lastPayment.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span>
                           </>
                         ) : (
-                          <span>No payments recorded yet</span>
+                          <span>{t("npo.noPayments")}</span>
                         )}
                       </p>
                       <button
@@ -419,11 +421,11 @@ export default function NewPurchaseOrderView() {
                         onClick={() => setView("purchase/payments")}
                         className="text-[10.5px] font-semibold uppercase tracking-wider text-dmk-blue/90 hover:text-dmk-blue inline-flex items-center gap-1 transition-colors"
                       >
-                        <ReceiptText className="h-3 w-3" /> Record payment
+                        <ReceiptText className="h-3 w-3" /> {t("npo.recordPayment")}
                       </button>
                     </>
                   ) : (
-                    <p className="text-[11px] text-dmk-text-muted">Sundry standing unavailable — balance feeds from the ledger.</p>
+                    <p className="text-[11px] text-dmk-text-muted">{t("npo.sundryUnavailable")}</p>
                   )}
                 </div>
               </div>
@@ -436,9 +438,9 @@ export default function NewPurchaseOrderView() {
                     setVendorOpen(true);
                   }}
                   onFocus={() => setVendorOpen(true)}
-                  placeholder="Search vendors by name, GSTIN, phone or brand…"
+                  placeholder={t("npo.vendorSearchPh")}
                   className={cn(inputCls, "h-10 pl-9")}
-                  aria-label="Vendor search"
+                  aria-label={t("npo.vendorSearchAria")}
                 />
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
                 {vendorOpen && vendorResults.length > 0 && (
@@ -462,7 +464,7 @@ export default function NewPurchaseOrderView() {
                         </div>
                         <div className="text-[11px] text-dmk-text-muted mt-0.5">
                           {v.vendorType === "MANUFACTURER" && v.brand ? `${v.brand} · ` : ""}
-                          {v.stateCode} · {v.phone || "no phone"} · owed {formatINR(Number(v.closingBalance))}
+                          {v.stateCode} · {v.phone || t("npo.noPhone")} · {t("npo.owed", { amt: formatINR(Number(v.closingBalance)) })}
                         </div>
                       </button>
                     ))}
@@ -474,11 +476,11 @@ export default function NewPurchaseOrderView() {
 
           {/* PO summary — bottom of the LEFT 30% pane (below vendor) */}
           <div className="dmk-elevated p-5 space-y-4 min-w-0 lg:col-start-1 lg:row-start-2 lg:overflow-y-auto">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">PO summary</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("npo.summaryHeading")}</span>
 
             <div className="space-y-2">
               <div className="flex justify-between text-[13px]">
-                <span className="text-dmk-text-secondary">Taxable value</span>
+                <span className="text-dmk-text-secondary">{t("npo.taxableValue")}</span>
                 <span className="font-money text-dmk-text-primary">{formatINR(totals.taxable)}</span>
               </div>
               {intra ? (
@@ -501,30 +503,29 @@ export default function NewPurchaseOrderView() {
             </div>
 
             <div className="border-t border-dmk-border-medium pt-3 flex items-end justify-between">
-              <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">PO value</span>
+              <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("npo.poValue")}</span>
               <span className="font-money text-[28px] font-bold leading-none text-dmk-yellow">{formatINR(totals.grand)}</span>
             </div>
 
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
-              <Field label="PO date">
-                <Input type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} className={inputCls} aria-label="PO date" />
+              <Field label={t("npo.poDateField")}>
+                <Input type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} className={inputCls} aria-label={t("npo.poDateField")} />
               </Field>
-              <Field label="Vendor bill no.">
-                <Input value={vendorBillNo} onChange={(e) => setVendorBillNo(e.target.value)} placeholder="e.g. SB/4512" className={cn(inputCls, "font-money")} />
+              <Field label={t("npo.billNoField")}>
+                <Input value={vendorBillNo} onChange={(e) => setVendorBillNo(e.target.value)} placeholder={t("npo.billNoPh")} className={cn(inputCls, "font-money")} />
               </Field>
-              <Field label="Bill date">
-                <Input type="date" value={vendorBillDate} onChange={(e) => setVendorBillDate(e.target.value)} className={inputCls} aria-label="Vendor bill date" />
+              <Field label={t("npo.billDateField")}>
+                <Input type="date" value={vendorBillDate} onChange={(e) => setVendorBillDate(e.target.value)} className={inputCls} aria-label={t("npo.billDateAria")} />
               </Field>
-              <Field label="Notes">
-                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional remarks" className={inputCls} />
+              <Field label={t("cmn.notes")}>
+                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t("npo.notesPh")} className={inputCls} />
               </Field>
             </div>
 
             <div className="dmk-well px-3 py-2.5 flex items-start gap-2">
               <ShieldCheck className="h-4 w-4 text-dmk-yellow shrink-0 mt-0.5" />
               <p className="text-[11px] text-dmk-text-muted leading-snug">
-                On create the PO lands on the <span className="font-semibold text-dmk-text-secondary">verification team portal</span> (product
-                names + ordered qty only). Stock, payable and the PURCHASE journal book when you accept their counts.
+                {t("npo.verifyNotePre")} <span className="font-semibold text-dmk-text-secondary">{t("npo.verifyPortal")}</span>{t("npo.verifyNotePost")}
               </p>
             </div>
 
@@ -534,22 +535,22 @@ export default function NewPurchaseOrderView() {
               disabled={!canSave || submitting}
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {submitting ? "Creating PO…" : "Create PO & send to verification"}
+              {submitting ? t("npo.creating") : t("npo.createBtn")}
             </Button>
-            {!vendor && <p className="text-[11px] text-dmk-text-muted text-center">Select a vendor to enable the order</p>}
-            {vendor && lines.length === 0 && <p className="text-[11px] text-dmk-text-muted text-center">Add at least one product line</p>}
+            {!vendor && <p className="text-[11px] text-dmk-text-muted text-center">{t("npo.needVendor")}</p>}
+            {vendor && lines.length === 0 && <p className="text-[11px] text-dmk-text-muted text-center">{t("npo.needLine")}</p>}
           </div>
 
         {/* ══════════ RIGHT 70% — PRODUCT SEARCH (top) + LINES (below) ══════════ */}
         {/* Product picker — vendor-scoped */}
         <div className="dmk-card p-4 space-y-3 min-w-0 lg:col-start-2 lg:row-start-1">
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Add products</span>
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("npo.addProducts")}</span>
               {vendor && (
                 <span className="text-[10.5px] text-dmk-text-muted">
                   {isManufacturer
-                    ? `Showing only ${vendor.vendorName}'s products`
-                    : "Distributor — full catalog available"}
+                    ? t("npo.showingOnly", { name: vendor.vendorName })
+                    : t("npo.distFullCatalog")}
                 </span>
               )}
             </div>
@@ -572,9 +573,9 @@ export default function NewPurchaseOrderView() {
                   }
                 }}
                 disabled={!vendor}
-                placeholder={vendor ? "Scan or type SKU / product name, press Enter to add…" : "Select a vendor first — products are vendor-scoped"}
+                placeholder={vendor ? t("npo.prodPh") : t("npo.prodNoVendorPh")}
                 className={cn(inputCls, "h-10 pl-9")}
-                aria-label="Product search"
+                aria-label={t("npo.prodSearchAria")}
               />
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
               {prodQuery && pickable.length > 0 && (
@@ -598,7 +599,7 @@ export default function NewPurchaseOrderView() {
                         <span className="font-money text-[12.5px] text-dmk-gold shrink-0">{formatINR(p.purchaseCost)}</span>
                       </div>
                       <div className="text-[11px] text-dmk-text-muted mt-0.5">
-                        GST {p.gstRate}% · {p.unit} · stock {p.stockQuantity} · damaged {p.damagedStock}
+                        GST {p.gstRate}% · {p.unit} · {t("npo.stockN", { n: p.stockQuantity })} · {t("npo.damagedN", { n: p.damagedStock })}
                       </div>
                     </button>
                   ))}
@@ -607,14 +608,14 @@ export default function NewPurchaseOrderView() {
               {vendor && prodQuery.trim() !== "" && pickable.length === 0 && (
                 <div className="absolute z-30 mt-1 w-full dmk-elevated px-3 py-3 text-[12px] text-dmk-text-muted text-center">
                   {isManufacturer
-                    ? `No ${vendor.vendorName} products match "${prodQuery.trim()}"`
-                    : `No products match "${prodQuery.trim()}"`}
+                    ? t("npo.noVendorMatch", { name: vendor.vendorName, q: prodQuery.trim() })
+                    : t("npo.noMatch", { q: prodQuery.trim() })}
                 </div>
               )}
             </div>
             {!vendor && (
               <p className="text-[11.5px] text-dmk-text-muted">
-                Manufacturer vendors list only the products they make (names start with the vendor&apos;s name). Distributors list everything.
+                {t("npo.scopingNote")}
               </p>
             )}
           </div>
@@ -625,24 +626,24 @@ export default function NewPurchaseOrderView() {
               {lines.length === 0 ? (
                 <EmptyState
                   icon={ShoppingCart}
-                  title="No order lines yet"
+                  title={t("npo.noLinesTitle")}
                   hint={
                     vendor
-                      ? "Search a product above and press Enter — lines carry the vendor's GST treatment."
-                      : "Pick a vendor first — the product list is scoped to that vendor."
+                      ? t("npo.hintWithVendor")
+                      : t("npo.hintNoVendor")
                   }
                 />
               ) : (
                 <table className="dmk-table min-w-[760px]">
                   <thead>
                     <tr>
-                      <th>SKU</th>
-                      <th>Product</th>
-                      <th className="text-right">Qty</th>
-                      <th className="text-right">Unit cost</th>
-                      <th className="text-right">Taxable</th>
-                      <th className="text-right">{intra ? "CGST+SGST" : "IGST"}</th>
-                      <th className="text-right">Line total</th>
+                      <th>{t("cmn.sku")}</th>
+                      <th>{t("cmn.product")}</th>
+                      <th className="text-right">{t("npo.colQty")}</th>
+                      <th className="text-right">{t("npo.colUnitCost")}</th>
+                      <th className="text-right">{t("npo.colTaxable")}</th>
+                      <th className="text-right">{intra ? t("npo.colCgstSgst") : t("npo.colIgst")}</th>
+                      <th className="text-right">{t("npo.colLineTotal")}</th>
                       <th />
                     </tr>
                   </thead>
@@ -666,7 +667,7 @@ export default function NewPurchaseOrderView() {
                               step={1}
                               value={l.qty}
                               onChange={(e) => updateLine(i, { qty: e.target.value })}
-                              aria-label={`Quantity for ${l.name}`}
+                              aria-label={t("npo.qtyAria", { name: l.name })}
                               className="h-8 w-16 bg-dmk-input-well border-dmk-border-subtle text-[12.5px] font-money text-right ml-auto dmk-input"
                             />
                           </td>
@@ -677,7 +678,7 @@ export default function NewPurchaseOrderView() {
                               step={0.01}
                               value={l.cost}
                               onChange={(e) => updateLine(i, { cost: e.target.value })}
-                              aria-label={`Unit cost for ${l.name}`}
+                              aria-label={t("npo.costAria", { name: l.name })}
                               className="h-8 w-20 bg-dmk-input-well border-dmk-border-subtle text-[12.5px] font-money text-right ml-auto dmk-input"
                             />
                           </td>
@@ -687,7 +688,7 @@ export default function NewPurchaseOrderView() {
                           <td>
                             <button
                               onClick={() => removeLine(i)}
-                              aria-label={`Remove ${l.name}`}
+                              aria-label={t("npo.removeAria", { name: l.name })}
                               className="h-8 w-8 inline-flex items-center justify-center rounded-md text-dmk-text-muted hover:text-dmk-danger hover:bg-dmk-hover transition-colors"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -710,24 +711,24 @@ export default function NewPurchaseOrderView() {
           <DialogHeader>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-dmk-success" />
-              <DialogTitle className="text-dmk-text-primary">Purchase order created</DialogTitle>
+              <DialogTitle className="text-dmk-text-primary">{t("npo.successTitle")}</DialogTitle>
             </div>
             <DialogDescription className="text-dmk-text-muted">
-              Sent to the verification team portal — nothing is booked until you accept their counts.
+              {t("npo.successDesc")}
             </DialogDescription>
           </DialogHeader>
           {createdPo && (
             <div className="dmk-well p-4 space-y-2 text-[13px]">
               <div className="flex justify-between">
-                <span className="text-dmk-text-muted">PO number</span>
+                <span className="text-dmk-text-muted">{t("npo.poNumberLabel")}</span>
                 <span className="font-money text-dmk-text-primary">{createdPo.poNumber}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-dmk-text-muted">Vendor</span>
+                <span className="text-dmk-text-muted">{t("cmn.vendor")}</span>
                 <span className="text-dmk-text-secondary">{vendor?.vendorName ?? "—"}</span>
               </div>
               <div className="flex justify-between border-t border-dmk-border-subtle pt-2">
-                <span className="text-dmk-text-muted">PO value</span>
+                <span className="text-dmk-text-muted">{t("npo.poValue")}</span>
                 <span className="font-money text-[16px] text-dmk-yellow">{formatINR(createdPo.grandTotal)}</span>
               </div>
             </div>
@@ -741,10 +742,10 @@ export default function NewPurchaseOrderView() {
                 setView("purchase/verification");
               }}
             >
-              <ShieldCheck className="h-4 w-4" /> Open verification cockpit
+              <ShieldCheck className="h-4 w-4" /> {t("npo.openVerification")}
             </Button>
             <Button className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={() => setSuccessOpen(false)}>
-              Create another PO
+              {t("npo.createAnother")}
             </Button>
           </DialogFooter>
         </DialogContent>
