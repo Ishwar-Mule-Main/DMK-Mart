@@ -7,6 +7,7 @@
 // underlying row only when no transaction history references it.
 // ═══════════════════════════════════════════════════════════════
 
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { BusinessError } from "@/app/api/v1/_lib/api";
 
@@ -16,6 +17,7 @@ export const TRASH_TYPES = [
   "VENDOR",
   "RECURRING_TEMPLATE",
   "VERIFICATION_STAFF",
+  "TRIP",
 ] as const;
 
 export type TrashEntityType = (typeof TRASH_TYPES)[number];
@@ -34,9 +36,11 @@ export interface MoveToTrashInput {
 }
 
 /** Snapshot a record into the Deleted Data bin. Idempotent per delete: a
- *  fresh row is created each time (restored → re-deleted works naturally). */
-export async function moveToTrash(input: MoveToTrashInput) {
-  return db.deletedRecord.create({
+ *  fresh row is created each time (restored → re-deleted works naturally).
+ *  Pass `client` (a transaction client) to join the caller's write
+ *  transaction — otherwise the snapshot uses the global db client. */
+export async function moveToTrash(input: MoveToTrashInput, client?: Prisma.TransactionClient) {
+  return (client ?? db).deletedRecord.create({
     data: {
       firmId: input.firmId,
       entityType: input.entityType,
@@ -204,6 +208,16 @@ export async function restoreFromTrash(trashId: string): Promise<RestoreResult> 
         },
       });
 
+    case "TRIP":
+      // Trips are archived for audit only — restoring one would
+      // resurrect stop rows that collide with orders now planned
+      // elsewhere. The bin UI shows this as a clean, actionable error.
+      throw new BusinessError(
+        "ERR_RESTORE_CONFLICT",
+        `Trip restore is not supported — recreate "${entry.label}" in the Trip Planner`,
+        422
+      );
+
     default:
       throw new BusinessError("ERR_TRASH_TYPE", `Unknown deleted-item type "${entry.entityType}"`, 422);
   }
@@ -331,6 +345,9 @@ export async function purgeFromTrash(trashId: string): Promise<PurgeResult> {
     }
     case "RECURRING_TEMPLATE":
       // already hard-deleted at trash time — nothing further
+      break;
+    case "TRIP":
+      // already hard-deleted at trash time (trip + stops) — nothing further
       break;
     case "VERIFICATION_STAFF": {
       const row = await db.verificationStaff.findUnique({ where: { id } });

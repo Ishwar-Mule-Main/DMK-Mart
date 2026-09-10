@@ -27,6 +27,7 @@ export type ViewId =
   | "logistics/unassigned"
   | "logistics/planner"
   | "logistics/trips"
+  | "logistics/drivers"
   | "inventory/products"
   | "inventory/stock"
   | "inventory/movements"

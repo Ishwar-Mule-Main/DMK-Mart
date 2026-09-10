@@ -3,8 +3,10 @@
 // GET  ?firmId=&status=&search= — newest-first register with stop
 //      progress; word-wise over [tripNumber, route, driver, vehicle].
 // POST {firmId, routeId, driverId?, driverName?, vehicleNumber,
-//       stops:[{invoiceId, sequence}]} — validates the route's town
-//      ownership of every order, snapshots stop + load aggregates.
+//       stops:[{invoiceId, sequence}], allowOffRoute?} — validates the
+//      route's town ownership of every order (allowOffRoute=true lets
+//      non-route orders ride along with an Off-route flag instead of
+//      failing), snapshots stop + load aggregates.
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
@@ -13,6 +15,7 @@ import {
   BusinessError,
   asRecord,
   asRecordArray,
+  getBool,
   getNum,
   getStr,
   handleApiError,
@@ -121,7 +124,8 @@ export async function POST(request: NextRequest) {
 
     const invoices = await loadInvoicesForStops(stopInputs.map((s) => s.invoiceId));
     const invoiceById = new Map(invoices.map((inv) => [inv.id, inv]));
-    validateStopsForRoute(firm.id, stopInputs, invoiceById, route);
+    const allowOffRoute = getBool(body.allowOffRoute, false);
+    const offRouteIds = validateStopsForRoute(firm.id, stopInputs, invoiceById, route, { allowOffRoute });
 
     const tripNumber = await nextTripNumber(firm.id, firm.invoicePrefix);
 
@@ -147,7 +151,7 @@ export async function POST(request: NextRequest) {
           ...totals,
           stops: {
             create: stopInputs.map((s) =>
-              buildStopCreateData(invoiceById.get(s.invoiceId)!, s.sequence)
+              buildStopCreateData(invoiceById.get(s.invoiceId)!, s.sequence, offRouteIds.has(s.invoiceId))
             ),
           },
         },

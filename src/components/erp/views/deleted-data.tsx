@@ -16,6 +16,7 @@ import {
   Clock,
   Package,
   RotateCcw,
+  Route as RouteIcon,
   Search,
   ShieldCheck,
   Trash2,
@@ -52,7 +53,8 @@ type TrashEntityType =
   | "CUSTOMER"
   | "VENDOR"
   | "RECURRING_TEMPLATE"
-  | "VERIFICATION_STAFF";
+  | "VERIFICATION_STAFF"
+  | "TRIP";
 
 const TYPE_META: Record<TrashEntityType, { label: string; folder: string; icon: LucideIcon }> = {
   PRODUCT: { label: "Product", folder: "Products", icon: Package },
@@ -60,6 +62,7 @@ const TYPE_META: Record<TrashEntityType, { label: string; folder: string; icon: 
   VENDOR: { label: "Vendor", folder: "Vendors", icon: Truck },
   RECURRING_TEMPLATE: { label: "Recurring Template", folder: "Recurring", icon: CalendarClock },
   VERIFICATION_STAFF: { label: "Team Account", folder: "Team", icon: ShieldCheck },
+  TRIP: { label: "Delivery Trip", folder: "Trips", icon: RouteIcon },
 };
 
 interface DeletedItem {

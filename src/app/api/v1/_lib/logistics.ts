@@ -168,7 +168,7 @@ export async function loadInvoicesForStops(ids: string[]) {
 export type StopInvoice = Awaited<ReturnType<typeof loadInvoicesForStops>>[number];
 
 /** TripStop create payload (denormalized customer + load snapshot). */
-export function buildStopCreateData(invoice: StopInvoice, sequence: number) {
+export function buildStopCreateData(invoice: StopInvoice, sequence: number, offRoute = false) {
   const agg = computeOrderAgg(invoice);
   return {
     invoiceId: invoice.id,
@@ -182,6 +182,7 @@ export function buildStopCreateData(invoice: StopInvoice, sequence: number) {
     weightKg: agg.weightKg,
     amount: agg.amount,
     expectedMode: invoice.paymentMode,
+    offRoute,
   };
 }
 
@@ -202,20 +203,36 @@ export function assertStopListWellFormed(stopInputs: Array<{ invoiceId: string }
   }
 }
 
+export interface ValidateStopsOptions {
+  /** true → town offenders are allowed (owner's warning flow); they are
+   *  reported back in the returned Set instead of thrown. Every other
+   *  violation (not posted, counter sale, already on trip, wrong firm)
+   *  still throws. Default false = exact legacy throw behaviour. */
+  allowOffRoute?: boolean;
+}
+
 /**
  * Business validation for stops being placed on a route: every invoice
  * must be firm-scoped, POSTED, non-counter, not already on ANY trip,
- * and its customer town must belong to the route. Town offenders are
- * reported together (ERR_ORDER_NOT_ON_ROUTE); the rest fail fast.
+ * and (unless `allowOffRoute`) its customer town must belong to the
+ * route. Town offenders are reported together (ERR_ORDER_NOT_ON_ROUTE);
+ * the rest fail fast.
+ *
+ * Returns the set of invoiceIds whose customer town is NOT on the route
+ * (empty set = all on-route). With allowOffRoute=false an offender set
+ * is thrown before returning, so callers only see a non-empty set when
+ * they explicitly opted into the off-route warning flow.
  */
 export function validateStopsForRoute(
   firmId: string,
   stopInputs: Array<{ invoiceId: string }>,
   invoicesById: Map<string, StopInvoice>,
-  route: { name: string; towns: string }
-): void {
+  route: { name: string; towns: string },
+  options?: ValidateStopsOptions
+): Set<string> {
   const townSet = splitRouteTowns(route.towns);
   const offending: string[] = [];
+  const offRouteIds = new Set<string>();
   for (const s of stopInputs) {
     const inv = invoicesById.get(s.invoiceId);
     if (!inv || inv.firmId !== firmId) {
@@ -236,15 +253,17 @@ export function validateStopsForRoute(
     }
     if (!inv.customer || !cityMatchesRoute(inv.customer.city, townSet)) {
       offending.push(inv.invoiceNumber);
+      offRouteIds.add(inv.id);
     }
   }
-  if (offending.length > 0) {
+  if (offending.length > 0 && !options?.allowOffRoute) {
     throw new BusinessError(
       "ERR_ORDER_NOT_ON_ROUTE",
       `Order${offending.length > 1 ? "s" : ""} ${offending.join(", ")} — customer town is not on route ${route.name}`,
       422
     );
   }
+  return offRouteIds;
 }
 
 /** Invoice select used inside stop detail (items math + OTP for owner). */

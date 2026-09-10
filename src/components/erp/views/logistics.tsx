@@ -2,15 +2,20 @@
 
 // ═══════════════════════════════════════════════════════════════
 // LOGISTICS — UNASSIGNED ORDERS · TRIP PLANNER · TRIPS & SETTLEMENT
+//                · DRIVERS
 // Owner-side delivery module:
 //   A. Unassigned Orders — billed orders waiting for a truck, with
 //      live pool totals and multi-select handoff to the planner.
-//   B. Trip Planner — route picker (+ route CRUD), order selection,
-//      stop sequencing, driver/vehicle, dispatch → print pack
+//   B. Trip Planner — route picker (+ route CRUD with a town-catalog
+//      builder), order selection incl. off-route pulls from other
+//      towns, stop sequencing, driver/vehicle, dispatch → print pack
 //      (Loading Sheet · Run-Sheet · Bills + OTP) via A4PrintPortal.
 //   C. Trips Register — status register with stop-progress, live
 //      detail polling (15s while on the road), OTP proof timeline,
-//      cash/UPI settlement and trip completion posting.
+//      cash/UPI settlement, trip completion posting and hard-delete
+//      authority for PLANNED/DISPATCHED trips (archived to the bin).
+//   D. Drivers — create driver accounts (role DRIVER), reset
+//      passwords, deactivate leavers; drivers sign in at /team.
 // API: /api/v1/logistics/* (contract-shaped local types — backend
 // built in parallel; shapes documented in worklog Task 5-b).
 // ═══════════════════════════════════════════════════════════════
@@ -19,11 +24,11 @@ import * as React from "react";
 import {
   ArrowDown,
   ArrowUp,
-  Ban,
   Banknote,
   Boxes,
   CheckCircle2,
   Circle,
+  IdCard,
   IndianRupee,
   Loader2,
   MapPinned,
@@ -38,7 +43,9 @@ import {
   Send,
   Smartphone,
   StickyNote,
+  Trash2,
   Truck,
+  TriangleAlert,
   Users,
 } from "lucide-react";
 import { useErpStore } from "@/store/erp-store";
@@ -138,6 +145,14 @@ export interface UnassignedResponse {
   totals: UnassignedTotals;
 }
 
+/** One row of the route-builder town catalog (GET /api/v1/logistics/towns). */
+export interface TownCandidate {
+  name: string;
+  customerCount: number;
+  unassignedCount: number;
+  usedInRoutes: string[];
+}
+
 export type TripStatus =
   | "PLANNED"
   | "DISPATCHED"
@@ -217,6 +232,7 @@ export interface LogisticsStaff {
   name: string;
   username: string;
   role: string;
+  phone?: string;
   isActive: boolean;
 }
 
@@ -347,6 +363,18 @@ function SplitChips({ cash, upi }: { cash: number; upi: number }) {
         <Smartphone className="h-3 w-3" /> UPI {formatINR(upi)}
       </span>
     </div>
+  );
+}
+
+/** Amber "Off-route" tag — marks an order pulled from outside the trip's route. */
+function OffRouteTag() {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center rounded-full border border-[rgba(245,158,11,0.3)] bg-[rgba(245,158,11,0.15)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#F59E0B]"
+      title="Customer town is not on this route — the owner added it from other towns"
+    >
+      Off-route
+    </span>
   );
 }
 
@@ -656,6 +684,13 @@ export function LogisticsTripPlannerView() {
   const [loading, setLoading] = React.useState(true);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [seqOrder, setSeqOrder] = React.useState<string[]>([]);
+  /** Orders pulled from other towns (invoiceId → off-route tag on dispatch). */
+  const [offRouteIds, setOffRouteIds] = React.useState<Set<string>>(new Set());
+  /** Full order rows pulled from other towns (not part of the on-route fetch). */
+  const [extraOrders, setExtraOrders] = React.useState<UnassignedOrder[]>([]);
+  /** Ref mirror of extraOrders — lets the fetch effect prune without refetching. */
+  const extraOrdersRef = React.useRef<UnassignedOrder[]>([]);
+  const [otherTownsOpen, setOtherTownsOpen] = React.useState(false);
   const [staff, setStaff] = React.useState<LogisticsStaff[]>([]);
   const [driverId, setDriverId] = React.useState("");
   const [vehicle, setVehicle] = React.useState("");
@@ -723,9 +758,12 @@ export function LogisticsTripPlannerView() {
         if (!alive) return;
         setData(r);
         const present = new Set((r.orders ?? []).map((o) => o.invoiceId));
+        // Off-route pulls stay selected across on-route refetches.
+        for (const o of extraOrdersRef.current) present.add(o.invoiceId);
         // Prune stale selections, then apply the cross-view seed.
         setSelected((prev) => new Set([...prev].filter((id) => present.has(id))));
         setSeqOrder((prev) => prev.filter((id) => present.has(id)));
+        setOffRouteIds((prev) => new Set([...prev].filter((id) => present.has(id))));
         const seed = seedRef.current;
         if (seed.length > 0) {
           seedRef.current = [];
@@ -756,9 +794,11 @@ export function LogisticsTripPlannerView() {
   }, [activeFirmId, routeId, refresh, toast]);
 
   const orders = data?.orders ?? [];
+  // On-route pool + off-route pulls (extras never appear in the route fetch).
+  const allOrders = React.useMemo(() => [...orders, ...extraOrders], [orders, extraOrders]);
   const byId = React.useMemo(
-    () => new Map(orders.map((o) => [o.invoiceId, o])),
-    [orders]
+    () => new Map(allOrders.map((o) => [o.invoiceId, o])),
+    [allOrders]
   );
   const sequenced = seqOrder
     .map((id) => byId.get(id))
@@ -778,7 +818,7 @@ export function LogisticsTripPlannerView() {
     let amount = 0;
     let cash = 0;
     let upi = 0;
-    for (const o of orders) {
+    for (const o of allOrders) {
       if (!selected.has(o.invoiceId)) continue;
       shops += 1;
       boxes += o.boxes;
@@ -789,7 +829,7 @@ export function LogisticsTripPlannerView() {
       if (o.paymentMode === "UPI") upi += o.amount;
     }
     return { shops, boxes, loose, weight, amount, cash, upi };
-  }, [orders, selected]);
+  }, [allOrders, selected]);
 
   function toggleSelect(id: string) {
     if (selected.has(id)) {
@@ -809,6 +849,32 @@ export function LogisticsTripPlannerView() {
     setRouteId(v);
     setSelected(new Set());
     setSeqOrder([]);
+    setOffRouteIds(new Set());
+    setExtraOrders([]);
+    extraOrdersRef.current = [];
+  }
+
+  /** OtherTownsDialog confirm — merge picks into the trip as off-route. */
+  function addFromOtherTowns(picked: UnassignedOrder[]) {
+    const fresh = picked.filter((o) => !selected.has(o.invoiceId));
+    if (fresh.length === 0) {
+      toast({
+        title: "Already on this trip",
+        description: "Those order(s) are already selected for this trip.",
+      });
+      return;
+    }
+    const freshIds = fresh.map((o) => o.invoiceId);
+    setSelected((prev) => new Set([...prev, ...freshIds]));
+    setSeqOrder((prev) => [...prev, ...freshIds]); // dialog-selection order
+    setOffRouteIds((prev) => new Set([...prev, ...freshIds]));
+    const merged = [...extraOrdersRef.current, ...fresh];
+    extraOrdersRef.current = merged;
+    setExtraOrders(merged);
+    toast({
+      title: `${fresh.length} non-route order${fresh.length === 1 ? "" : "s"} added`,
+      description: "They will show an Off-route tag on the run sheet.",
+    });
   }
 
   function moveStop(id: string, dir: -1 | 1) {
@@ -834,6 +900,7 @@ export function LogisticsTripPlannerView() {
         driverName: driver?.name ?? "",
         vehicleNumber: vehicle.trim(),
         notes: notes.trim() || undefined,
+        allowOffRoute: offRouteIds.size > 0,
         stops,
       });
       const trip = res.trip;
@@ -847,6 +914,9 @@ export function LogisticsTripPlannerView() {
       setPrintPack({ tripId: trip.id });
       setSelected(new Set());
       setSeqOrder([]);
+      setOffRouteIds(new Set());
+      setExtraOrders([]);
+      extraOrdersRef.current = [];
       setNotes("");
       setVehicle("");
       setDriverId("");
@@ -933,11 +1003,25 @@ export function LogisticsTripPlannerView() {
             </div>
 
             <div className="dmk-card overflow-hidden">
-              <div className="flex items-center justify-between border-b border-dmk-border-subtle px-4 py-2.5">
-                <h2 className="text-[13px] font-bold text-dmk-text-primary">Unassigned orders</h2>
-                <span className="dmk-badge bg-dmk-input-well text-dmk-text-secondary">
-                  {selected.size} selected
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-dmk-border-subtle px-4 py-2.5">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-[13px] font-bold text-dmk-text-primary">Unassigned orders</h2>
+                  <span className="dmk-badge bg-dmk-input-well text-dmk-text-secondary">
+                    {selected.size} selected
+                  </span>
+                </div>
+                {routeId && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={loading}
+                    aria-label="Add orders from other towns"
+                    className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
+                    onClick={() => setOtherTownsOpen(true)}
+                  >
+                    <PackageOpen className="h-3.5 w-3.5" /> From other towns
+                  </Button>
+                )}
               </div>
               {loading ? (
                 <LoadingRows rows={6} />
@@ -987,7 +1071,12 @@ export function LogisticsTripPlannerView() {
                               <p className="text-[10.5px] text-dmk-text-muted">{formatDate(o.invoiceDate)}</p>
                             </td>
                             <td className="max-w-[200px] truncate text-[12.5px] font-medium">{o.shopName}</td>
-                            <td className="text-[12px] text-dmk-text-secondary">{o.town || "—"}</td>
+                            <td className="text-[12px] text-dmk-text-secondary">
+                              <span className="flex flex-wrap items-center gap-1.5">
+                                {o.town || "—"}
+                                {offRouteIds.has(o.invoiceId) && <OffRouteTag />}
+                              </span>
+                            </td>
                             <td>{modeBadge(o.paymentMode)}</td>
                             <td className="num text-[12.5px]">
                               {fmtInt(o.boxes)}
@@ -1005,6 +1094,61 @@ export function LogisticsTripPlannerView() {
                 </div>
               )}
             </div>
+
+            {/* Stop sequence — sits under the orders card in the left column */}
+            <section className="dmk-card p-4" aria-label="Stop sequence">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
+                  Stop sequence
+                </h3>
+                <span className="text-[11px] text-dmk-text-muted">{sequenced.length} stops</span>
+              </div>
+              {sequenced.length === 0 ? (
+                <p className="py-4 text-center text-[12px] text-dmk-text-muted">
+                  Tick orders above — they appear here in drop order.
+                </p>
+              ) : (
+                <ol className="max-h-[280px] space-y-1.5 overflow-y-auto pr-1">
+                  {sequenced.map((o, idx) => (
+                    <li
+                      key={o.invoiceId}
+                      className="flex items-center gap-2 rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-2.5 py-2"
+                    >
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-dmk-yellow text-[11px] font-bold text-[#0A0F1D]">
+                        {idx + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[12.5px] font-medium text-dmk-text-primary">{o.shopName}</p>
+                        <p className="flex items-center gap-1.5 truncate text-[10.5px] text-dmk-text-muted">
+                          {o.town || "—"} · {o.invoiceNumber}
+                          {offRouteIds.has(o.invoiceId) && <OffRouteTag />}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <button
+                          type="button"
+                          aria-label={`Move ${o.shopName} up`}
+                          disabled={idx === 0}
+                          className="flex h-11 w-11 items-center justify-center rounded-md text-dmk-text-secondary transition-colors hover:bg-dmk-hover hover:text-dmk-text-primary disabled:opacity-30"
+                          onClick={() => moveStop(o.invoiceId, -1)}
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Move ${o.shopName} down`}
+                          disabled={idx === sequenced.length - 1}
+                          className="flex h-11 w-11 items-center justify-center rounded-md text-dmk-text-secondary transition-colors hover:bg-dmk-hover hover:text-dmk-text-primary disabled:opacity-30"
+                          onClick={() => moveStop(o.invoiceId, 1)}
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
           </div>
 
           {/* RIGHT — dispatch panel */}
@@ -1078,60 +1222,6 @@ export function LogisticsTripPlannerView() {
               </div>
             </section>
 
-            {/* Stop sequence */}
-            <section className="dmk-card p-4" aria-label="Stop sequence">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
-                  Stop sequence
-                </h3>
-                <span className="text-[11px] text-dmk-text-muted">{sequenced.length} stops</span>
-              </div>
-              {sequenced.length === 0 ? (
-                <p className="py-4 text-center text-[12px] text-dmk-text-muted">
-                  Tick orders on the left — they appear here in drop order.
-                </p>
-              ) : (
-                <ol className="max-h-[280px] space-y-1.5 overflow-y-auto pr-1">
-                  {sequenced.map((o, idx) => (
-                    <li
-                      key={o.invoiceId}
-                      className="flex items-center gap-2 rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-2.5 py-2"
-                    >
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-dmk-yellow text-[11px] font-bold text-[#0A0F1D]">
-                        {idx + 1}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[12.5px] font-medium text-dmk-text-primary">{o.shopName}</p>
-                        <p className="truncate text-[10.5px] text-dmk-text-muted">
-                          {o.town || "—"} · {o.invoiceNumber}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 gap-1">
-                        <button
-                          type="button"
-                          aria-label={`Move ${o.shopName} up`}
-                          disabled={idx === 0}
-                          className="flex h-11 w-11 items-center justify-center rounded-md text-dmk-text-secondary transition-colors hover:bg-dmk-hover hover:text-dmk-text-primary disabled:opacity-30"
-                          onClick={() => moveStop(o.invoiceId, -1)}
-                        >
-                          <ArrowUp className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`Move ${o.shopName} down`}
-                          disabled={idx === sequenced.length - 1}
-                          className="flex h-11 w-11 items-center justify-center rounded-md text-dmk-text-secondary transition-colors hover:bg-dmk-hover hover:text-dmk-text-primary disabled:opacity-30"
-                          onClick={() => moveStop(o.invoiceId, 1)}
-                        >
-                          <ArrowDown className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </section>
-
             <Button
               className="h-11 bg-dmk-yellow text-[14px] font-bold text-[#0A0F1D] hover:bg-dmk-yellow/90"
               disabled={!canDispatch || dispatching}
@@ -1149,6 +1239,17 @@ export function LogisticsTripPlannerView() {
       )}
 
       <ManageRoutesDialog open={routesOpen} onOpenChange={setRoutesOpen} routes={routes ?? []} onChanged={() => setRefresh((r) => r + 1)} />
+
+      {routeId && data?.route && (
+        <OtherTownsDialog
+          open={otherTownsOpen}
+          onOpenChange={setOtherTownsOpen}
+          firmId={activeFirmId ?? ""}
+          routeId={routeId}
+          routeName={data.route.name}
+          onConfirm={addFromOtherTowns}
+        />
+      )}
 
       {printPack && (
         <TripPrintPackDialog
@@ -1176,6 +1277,164 @@ function TotalRow({ label, value, strong }: { label: string; value: string; stro
         {value}
       </span>
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OTHER TOWNS DIALOG — pull non-route orders onto the trip
+// (owner authority: the warning flow behind allowOffRoute)
+// ═══════════════════════════════════════════════════════════════
+
+function OtherTownsDialog({
+  open,
+  onOpenChange,
+  firmId,
+  routeId,
+  routeName,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  firmId: string;
+  routeId: string;
+  routeName: string;
+  onConfirm: (picked: UnassignedOrder[]) => void;
+}) {
+  const [orders, setOrders] = React.useState<UnassignedOrder[] | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [chosen, setChosen] = React.useState<string[]>([]); // dialog-selection order
+
+  // Fresh fetch + empty selection on every open.
+  React.useEffect(() => {
+    if (!open) {
+      setOrders(null);
+      setChosen([]);
+      return;
+    }
+    if (!firmId || !routeId) return;
+    let alive = true;
+    setLoading(true);
+    apiGet<UnassignedResponse>("/api/v1/logistics/unassigned-orders", {
+      firmId,
+      routeId,
+      otherTowns: 1,
+    })
+      .then((r) => {
+        if (alive) setOrders(r.orders ?? []);
+      })
+      .catch(() => {
+        if (alive) setOrders([]);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open, firmId, routeId]);
+
+  function toggle(id: string) {
+    setChosen((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function confirm() {
+    if (!orders) return;
+    onConfirm(chosen.map((id) => orders.find((o) => o.invoiceId === id)).filter((o): o is UnassignedOrder => Boolean(o)));
+    onOpenChange(false);
+  }
+
+  const rows = orders ?? [];
+  const chosenRows = chosen
+    .map((id) => rows.find((o) => o.invoiceId === id))
+    .filter((o): o is UnassignedOrder => Boolean(o));
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[680px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-dmk-text-primary">
+            <PackageOpen className="h-4 w-4 text-dmk-yellow" /> Add orders from other towns
+          </DialogTitle>
+          <DialogDescription className="text-dmk-text-muted">
+            Orders outside {routeName} that have no trip yet.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Amber warning banner */}
+        <div className="rounded-lg border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)] px-3.5 py-3">
+          <p className="flex items-center gap-1.5 text-[12.5px] font-bold text-dmk-warning">
+            <TriangleAlert className="h-3.5 w-3.5" /> Non-route orders
+          </p>
+          <p className="mt-1 text-[11.5px] leading-relaxed text-dmk-text-secondary">
+            These orders belong to towns NOT on {routeName}. Adding them sends them on this trip anyway — the
+            driver&apos;s run sheet will mark them off-route.
+          </p>
+        </div>
+
+        <div className="max-h-80 overflow-y-auto rounded-lg border border-dmk-border-subtle">
+          {loading ? (
+            <LoadingRows rows={5} />
+          ) : rows.length === 0 ? (
+            <p className="py-8 text-center text-[12px] text-dmk-text-muted">
+              No unassigned orders outside this route — every other town is clear.
+            </p>
+          ) : (
+            <ul className="divide-y divide-dmk-border-subtle">
+              {rows.map((o) => {
+                const checked = chosen.includes(o.invoiceId);
+                return (
+                  <li key={o.invoiceId}>
+                    <label
+                      className="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-dmk-hover/60"
+                      aria-pressed={checked}
+                    >
+                      <Checkbox
+                        aria-label={`Select ${o.invoiceNumber} — ${o.shopName}`}
+                        checked={checked}
+                        onCheckedChange={() => toggle(o.invoiceId)}
+                        className="h-[18px] w-[18px] shrink-0 border-dmk-border-medium data-[state=checked]:border-dmk-yellow data-[state=checked]:bg-dmk-yellow data-[state=checked]:text-[#0A0F1D]"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="flex flex-wrap items-center gap-2 text-[12.5px] font-semibold text-dmk-text-primary">
+                          <span className="font-money">{o.invoiceNumber}</span>
+                          <span className="truncate">{o.shopName}</span>
+                        </p>
+                        <p className="truncate text-[10.5px] text-dmk-text-muted">
+                          {o.town || "—"} · {fmtInt(o.boxes)} box{o.boxes === 1 ? "" : "es"} · {fmtKg(o.weightKg)}
+                        </p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        {modeBadge(o.paymentMode)}
+                        <p className="font-money mt-0.5 text-[12.5px] font-semibold text-dmk-yellow">
+                          {formatINR(o.amount)}
+                        </p>
+                      </div>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            variant="outline"
+            className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
+            disabled={chosenRows.length === 0}
+            onClick={confirm}
+          >
+            Add {chosenRows.length} order{chosenRows.length === 1 ? "" : "s"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1209,6 +1468,12 @@ function ManageRoutesDialog({
   const [deleteOf, setDeleteOf] = React.useState<LogisticsRoute | null>(null);
   const [deleting, setDeleting] = React.useState(false);
 
+  // Town catalog (route builder) — fetched when the FORM opens, cached here.
+  const [townCandidates, setTownCandidates] = React.useState<TownCandidate[]>([]);
+  const [townsLoading, setTownsLoading] = React.useState(false);
+  const [customTowns, setCustomTowns] = React.useState<string[]>([]); // “add a town not listed” chips
+  const [newTown, setNewTown] = React.useState("");
+
   function openNew() {
     setEditOf(null);
     setName("");
@@ -1217,6 +1482,8 @@ function ManageRoutesDialog({
     setEndTo("");
     setIsActive(true);
     setFormError(null);
+    setCustomTowns([]);
+    setNewTown("");
     setFormOpen(true);
   }
 
@@ -1228,7 +1495,74 @@ function ManageRoutesDialog({
     setEndTo(r.endTo ?? "");
     setIsActive(r.isActive);
     setFormError(null);
+    setCustomTowns([]); // towns not in the catalog surface as 0-shop rows automatically
+    setNewTown("");
     setFormOpen(true);
+  }
+
+  // Town catalog fetch — when the form dialog opens (not the manager),
+  // cached across opens; quiet failure → empty list (textarea fallback).
+  React.useEffect(() => {
+    if (!formOpen || !activeFirmId) return;
+    let alive = true;
+    setTownsLoading(true);
+    apiGet<{ towns: TownCandidate[] }>("/api/v1/logistics/towns", { firmId: activeFirmId })
+      .then((r) => {
+        if (alive) setTownCandidates(r.towns ?? []);
+      })
+      .catch(() => {
+        if (alive) setTownCandidates([]);
+      })
+      .finally(() => {
+        if (alive) setTownsLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [formOpen, activeFirmId]);
+
+  const townList = React.useMemo(
+    () => towns.split(",").map((t) => t.trim()).filter(Boolean),
+    [towns]
+  );
+  const checkedTownKeys = React.useMemo(() => new Set(townList.map((t) => t.toLowerCase())), [townList]);
+
+  // Catalog + custom chips + pre-existing route towns (edit mode) merged;
+  // entries the catalog doesn't know render as 0-shop rows.
+  const mergedTowns = React.useMemo(() => {
+    const known = new Map(townCandidates.map((t) => [t.name.toLowerCase(), t]));
+    for (const n of [...customTowns, ...townList]) {
+      const k = n.toLowerCase();
+      if (!known.has(k)) known.set(k, { name: n, customerCount: 0, unassignedCount: 0, usedInRoutes: [] });
+    }
+    return [...known.values()];
+  }, [townCandidates, customTowns, townList]);
+
+  function toggleTown(name: string) {
+    // Functional update — safe even if two toggles land in one React batch.
+    setTowns((prev) => {
+      const list = prev.split(",").map((t) => t.trim()).filter(Boolean);
+      const k = name.toLowerCase();
+      const without = list.filter((t) => t.toLowerCase() !== k);
+      const has = list.some((t) => t.toLowerCase() === k);
+      return (has ? without : [...without, name]).join(", ");
+    });
+  }
+
+  function addCustomTown() {
+    const n = newTown.trim();
+    if (!n) return;
+    setNewTown("");
+    const k = n.toLowerCase();
+    if (!mergedTowns.some((t) => t.name.toLowerCase() === k)) {
+      setCustomTowns((prev) => [...prev, n]);
+    }
+    if (!checkedTownKeys.has(k)) {
+      setTowns((prev) => {
+        const list = prev.split(",").map((t) => t.trim()).filter(Boolean);
+        return [...list, n].join(", ");
+      });
+    }
   }
 
   async function saveRoute() {
@@ -1359,7 +1693,8 @@ function ManageRoutesDialog({
           <DialogHeader>
             <DialogTitle className="text-dmk-text-primary">{editOf ? "Edit route" : "New route"}</DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
-              List the towns in delivery order — the planner shows unassigned orders per route.
+              Set where the truck starts and ends, then tick the towns it covers — the planner shows unassigned
+              orders per route.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -1374,42 +1709,146 @@ function ManageRoutesDialog({
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                Towns (comma separated)
-              </label>
-              <Textarea
-                value={towns}
-                onChange={(e) => setTowns(e.target.value)}
-                placeholder="Wagholi, Shikrapur, Shirur, Ahmednagar"
-                rows={3}
-                className="border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
-              />
-            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                  Start from
+                  Trip starts from
                 </label>
                 <Input
                   value={startFrom}
                   onChange={(e) => setStartFrom(e.target.value)}
                   placeholder="Warehouse, Pune"
+                  list="dmk-route-town-options"
+                  aria-label="Trip starts from"
                   className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
                 />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                  End at
+                  Trip ends at
                 </label>
                 <Input
                   value={endTo}
                   onChange={(e) => setEndTo(e.target.value)}
                   placeholder="Back at warehouse"
+                  list="dmk-route-town-options"
+                  aria-label="Trip ends at"
                   className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
                 />
               </div>
             </div>
+            <datalist id="dmk-route-town-options">
+              {mergedTowns.map((t) => (
+                <option key={t.name} value={t.name} />
+              ))}
+            </datalist>
+
+            {/* Towns on this route — checkbox grid once start & end are set.
+                No catalog at all → fall back to the free-text textarea. */}
+            {mergedTowns.length > 0 ? (
+              startFrom.trim() !== "" && endTo.trim() !== "" ? (
+                <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/50 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
+                      Towns on this route
+                    </p>
+                    <span className="text-[10.5px] text-dmk-text-muted">
+                      {townList.length} selected
+                    </span>
+                  </div>
+                  {townsLoading ? (
+                    <p className="py-3 text-center text-[11.5px] text-dmk-text-muted">Loading towns…</p>
+                  ) : (
+                    <>
+                      <div className="grid max-h-56 grid-cols-2 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-3">
+                        {mergedTowns
+                          .filter(
+                            (t) =>
+                              t.name.trim().toLowerCase() !== startFrom.trim().toLowerCase() &&
+                              t.name.trim().toLowerCase() !== endTo.trim().toLowerCase()
+                          )
+                          .map((t) => {
+                            const checked = checkedTownKeys.has(t.name.toLowerCase());
+                            return (
+                              <label
+                                key={t.name}
+                                className={cn(
+                                  "flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[12px] transition-colors",
+                                  checked
+                                    ? "border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)]"
+                                    : "border-dmk-border-subtle hover:bg-dmk-hover/60"
+                                )}
+                                aria-pressed={checked}
+                              >
+                                <Checkbox
+                                  aria-label={`Include ${t.name} on this route`}
+                                  checked={checked}
+                                  onCheckedChange={() => toggleTown(t.name)}
+                                  className="h-[15px] w-[15px] shrink-0 border-dmk-border-medium data-[state=checked]:border-dmk-yellow data-[state=checked]:bg-dmk-yellow data-[state=checked]:text-[#0A0F1D]"
+                                />
+                                <span className="min-w-0 flex-1 truncate font-medium text-dmk-text-primary">
+                                  {t.name}
+                                </span>
+                                <span className="shrink-0 text-[10px] text-dmk-text-muted">
+                                  {t.customerCount > 0 ? `${t.customerCount} shops` : "—"}
+                                </span>
+                              </label>
+                            );
+                          })}
+                      </div>
+                      {/* Add a town not listed */}
+                      <div className="mt-2 flex gap-2">
+                        <Input
+                          value={newTown}
+                          onChange={(e) => setNewTown(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addCustomTown();
+                            }
+                          }}
+                          placeholder="Add a town not listed…"
+                          aria-label="Add a town not listed"
+                          className="h-8 border-dmk-border-subtle bg-dmk-input-well text-[12px] text-dmk-text-primary dmk-input"
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          aria-label="Add town to route"
+                          disabled={!newTown.trim()}
+                          className="h-8 w-8 shrink-0 border-dmk-border-subtle p-0 text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
+                          onClick={addCustomTown}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      {townList.length > 0 && (
+                        <p className="mt-2 truncate text-[10.5px] text-dmk-text-muted">
+                          Route towns: {townList.join(", ")}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[11px] text-dmk-text-muted">
+                  Fill in where the trip starts and ends to pick the towns it covers.
+                </p>
+              )
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
+                  Towns (comma separated)
+                </label>
+                <Textarea
+                  value={towns}
+                  onChange={(e) => setTowns(e.target.value)}
+                  placeholder="Wagholi, Shikrapur, Shirur, Ahmednagar"
+                  rows={3}
+                  className="border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
+                />
+              </div>
+            )}
             <div className="flex items-center justify-between rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-3 py-2.5">
               <div>
                 <p className="text-[12.5px] font-medium text-dmk-text-primary">Active</p>
@@ -1479,6 +1918,32 @@ export function LogisticsTripsRegisterView() {
   const [refresh, setRefresh] = React.useState(0);
   const [detailId, setDetailId] = React.useState<string | null>(null);
   const [printPack, setPrintPack] = React.useState<{ tripId: string } | null>(null);
+  // Owner delete authority (PLANNED / DISPATCHED only).
+  const [deleteOf, setDeleteOf] = React.useState<LogisticsTrip | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+
+  async function confirmDeleteTrip() {
+    if (!deleteOf || !activeFirmId) return;
+    setDeleting(true);
+    try {
+      await apiDelete(`/api/v1/logistics/trips/${deleteOf.id}?firmId=${activeFirmId}`);
+      toast({
+        title: "Trip deleted",
+        description: `${deleteOf.tripNumber} was permanently deleted — its order${deleteOf.totalStops === 1 ? "" : "s"} returned to the unassigned pool.`,
+      });
+      setDeleteOf(null);
+      setRefresh((r) => r + 1);
+    } catch (e) {
+      setDeleteOf(null);
+      toast({
+        variant: "destructive",
+        title: "Could not delete this trip",
+        description: e instanceof ApiError ? e.message : "Something went wrong — try again.",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   React.useEffect(() => {
     const t = setTimeout(() => setDebounced(query), 220);
@@ -1575,6 +2040,21 @@ export function LogisticsTripsRegisterView() {
                       />
                     </div>
                     <Badge tone={tripTone(t.status)}>{t.status}</Badge>
+                    {(t.status === "PLANNED" || t.status === "DISPATCHED") && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Delete ${t.tripNumber}`}
+                        title={`Delete ${t.tripNumber}`}
+                        className="h-8 w-8 p-0 text-dmk-danger/70 hover:bg-dmk-hover hover:text-dmk-danger"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteOf(t);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                     <div className="ml-auto flex items-center gap-4">
                       <Money value={t.totalAmount} className="text-[13px] font-semibold text-dmk-yellow" />
                       <span className="w-[110px] text-right text-[11px] text-dmk-text-muted">
@@ -1600,6 +2080,35 @@ export function LogisticsTripsRegisterView() {
           onOpenPrintPack={(tripId) => setPrintPack({ tripId })}
         />
       )}
+
+      {/* Delete confirm (register row) */}
+      <AlertDialog open={Boolean(deleteOf)} onOpenChange={(v) => !v && setDeleteOf(null)}>
+        <AlertDialogContent className="border-dmk-border-subtle bg-[#111c32]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-dmk-text-primary">Delete {deleteOf?.tripNumber}?</AlertDialogTitle>
+            <AlertDialogDescription className="text-dmk-text-muted">
+              {deleteOf?.status === "DISPATCHED"
+                ? "This dispatched trip has no deliveries yet and will be permanently deleted — orders return to the unassigned pool. Once deliveries start, deletion is blocked."
+                : "This planned trip will be permanently deleted and its orders return to the unassigned pool. The trip is archived to Deleted Data."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
+              Keep trip
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
+              disabled={deleting}
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDeleteTrip();
+              }}
+            >
+              {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Delete trip
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {printPack && (
         <TripPrintPackDialog
@@ -1645,8 +2154,8 @@ function TripDetailDialog({
   const [savingEdit, setSavingEdit] = React.useState(false);
 
   const [dispatching, setDispatching] = React.useState(false);
-  const [cancelOpen, setCancelOpen] = React.useState(false);
-  const [cancelling, setCancelling] = React.useState(false);
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [completeOpen, setCompleteOpen] = React.useState(false);
   const [completing, setCompleting] = React.useState(false);
 
@@ -1768,27 +2277,27 @@ function TripDetailDialog({
     }
   }
 
-  async function cancelTrip() {
+  async function deleteTrip() {
     if (!activeFirmId || !trip) return;
-    setCancelling(true);
+    setDeleting(true);
     try {
       await apiDelete(`/api/v1/logistics/trips/${trip.id}?firmId=${activeFirmId}`);
       toast({
-        title: "Trip cancelled",
-        description: `${trip.totalStops} order${trip.totalStops === 1 ? "" : "s"} returned to the unassigned pool.`,
+        title: "Trip deleted",
+        description: `${trip.tripNumber} was permanently deleted — its ${trip.totalStops} order${trip.totalStops === 1 ? "" : "s"} returned to the unassigned pool.`,
       });
-      setCancelOpen(false);
+      setDeleteOpen(false);
       onOpenChange(false);
       onChanged();
     } catch (e) {
+      setDeleteOpen(false);
       toast({
         variant: "destructive",
-        title: "Cancel failed",
-        description: e instanceof ApiError ? e.message : "Could not cancel this trip.",
+        title: "Could not delete this trip",
+        description: e instanceof ApiError ? e.message : "Something went wrong — try again.",
       });
-      setCancelOpen(false);
     } finally {
-      setCancelling(false);
+      setDeleting(false);
     }
   }
 
@@ -2022,9 +2531,9 @@ function TripDetailDialog({
                   <Button
                     variant="outline"
                     className="h-11 flex-1 border-dmk-border-subtle text-dmk-danger/90 hover:bg-dmk-hover hover:text-dmk-danger"
-                    onClick={() => setCancelOpen(true)}
+                    onClick={() => setDeleteOpen(true)}
                   >
-                    <Ban className="h-4 w-4" /> Cancel trip
+                    <Trash2 className="h-4 w-4" /> Delete trip
                   </Button>
                 </div>
               )}
@@ -2039,19 +2548,31 @@ function TripDetailDialog({
                   <Printer className="h-4 w-4" /> Open print pack (loading sheet · run-sheet · bills + OTP)
                 </Button>
               )}
+
+              {/* DISPATCHED — still deletable until the first delivery */}
+              {trip.status === "DISPATCHED" && (
+                <Button
+                  variant="outline"
+                  className="h-11 w-full border-dmk-border-subtle text-dmk-danger/90 hover:bg-dmk-hover hover:text-dmk-danger"
+                  onClick={() => setDeleteOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4" /> Delete trip
+                </Button>
+              )}
             </div>
           ) : null}
         </DialogContent>
       </Dialog>
 
-      {/* Cancel confirm */}
-      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+      {/* Delete confirm */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent className="border-dmk-border-subtle bg-[#111c32]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-dmk-text-primary">Cancel {trip?.tripNumber}?</AlertDialogTitle>
+            <AlertDialogTitle className="text-dmk-text-primary">Delete {trip?.tripNumber}?</AlertDialogTitle>
             <AlertDialogDescription className="text-dmk-text-muted">
-              All {trip?.totalStops ?? 0} order(s) on this trip return to the unassigned pool and can be planned
-              again. This cannot be undone.
+              {trip?.status === "DISPATCHED"
+                ? "This dispatched trip has no deliveries yet and will be permanently deleted — orders return to the unassigned pool. Once deliveries start, deletion is blocked."
+                : "This planned trip will be permanently deleted and its orders return to the unassigned pool. The trip is archived to Deleted Data."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2060,13 +2581,13 @@ function TripDetailDialog({
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
-              disabled={cancelling}
+              disabled={deleting}
               onClick={(e) => {
                 e.preventDefault();
-                cancelTrip();
+                deleteTrip();
               }}
             >
-              {cancelling && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Cancel trip
+              {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Delete trip
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2124,6 +2645,446 @@ function SettleRow({
         <span className="text-dmk-text-muted">Expected {formatINR(expected)}</span>
         <span className="font-money text-[14px] font-bold text-dmk-text-primary">{formatINR(collected)}</span>
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VIEW D — DRIVERS (logistics/drivers)
+// Same team system as PO Verification, but the owner-facing slice:
+// create driver accounts (role DRIVER), reset passwords, deactivate
+// leavers. Drivers sign in at /team and see only their trips.
+// ═══════════════════════════════════════════════════════════════
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+export function LogisticsDriversView() {
+  const { toast } = useToast();
+  const activeFirmId = useErpStore((s) => s.activeFirmId);
+
+  const [staff, setStaff] = React.useState<LogisticsStaff[] | null>(null);
+  const [refresh, setRefresh] = React.useState(0);
+
+  // Add dialog
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [addName, setAddName] = React.useState("");
+  const [addUsername, setAddUsername] = React.useState("");
+  const [addPassword, setAddPassword] = React.useState("");
+  const [addPhone, setAddPhone] = React.useState("");
+  const [addSaving, setAddSaving] = React.useState(false);
+  const [addError, setAddError] = React.useState<string | null>(null);
+
+  // Edit dialog
+  const [editOf, setEditOf] = React.useState<LogisticsStaff | null>(null);
+  const [editName, setEditName] = React.useState("");
+  const [editPhone, setEditPhone] = React.useState("");
+  const [editActive, setEditActive] = React.useState(true);
+  const [editPassword, setEditPassword] = React.useState("");
+  const [editSaving, setEditSaving] = React.useState(false);
+  const [editError, setEditError] = React.useState<string | null>(null);
+
+  // Delete confirm
+  const [deleteOf, setDeleteOf] = React.useState<LogisticsStaff | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!activeFirmId) return;
+    let alive = true;
+    apiGet<LogisticsStaff[]>("/api/v1/verification/staff", { firmId: activeFirmId })
+      .then((s) => {
+        if (alive) setStaff(Array.isArray(s) ? s : []);
+      })
+      .catch(() => {
+        if (alive) setStaff([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activeFirmId, refresh]);
+
+  const drivers = (staff ?? []).filter((s) => s.role === "DRIVER");
+
+  function openAdd() {
+    setAddName("");
+    setAddUsername("");
+    setAddPassword("");
+    setAddPhone("");
+    setAddError(null);
+    setAddOpen(true);
+  }
+
+  function openEdit(d: LogisticsStaff) {
+    setEditOf(d);
+    setEditName(d.name);
+    setEditPhone(d.phone ?? "");
+    setEditActive(d.isActive);
+    setEditPassword("");
+    setEditError(null);
+  }
+
+  async function createDriver() {
+    if (!activeFirmId) return;
+    if (!addName.trim() || !addUsername.trim() || addPassword.length < 4) {
+      setAddError("Name, username and a password of at least 4 characters are required.");
+      return;
+    }
+    setAddSaving(true);
+    setAddError(null);
+    try {
+      await apiPost<LogisticsStaff>("/api/v1/verification/staff", {
+        firmId: activeFirmId,
+        name: addName.trim(),
+        username: addUsername.trim().toLowerCase(),
+        password: addPassword,
+        phone: addPhone.trim(),
+        role: "DRIVER",
+      });
+      toast({
+        title: "Driver created",
+        description: `${addName.trim()} can now sign in at /team.`,
+      });
+      setAddOpen(false);
+      setRefresh((r) => r + 1);
+    } catch (e) {
+      setAddError(e instanceof ApiError ? e.message : "Could not create this driver.");
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
+  async function saveDriver() {
+    if (!editOf) return;
+    if (editPassword && editPassword.length < 4) {
+      setEditError("New password must be at least 4 characters.");
+      return;
+    }
+    setEditSaving(true);
+    setEditError(null);
+    // Send only what changed.
+    const data: Record<string, unknown> = { firmId: activeFirmId, isActive: editActive };
+    if (editName.trim() !== editOf.name) data.name = editName.trim();
+    if (editPhone.trim() !== (editOf.phone ?? "")) data.phone = editPhone.trim();
+    if (editPassword) data.password = editPassword;
+    try {
+      await apiPatch<LogisticsStaff>(`/api/v1/verification/staff/${editOf.id}`, data);
+      toast({
+        title: "Driver updated",
+        description: editPassword ? "Details saved and password reset." : "Details saved.",
+      });
+      setEditOf(null);
+      setRefresh((r) => r + 1);
+    } catch (e) {
+      setEditError(e instanceof ApiError ? e.message : "Could not update this driver.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function deleteDriver() {
+    if (!deleteOf) return;
+    setDeleting(true);
+    try {
+      await apiDelete(`/api/v1/verification/staff/${deleteOf.id}`);
+      toast({
+        title: "Driver deactivated",
+        description: `${deleteOf.name} can no longer sign in at /team. Restore from Deleted Data if needed.`,
+      });
+      setDeleteOf(null);
+      setRefresh((r) => r + 1);
+    } catch (e) {
+      setDeleteOf(null);
+      toast({
+        variant: "destructive",
+        title: "Could not deactivate this driver",
+        description: e instanceof ApiError ? e.message : "Something went wrong — try again.",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="Drivers"
+        subtitle="Create driver accounts, manage passwords, deactivate leavers — drivers sign in at /team"
+        icon={IdCard}
+        actions={
+          <Button
+            className="h-9 bg-dmk-yellow text-[13px] font-semibold text-[#0A0F1D] hover:bg-dmk-yellow/90"
+            onClick={openAdd}
+          >
+            <Plus className="h-4 w-4" /> Add driver
+          </Button>
+        }
+      />
+
+      {/* Info banner */}
+      <div className="dmk-well border-[rgba(245,158,11,0.35)] p-4">
+        <p className="flex items-center gap-1.5 text-[12.5px] font-bold text-dmk-warning">
+          <TriangleAlert className="h-3.5 w-3.5" /> One team system, role-routed
+        </p>
+        <p className="mt-1 text-[11.5px] leading-relaxed text-dmk-text-secondary">
+          Driver accounts live in the same team system as PO verification. A driver logging in at /team sees ONLY
+          their delivery trips — never the owner ERP. Verification staff login at /team shows the goods-in
+          checkpoint instead.
+        </p>
+      </div>
+
+      {/* Driver list */}
+      <div className="dmk-card overflow-hidden">
+        {staff === null ? (
+          <LoadingRows rows={4} />
+        ) : drivers.length === 0 ? (
+          <EmptyState
+            icon={IdCard}
+            title="No driver accounts yet"
+            hint="Create a driver account for each person who delivers trips — they sign in at /team with the username and password you set here."
+            action={
+              <Button
+                className="h-10 bg-dmk-yellow text-[13px] font-semibold text-[#0A0F1D] hover:bg-dmk-yellow/90"
+                onClick={openAdd}
+              >
+                <Plus className="h-4 w-4" /> Add driver
+              </Button>
+            }
+          />
+        ) : (
+          <div className="divide-y divide-dmk-border-subtle">
+            {drivers.map((d) => (
+              <div key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <span
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-dmk-yellow/15 text-[13px] font-bold text-dmk-yellow"
+                  aria-hidden="true"
+                >
+                  {initialsOf(d.name)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="flex flex-wrap items-center gap-2 text-[13.5px] font-semibold text-dmk-text-primary">
+                    {d.name}
+                    <Badge tone={d.isActive ? "success" : "neutral"}>{d.isActive ? "Active" : "Inactive"}</Badge>
+                  </p>
+                  <p className="truncate text-[11.5px] text-dmk-text-muted">
+                    @{d.username}
+                    {d.phone ? ` · ${d.phone}` : ""}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
+                    onClick={() => openEdit(d)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 border-dmk-border-subtle text-dmk-danger/80 hover:bg-dmk-hover hover:text-dmk-danger"
+                    onClick={() => setDeleteOf(d)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-dmk-text-muted">
+        Checker/supervisor accounts are managed in PO Verification → Team.
+      </p>
+
+      {/* Add driver */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="text-dmk-text-primary">Add driver</DialogTitle>
+            <DialogDescription className="text-dmk-text-muted">
+              The driver signs in at /team with this username and password.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
+                Name *
+              </label>
+              <Input
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                placeholder="e.g. Ganesh Pawar"
+                className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
+                Username *
+              </label>
+              <Input
+                value={addUsername}
+                onChange={(e) => setAddUsername(e.target.value.toLowerCase())}
+                placeholder="e.g. ganesh"
+                className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
+              />
+              <p className="text-[10.5px] text-dmk-text-muted">used to sign in at /team</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
+                Password *
+              </label>
+              <Input
+                type="password"
+                value={addPassword}
+                onChange={(e) => setAddPassword(e.target.value)}
+                placeholder="min 4 characters"
+                className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
+              />
+              <p className="text-[10.5px] text-dmk-text-muted">share securely — driver changes it nowhere</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
+                Phone
+              </label>
+              <Input
+                value={addPhone}
+                onChange={(e) => setAddPhone(e.target.value)}
+                placeholder="e.g. 98765 43210"
+                className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
+              />
+            </div>
+            {addError && (
+              <p className="rounded-md border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-[12px] text-dmk-danger">
+                {addError}
+              </p>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
+              onClick={() => setAddOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
+              disabled={addSaving}
+              onClick={createDriver}
+            >
+              {addSaving && <Loader2 className="h-4 w-4 animate-spin" />} Create driver
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit driver */}
+      <Dialog open={Boolean(editOf)} onOpenChange={(v) => !v && setEditOf(null)}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="text-dmk-text-primary">Edit driver — {editOf?.name}</DialogTitle>
+            <DialogDescription className="text-dmk-text-muted">
+              @{editOf?.username} · signs in at /team
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
+                Name
+              </label>
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
+                Phone
+              </label>
+              <Input
+                value={editPhone}
+                onChange={(e) => setEditPhone(e.target.value)}
+                placeholder="e.g. 98765 43210"
+                className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-3 py-2.5">
+              <div>
+                <p className="text-[12.5px] font-medium text-dmk-text-primary">Active</p>
+                <p className="text-[10.5px] text-dmk-text-muted">Inactive drivers cannot sign in at /team.</p>
+              </div>
+              <Switch checked={editActive} onCheckedChange={setEditActive} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
+                Reset password (optional)
+              </label>
+              <Input
+                type="password"
+                value={editPassword}
+                onChange={(e) => setEditPassword(e.target.value)}
+                placeholder="leave blank to keep the current password"
+                className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
+              />
+            </div>
+            {editError && (
+              <p className="rounded-md border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-[12px] text-dmk-danger">
+                {editError}
+              </p>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
+              onClick={() => setEditOf(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
+              disabled={editSaving}
+              onClick={saveDriver}
+            >
+              {editSaving && <Loader2 className="h-4 w-4 animate-spin" />} Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirm */}
+      <AlertDialog open={Boolean(deleteOf)} onOpenChange={(v) => !v && setDeleteOf(null)}>
+        <AlertDialogContent className="border-dmk-border-subtle bg-[#111c32]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-dmk-text-primary">Deactivate {deleteOf?.name}?</AlertDialogTitle>
+            <AlertDialogDescription className="text-dmk-text-muted">
+              Their /team sign-in stops working immediately. The account is archived in Deleted Data and can be
+              restored there.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
+              disabled={deleting}
+              onClick={(e) => {
+                e.preventDefault();
+                deleteDriver();
+              }}
+            >
+              {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Deactivate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

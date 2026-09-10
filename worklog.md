@@ -1222,3 +1222,27 @@ Stage Summary:
 - Root cause: missing staff record, not broken auth. ganesh/1234 now works on the sandbox preview as a DRIVER (sees delivery trip screen, empty state until a trip is dispatched to him).
 - Login flow, hashing scheme (sha256 dmk:: prefix + legacy-plain fallback) and role routing (DRIVER vs VERIFIER/SUPERVISOR) all confirmed working.
 - No schema or code changes required — data-only fix.
+
+---
+Task ID: 50-a
+Agent: ATLAS (main orchestrator; bulk implementation via full-stack-developer, verified + hardened by ATLAS)
+Task: Logistics owner authority — drivers manager, route builder (start/end → town checkboxes), off-route order assignment with warning, delete planned/dispatched trips, planner layout change
+
+Work Log:
+- Schema: added TripStop.offRoute Boolean @default(false) → db:push (SQLite) + db:sync:pg (Postgres mirror regenerated + committed). Dev server restarted with explicit env.
+- API _lib/logistics.ts: validateStopsForRoute now takes { allowOffRoute } and RETURNS Set<offRouteInvoiceIds> (throws as before when flag absent); buildStopCreateData(invoice, seq, offRoute).
+- API trips POST/PATCH: accept allowOffRoute, persist per-stop offRoute flags. DELETE rewritten: PLANNED+DISPATCHED → HARD delete (trip + stops) with moveToTrash("TRIP") snapshot inside the same tx; delivered stops or IN_PROGRESS/COMPLETED/CLOSED/CANCELLED refused with clear 409.
+- API _lib/trash.ts: TRIP added to TRASH_TYPES; moveToTrash accepts tx client; restoreFromTrash has a clean ERR_RESTORE_CONFLICT case for TRIP (audit-only, no resurrection).
+- API unassigned-orders: otherTowns=1 + routeId INVERTS the town filter (off-route pool for the warning dialog).
+- NEW API /api/v1/logistics/towns: case-insensitive customer-city catalog (customerCount + unassignedCount + usedInRoutes) powering the route-builder checkbox grid.
+- UI logistics.tsx (+~1100 lines): LogisticsDriversView (add/edit/delete driver accounts, role fixed DRIVER, /team explainer banner); route form rebuilt (name → start/end comboboxes with datalist → town checkbox grid reveals once both set → custom-town add → towns preview); "From other towns" dialog with amber warning → offRouteIds merge → OFF-ROUTE chips in orders table + stop sequence; stop sequence card MOVED below the unassigned orders card (left column); trip delete buttons (register + detail dialog) with status-aware confirm copy.
+- Nav wiring: sidebar/app-shell/command-palette/ViewId/i18n (EN/hi/mr "nav.drivers").
+- ATLAS hardening: toggleTown + addCustomTown converted to functional setState (batch-safe toggling).
+- Browser E2E (agent-browser): created driver mahesh/1234 → /team login → DRIVER trip view; built route via new builder (Pune→Latur, towns grid revealed, saved); route filter verified (only Solapur orders listed); From-other-towns warning dialog listed exactly Pune+Nashik orders → added → OFF-ROUTE chips shown; dispatched trip TRIP/0002 with driver Mahesh (allowOffRoute sent, stops persisted offRoute — verified via API); deleted the DISPATCHED trip from register (confirm → toast "orders returned to the unassigned pool") → all 4 orders back in pool + trip archived in Deleted Data; ganesh /team login still shows his live trip (regression OK); owner session bounced from /team as documented.
+- Test data left on sandbox SQLite: route "Nagar Highway" (Solapur), invoices INV/0006-0009 (Solapur×2 on-route, Pune+Nashik off-route), driver mahesh/1234.
+
+Stage Summary:
+- All 5 requested gaps shipped; 3 already-working behaviors confirmed (route reuse, per-route order filter, /team role-based UI).
+- Delete rule: PLANNED/DISPATCHED = hard delete + trash audit; first delivery flips trip to IN_PROGRESS and locks deletion forever (books stay intact).
+- Off-route flow: warning dialog → offRoute persisted per stop → chips visible in planner + data available to print pack; backend still rejects off-route stops unless the flag is explicit.
+- Known benign: pre-existing React controlled/uncontrolled Select warning; headless tab-switch flake prevented visual check of OFF-ROUTE chip on printed run-sheet (data verified at API level).

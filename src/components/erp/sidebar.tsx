@@ -27,6 +27,7 @@ import {
   Boxes,
   MapPinned,
   Route as RouteIcon,
+  IdCard,
   ArrowLeftRight,
   AlertTriangle,
   BookOpen,
@@ -84,6 +85,7 @@ const SECTIONS: NavSection[] = [
       { id: "logistics/unassigned", label: "Unassigned Orders", key: "nav.unassignedOrders", icon: MapPinned },
       { id: "logistics/planner", label: "Trip Planner", key: "nav.tripPlanner", icon: RouteIcon },
       { id: "logistics/trips", label: "Trips & Settlement", key: "nav.tripsRegister", icon: Truck },
+      { id: "logistics/drivers", label: "Drivers", key: "nav.drivers", icon: IdCard },
     ],
   },
   {

@@ -821,6 +821,7 @@ model TripStop {
   amount          Float     @default(0) // to collect
   expectedMode    String    @default("CASH") // from invoice.paymentMode
   status          String    @default("PENDING") // PENDING | DELIVERED
+  offRoute        Boolean   @default(false) // customer town NOT on the route — owner explicitly allowed it (warning flow)
   deliveryProof   String    @default("") // OTP | SIGNATURE (bill-misplaced fallback)
   collectedMode   String    @default("") // CASH | UPI — what the shopkeeper actually paid
   collectedAmount Float     @default(0)

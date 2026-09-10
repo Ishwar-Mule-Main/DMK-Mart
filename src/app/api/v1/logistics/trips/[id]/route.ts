@@ -1,10 +1,13 @@
 // ═══════════════════════════════════════════════════════════════
-// /api/v1/logistics/trips/[id] — trip detail, replan, cancel
+// /api/v1/logistics/trips/[id] — trip detail, replan, delete
 // GET    ?firmId= — full trip + stops (+items, +bill OTP for owner)
-// PATCH  {vehicleNumber?, driverId?, driverName?, stops?} — PLANNED
-//        only; stops replace-and-resequence, totals recomputed.
-// DELETE ?firmId= — PLANNED only → CANCELLED; stops are removed so
-//        every order falls back to the unassigned pool.
+// PATCH  {vehicleNumber?, driverId?, driverName?, stops?,
+//        allowOffRoute?} — PLANNED only; stops replace-and-resequence,
+//        totals recomputed; new off-route stops flagged when allowed.
+// DELETE ?firmId= — PLANNED or DISPATCHED (no deliveries yet) → HARD
+//        delete: trip + stops archived to the Deleted Data bin, stop
+//        rows removed so every order falls back to the unassigned
+//        pool. IN_PROGRESS/COMPLETED/CLOSED/CANCELLED are refused.
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
@@ -13,6 +16,7 @@ import {
   BusinessError,
   asRecord,
   asRecordArray,
+  getBool,
   getNum,
   getStr,
   handleApiError,
@@ -29,6 +33,7 @@ import {
   validateStopsForRoute,
   type StopInvoice,
 } from "@/app/api/v1/_lib/logistics";
+import { moveToTrash } from "@/app/api/v1/_lib/trash";
 
 /** Parse the [{invoiceId, sequence}] patch payload. */
 function parseStopInputs(raw: unknown) {
@@ -127,7 +132,14 @@ export async function PATCH(
         .map((s) => s.invoiceId);
       const newInvoices = await loadInvoicesForStops(newIds);
       const newInvoiceById = new Map<string, StopInvoice>(newInvoices.map((inv) => [inv.id, inv]));
-      validateStopsForRoute(firm.id, stopInputs.filter((s) => newInvoiceById.has(s.invoiceId)), newInvoiceById, route);
+      const allowOffRoute = getBool(body.allowOffRoute, false);
+      const offRouteIds = validateStopsForRoute(
+        firm.id,
+        stopInputs.filter((s) => newInvoiceById.has(s.invoiceId)),
+        newInvoiceById,
+        route,
+        { allowOffRoute }
+      );
 
       await dbTx(async (tx) => {
         // Removed stops → orders fall back to the unassigned pool.
@@ -150,7 +162,10 @@ export async function PATCH(
           const inv = newInvoiceById.get(s.invoiceId);
           if (!inv) continue; // defensive — validation guarantees a hit
           await tx.tripStop.create({
-            data: { tripId: trip.id, ...buildStopCreateData(inv, s.sequence) },
+            data: {
+              tripId: trip.id,
+              ...buildStopCreateData(inv, s.sequence, offRouteIds.has(s.invoiceId)),
+            },
           });
         }
 
@@ -194,22 +209,49 @@ export async function DELETE(
     const firm = await resolveFirm(getStr(sp.get("firmId")));
     const trip = await getTripForFirm(id, firm.id);
 
-    if (trip.status !== "PLANNED") {
+    // Owner authority: planned + dispatched trips are deletable. A
+    // DISPATCHED trip has no delivered stops by definition — the first
+    // delivery flips it to IN_PROGRESS — but guard defensively anyway.
+    if (trip.status !== "PLANNED" && trip.status !== "DISPATCHED") {
       throw new BusinessError(
         "ERR_INVALID_STATE",
-        "Only planned trips can be cancelled — dispatched trips must be worked or closed",
+        trip.status === "CANCELLED"
+          ? "This trip is already cancelled and lives only in the archive"
+          : "Only planned or dispatched trips can be deleted — this trip has started or is settled, so it must stay in the books",
         409
       );
     }
 
-    const updated = await dbTx(async (tx) => {
+    const stops = await db.tripStop.findMany({ where: { tripId: trip.id } });
+    if (stops.some((s) => s.status === "DELIVERED")) {
+      throw new BusinessError(
+        "ERR_INVALID_STATE",
+        "Deliveries already recorded on this trip — it cannot be deleted",
+        409
+      );
+    }
+
+    await dbTx(async (tx) => {
+      // Snapshot the trip (+ stops) into the Deleted Data bin — via the
+      // tx client so the archive and the hard delete commit together.
+      await moveToTrash(
+        {
+          firmId: firm.id,
+          entityType: "TRIP",
+          entityId: trip.id,
+          label: trip.tripNumber,
+          meta: `${trip.routeName} · ${trip.status} · ${trip.totalStops} stop${trip.totalStops === 1 ? "" : "s"} · ${trip.vehicleNumber || "no vehicle"}`,
+          snapshot: { trip, stops },
+        },
+        tx
+      );
       // Stops first — each order's tripStop disappears, so the order
       // returns to the unassigned pool automatically.
       await tx.tripStop.deleteMany({ where: { tripId: trip.id } });
-      return tx.trip.update({ where: { id: trip.id }, data: { status: "CANCELLED" } });
+      await tx.trip.delete({ where: { id: trip.id } });
     });
 
-    return ok({ ...updated, stops: [], deliveredStops: 0 });
+    return ok({ deleted: true, id: trip.id, tripNumber: trip.tripNumber });
   } catch (e) {
     return handleApiError(e);
   }

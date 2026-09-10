@@ -3,6 +3,9 @@
 // POSTED, non-counter invoices with no TripStop yet. Optionally
 // narrowed to one route (customer city ∈ route towns) and searched
 // word-wise over [invoiceNumber, shop, town, phone].
+// otherTowns=1 + routeId INVERTS the narrowing: only orders whose
+// customer city is NOT on the route (empty-city customers included) —
+// the owner's "pull from other towns" warning-flow pool.
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
@@ -29,6 +32,8 @@ export async function GET(request: NextRequest) {
     await resolveFirm(firmId);
     const routeId = getStr(sp.get("routeId"));
     const search = getStr(sp.get("search"));
+    // otherTowns=1 (or true) + routeId → invert the route narrowing.
+    const otherTowns = ["1", "true"].includes((sp.get("otherTowns") ?? "").trim().toLowerCase());
 
     // Optional route scope — also returns the route so the UI can label
     // the planner ("Nagar Route · Wagholi, Shikrapur, …").
@@ -76,9 +81,13 @@ export async function GET(request: NextRequest) {
       take: 200,
     });
 
-    // Route narrowing: customer city must be one of the route's towns.
+    // Route narrowing: customer city must be one of the route's towns —
+    // or, with otherTowns, the inverse (NOT on the route; empty-city
+    // customers have no route so they belong in the inverted pool too).
     const scoped = townSet
-      ? invoices.filter((inv) => cityMatchesRoute(inv.customer?.city, townSet!))
+      ? otherTowns
+        ? invoices.filter((inv) => !cityMatchesRoute(inv.customer?.city, townSet!))
+        : invoices.filter((inv) => cityMatchesRoute(inv.customer?.city, townSet!))
       : invoices;
 
     // Word-wise matching on top of the prefilter — chronological mode
