@@ -119,6 +119,7 @@ export default function StockLevelsView() {
   const totals = React.useMemo(
     () => ({
       sellable: rows.reduce((s, p) => s + p.stockQuantity, 0),
+      reserved: rows.reduce((s, p) => s + (p.reservedQty ?? 0), 0),
       damaged: rows.reduce((s, p) => s + p.damagedStock, 0),
       valuation: rows.reduce((s, p) => s + p.stockQuantity * p.purchaseCost, 0),
       damagedValue: rows.reduce((s, p) => s + p.damagedStock * p.purchaseCost, 0),
@@ -216,6 +217,7 @@ export default function StockLevelsView() {
               <th>Name</th>
               <th>Unit</th>
               <th className="num">Sellable</th>
+              <th className="num">Reserved</th>
               <th className="num">Damaged</th>
               <th className="num">Total</th>
               <th className="num">Valuation</th>
@@ -236,6 +238,10 @@ export default function StockLevelsView() {
                   <td className="num text-dmk-success">
                     <span className="inline-block h-1.5 w-1.5 rounded-full bg-dmk-success mr-1.5 align-middle" />
                     {fmtQty(p.stockQuantity)}
+                  </td>
+                  <td className={cn("num", (p.reservedQty ?? 0) > 0 ? "text-dmk-blue" : "text-dmk-text-muted")}>
+                    <span className={cn("inline-block h-1.5 w-1.5 rounded-full mr-1.5 align-middle", (p.reservedQty ?? 0) > 0 ? "bg-dmk-blue" : "bg-dmk-text-muted/40")} />
+                    {fmtQty(p.reservedQty ?? 0)}
                   </td>
                   <td className={cn("num", p.damagedStock > 0 ? "text-dmk-danger" : "text-dmk-text-muted")}>
                     <span className="inline-block h-1.5 w-1.5 rounded-full bg-dmk-danger mr-1.5 align-middle" />
@@ -268,6 +274,9 @@ export default function StockLevelsView() {
               </td>
               <td className="px-3 py-2.5 text-right font-money text-[12.5px] font-semibold text-dmk-success">
                 {fmtQty(totals.sellable)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-money text-[12.5px] font-semibold text-dmk-blue">
+                {fmtQty(totals.reserved)}
               </td>
               <td className="px-3 py-2.5 text-right font-money text-[12.5px] font-semibold text-dmk-danger">
                 {fmtQty(totals.damaged)}

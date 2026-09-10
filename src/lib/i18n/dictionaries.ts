@@ -58,6 +58,7 @@ const en = {
   "nav.ai": "AI Copilot",
   "nav.deleted": "Deleted Data",
   "nav.salesTeam": "Sales Team",
+  "nav.salesOrders": "Sales Orders (SO)",
   "nav.settings": "Settings",
 
   // ── Header ───────────────────────────────────────────────────
@@ -363,6 +364,7 @@ const hi: Partial<Record<DictKey, string>> = {
   "nav.ai": "AI कोपायलट",
   "nav.deleted": "हटाया गया डेटा",
   "nav.salesTeam": "सेल्स टीम",
+  "nav.salesOrders": "सेल्स ऑर्डर (SO)",
   "nav.settings": "सेटिंग्स",
 
   // ── Header ───────────────────────────────────────────────────
@@ -666,6 +668,7 @@ const mr: Partial<Record<DictKey, string>> = {
   "nav.ai": "AI को-पायलट",
   "nav.deleted": "काढलेला डेटा",
   "nav.salesTeam": "सेल्स टीम",
+  "nav.salesOrders": "सेल्स ऑर्डर (SO)",
   "nav.settings": "सेटिंग्ज",
 
   // ── Header ───────────────────────────────────────────────────

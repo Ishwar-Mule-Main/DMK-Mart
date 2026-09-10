@@ -54,6 +54,8 @@ export interface Product {
   tier4Retailer: number;
   tier5Mrp: number;
   stockQuantity: number;
+  /** Held for CONFIRMED sales orders — available = stockQuantity − reservedQty. */
+  reservedQty: number;
   damagedStock: number;
   lowStockThreshold: number;
   /** MANUFACTURER vendor that makes this product (PO picker scoping). */

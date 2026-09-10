@@ -13,6 +13,7 @@ export type ViewId =
   | "dashboard"
   | "sales/billing"
   | "sales/b2c"
+  | "sales/orders"
   | "sales/invoices"
   | "sales/returns"
   | "sales/customers"

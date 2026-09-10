@@ -127,6 +127,9 @@ export interface UnassignedOrder {
   loosePieces: number;
   weightKg: number;
   itemCount: number;
+  /** "SO" = confirmed sales order (converted to a tax invoice at trip time); absent = posted invoice. */
+  source?: string;
+  salesOrderId?: string | null;
 }
 
 export interface UnassignedTotals {
@@ -652,7 +655,7 @@ export function LogisticsUnassignedView() {
                       </td>
                       <td className="max-w-[220px] truncate text-[13px] font-medium">{o.shopName}</td>
                       <td className="text-[12.5px] text-dmk-text-secondary">{o.town || "—"}</td>
-                      <td>{modeBadge(o.paymentMode)}</td>
+                      <td>{o.source === "SO" ? <Badge tone="info">SO</Badge> : modeBadge(o.paymentMode)}</td>
                       <td className="num text-[12.5px]">{fmtInt(o.boxes)}</td>
                       <td className="num text-[12.5px]">{fmtInt(o.loosePieces)}</td>
                       <td className="num text-[12.5px] text-dmk-text-secondary">{fmtKg(o.weightKg)}</td>
@@ -912,7 +915,13 @@ export function LogisticsTripPlannerView() {
     setDispatching(true);
     try {
       const driver = staff.find((s) => s.id === driverId);
-      const stops = sequenced.map((o, i) => ({ invoiceId: o.invoiceId, sequence: i + 1 }));
+      // Confirmed SOs ride as salesOrderId — the backend bills them
+      // (raises the tax invoice) at the moment the trip is created.
+      const stops = sequenced.map((o, i) =>
+        o.source === "SO"
+          ? { salesOrderId: o.salesOrderId || o.invoiceId, sequence: i + 1 }
+          : { invoiceId: o.invoiceId, sequence: i + 1 }
+      );
       const res = await apiPost<{ trip: LogisticsTrip }>("/api/v1/logistics/trips", {
         firmId: activeFirmId,
         routeId,
@@ -1097,7 +1106,7 @@ export function LogisticsTripPlannerView() {
                                 {offRouteIds.has(o.invoiceId) && <OffRouteTag />}
                               </span>
                             </td>
-                            <td>{modeBadge(o.paymentMode)}</td>
+                            <td>{o.source === "SO" ? <Badge tone="info">SO</Badge> : modeBadge(o.paymentMode)}</td>
                             <td className="num text-[12.5px]">
                               {fmtInt(o.boxes)}
                               {o.loosePieces > 0 ? (

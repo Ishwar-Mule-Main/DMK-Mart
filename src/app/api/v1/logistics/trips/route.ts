@@ -3,10 +3,12 @@
 // GET  ?firmId=&status=&search= — newest-first register with stop
 //      progress; word-wise over [tripNumber, route, driver, vehicle].
 // POST {firmId, routeId, driverId?, driverName?, vehicleNumber,
-//       stops:[{invoiceId, sequence}], allowOffRoute?} — validates the
-//      route's town ownership of every order (allowOffRoute=true lets
-//      non-route orders ride along with an Off-route flag instead of
-//      failing), snapshots stop + load aggregates.
+//       stops:[{invoiceId? | salesOrderId?, sequence}], allowOffRoute?}
+// — validates the route's town ownership of every order
+//      (allowOffRoute=true lets non-route orders ride along with an
+//      Off-route flag instead of failing), snapshots stop + load
+//      aggregates. CONFIRMED sales orders are auto-billed here: the
+//      truck leaves WITH the tax invoice (SO → CONVERTED).
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest } from "next/server";
@@ -32,6 +34,7 @@ import {
   nextTripNumber,
   validateStopsForRoute,
 } from "@/app/api/v1/_lib/logistics";
+import { convertSalesOrderToInvoice } from "@/app/api/v1/_lib/salesOrder";
 import { containsArms, rankSearch } from "@/lib/search-rank";
 
 export async function GET(request: NextRequest) {
@@ -113,13 +116,28 @@ export async function POST(request: NextRequest) {
       if (!driverName) driverName = staff.name;
     }
 
-    // Stops: [{invoiceId, sequence}] — well-formed + business-valid.
-    const stopInputs = asRecordArray(body.stops)
+    // Stops: [{invoiceId? | salesOrderId?, sequence}] — well-formed +
+    // business-valid. CONFIRMED sales orders are billed right here (the
+    // tax invoice is raised at dispatch), then join the stop list.
+    const stopInputsRaw = asRecordArray(body.stops)
       .map((s, i) => ({
         invoiceId: getStr(s.invoiceId),
+        salesOrderId: getStr(s.salesOrderId),
         sequence: Math.max(1, Math.floor(getNum(s.sequence, i + 1))),
       }))
-      .filter((s) => s.invoiceId !== "");
+      .filter((s) => s.invoiceId !== "" || s.salesOrderId !== "");
+
+    const convertedOrders: Array<{ orderNumber: string; invoiceNumber: string }> = [];
+    const stopInputs: Array<{ invoiceId: string; sequence: number }> = [];
+    for (const s of stopInputsRaw) {
+      if (s.invoiceId) {
+        stopInputs.push({ invoiceId: s.invoiceId, sequence: s.sequence });
+        continue;
+      }
+      const converted = await convertSalesOrderToInvoice(firm, s.salesOrderId, { paymentMode: "CREDIT" });
+      convertedOrders.push({ orderNumber: converted.orderNumber, invoiceNumber: converted.invoiceNumber });
+      stopInputs.push({ invoiceId: converted.invoiceId, sequence: s.sequence });
+    }
     assertStopListWellFormed(stopInputs);
 
     const invoices = await loadInvoicesForStops(stopInputs.map((s) => s.invoiceId));
@@ -161,7 +179,7 @@ export async function POST(request: NextRequest) {
 
     // Re-fetch through the shared detail loader (items + owner OTP view).
     const detail = await loadTripDetail(tripId, true);
-    return ok({ trip: detail }, 201);
+    return ok({ trip: detail, convertedOrders }, 201);
   } catch (e) {
     return handleApiError(e);
   }

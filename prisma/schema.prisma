@@ -42,6 +42,7 @@ model Firm {
   verificationStaff VerificationStaff[]
   salesMembers      SalesMember[]
   salesOrders       SalesOrder[]
+  stagedOrderUploads StagedOrderUpload[]
   financialYears    FinancialYear[]
   deliveryRoutes    DeliveryRoute[]
   trips             Trip[]
@@ -128,7 +129,8 @@ model Product {
   tier3SemiWholesale Float   @default(0)
   tier4Retailer     Float    @default(0)
   tier5Mrp          Float    @default(0)
-  stockQuantity     Float    @default(0) // sellable
+  stockQuantity     Float    @default(0) // sellable on hand
+  reservedQty       Float    @default(0) // held for CONFIRMED sales orders — promise-safe: available = stockQuantity − reservedQty
   damagedStock      Float    @default(0) // quarantined — NEVER sellable
   lowStockThreshold Float    @default(0)
   manufacturerVendorId String? // MANUFACTURER vendor this product belongs to (PO scoping R10)
@@ -147,6 +149,7 @@ model Product {
   movements           InventoryMovement[]
   recurringTemplateItems RecurringTemplateItem[]
   salesOrderItems       SalesOrderItem[]
+  stagedItems           StagedItem[]
 
   @@unique([firmId, sku])
   @@index([firmId, name])
@@ -184,6 +187,7 @@ model Customer {
   salesReturns     SalesReturn[]
   receipts         CustomerReceipt[]
   salesOrders      SalesOrder[]
+  stagedUploads    StagedOrderUpload[]
   createdBySalesMemberId String?
   createdBySalesMember SalesMember? @relation("SalesCreatedCustomers", fields: [createdBySalesMemberId], references: [id], onDelete: SetNull)
   ledgerEntries    LedgerEntry[]
@@ -914,9 +918,14 @@ model SalesMember {
 }
 
 // ─── SALES ORDERS (SO booking — phone/PDF orders for delivery) ──
-// Sales staff record an order taken on a call or from a PDF; the
-// office converts it to a tax invoice at dispatch. No stock or
-// journal impact until conversion.
+// Sales staff record an order taken on a call or from a scanned PDF;
+// the office converts it to a tax invoice at dispatch. Lifecycle:
+//   BOOKED     — draft taken by sales, nothing reserved
+//   CONFIRMED  — booked for real: sellable stock RESERVED, 4-digit
+//                Delivery OTP stamped, order sits in the trip-planner
+//                unassigned pool until a truck takes it
+//   CONVERTED  — tax invoice raised (trip dispatch auto-converts)
+//   CANCELLED
 model SalesOrder {
   id                 String       @id @default(cuid())
   firmId             String
@@ -925,9 +934,12 @@ model SalesOrder {
   orderDate          DateTime
   customerId         String?
   customer           Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  status             String       @default("BOOKED") // BOOKED | CONVERTED | CANCELLED
+  status             String       @default("BOOKED") // BOOKED | CONFIRMED | CONVERTED | CANCELLED
   estimatedTotal     Float        @default(0)
   notes              String       @default("")
+  deliveryOtp        String       @default("") // 4-digit Delivery Verification OTP — stamped on CONFIRMED, carried onto the tax invoice
+  stockReserved      Boolean      @default(false) // CONFIRMED orders hold Product.reservedQty until converted/cancelled
+  stagedUploadId     String?      // StagedOrderUpload that produced this order (deep-scan provenance)
   salesMemberId      String?
   salesMember        SalesMember? @relation("BookedBySalesMember", fields: [salesMemberId], references: [id], onDelete: SetNull)
   convertedInvoiceId String?      @unique // set when the office bills this order
@@ -956,4 +968,70 @@ model SalesOrderItem {
   notes       String     @default("")
 
   @@index([orderId])
+}
+
+// ─── STAGED ORDER UPLOADS (deep-scan order ingestion) ────────────
+// An external order document (PDF / scanned image / WhatsApp text) is
+// deep-scanned by the AI engine; the extracted customer header and
+// line items land here for human review. The dual matching engine
+// links every row to the existing Customer / Product masters — new
+// ones can be quick-added straight from the staging terminal. Only
+// "Confirm & Book" touches real state (SO + stock reservation + OTP
+// + logistics pool); DISCARDED uploads leave no trace on books.
+model StagedOrderUpload {
+  id                   String    @id @default(cuid())
+  firmId               String
+  firm                 Firm      @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  source               String    @default("PDF_UPLOAD") // PDF_UPLOAD | IMAGE_UPLOAD | WHATSAPP_TEXT
+  originalFileName     String    @default("")
+  originalFileType     String    @default("") // application/pdf | image/png | image/jpeg …
+  originalFileData     String    @default("") // base64 data URL — DB-stored so the staging preview works on Vercel too
+  rawExtractedJson     String    @default("{}") // verbatim AI output (audit)
+  scanModel            String    @default("") // model that performed the scan
+  scanNote             String    @default("") // engine warnings (low quality, guessed totals…)
+
+  // Extracted customer header (pre-match)
+  extractedBusinessName String   @default("")
+  extractedContactPerson String  @default("")
+  extractedPhone       String    @default("")
+  extractedAddress     String    @default("")
+  extractedCity        String    @default("")
+  extractedGstin       String    @default("")
+
+  // Dual matching result
+  matchedCustomerId    String?
+  customer             Customer? @relation(fields: [matchedCustomerId], references: [id])
+  customerMatchMethod  String    @default("") // PHONE | GSTIN | NAME | NEW
+  customerMatchScore   Float     @default(0)
+
+  status               String    @default("NEEDS_REVIEW") // NEEDS_REVIEW | BOOKED | DISCARDED
+  confirmedSalesOrderId String   @default("")
+  confirmedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  items StagedItem[]
+
+  @@index([firmId, status])
+  @@index([firmId, createdAt])
+}
+
+model StagedItem {
+  id              String            @id @default(cuid())
+  stagedOrderId   String
+  stagedOrder     StagedOrderUpload @relation(fields: [stagedOrderId], references: [id], onDelete: Cascade)
+  rawName         String            // exact string printed on the document
+  matchedSkuId    String?
+  matchedSku      Product?          @relation(fields: [matchedSkuId], references: [id])
+  quantity        Float             @default(0)
+  uom             String            @default("Pcs")
+  statedPrice     Float             @default(0) // price printed on the external document
+  appliedPrice    Float             @default(0) // DMK Mart tier price locked for the order
+  discountPercent Float             @default(0)
+  isUnlisted      Boolean           @default(false) // no catalog match — amber badge + quick-add
+  matchConfidence Float             @default(0) // 0..1
+  matchMethod     String            @default("") // AI | SKU | NAME | MANUAL | NEW
+  linePosition    Int               @default(0)
+
+  @@index([stagedOrderId])
 }

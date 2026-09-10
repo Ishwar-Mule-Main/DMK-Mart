@@ -11,6 +11,10 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  // Native/dynamic-require packages must stay outside the server bundle —
+  // pdf-parse (pdfjs-dist + @napi-rs/canvas) powers the SO deep-scan
+  // PDF text extraction.
+  serverExternalPackages: ["pdf-parse", "pdfjs-dist", "@napi-rs/canvas"],
 };
 
 export default nextConfig;

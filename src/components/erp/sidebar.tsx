@@ -72,6 +72,7 @@ const SECTIONS: NavSection[] = [
     items: [
       { id: "sales/billing", label: "Fast Billing (B2B)", key: "nav.billing", icon: Zap },
       { id: "sales/b2c", label: "B2C Counter", key: "nav.b2c", icon: ScanBarcode },
+      { id: "sales/orders", label: "Sales Orders (SO)", key: "nav.salesOrders", icon: ShoppingCart },
       { id: "sales/invoices", label: "Invoice Register", key: "nav.invoices", icon: FileStack },
       { id: "sales/returns", label: "Sales Returns", key: "nav.salesReturns", icon: Undo2 },
       { id: "sales/customers", label: "Customers & Buyers", key: "nav.customers", icon: Users },

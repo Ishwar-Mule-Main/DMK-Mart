@@ -1,8 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
-// /api/v1/logistics/unassigned-orders — the trip planner's pool
-// POSTED, non-counter invoices with no TripStop yet. Optionally
-// narrowed to one route (customer city ∈ route towns) and searched
-// word-wise over [invoiceNumber, shop, town, phone].
+// /api/v1/logistics/unassigned-orders — the trip planner's pool:
+//   • POSTED, non-counter invoices with no TripStop yet, AND
+//   • CONFIRMED sales orders (deep-scanned / phone bookings) still
+//     waiting for a truck — they convert to tax invoices at trip time.
+// Optionally narrowed to one route (customer city ∈ route towns) and
+// searched word-wise over [order no, shop, town, phone].
 // otherTowns=1 + routeId INVERTS the narrowing: only orders whose
 // customer city is NOT on the route (empty-city customers included) —
 // the owner's "pull from other towns" warning-flow pool.
@@ -19,6 +21,7 @@ import {
 } from "@/app/api/v1/_lib/api";
 import {
   cityMatchesRoute,
+  computeLineAgg,
   computeOrderAgg,
   splitRouteTowns,
 } from "@/app/api/v1/_lib/logistics";
@@ -137,9 +140,81 @@ export async function GET(request: NextRequest) {
       else if (o.paymentMode === "UPI") expectedUpi += o.amount;
     }
 
+    // ── CONFIRMED sales orders share the pool ────────────────
+    // They carry no tax invoice yet (raised at trip placement), so the
+    // same route narrowing / search runs over the SO book.
+    const salesOrderRows = await db.salesOrder.findMany({
+      where: { firmId, status: "CONFIRMED", convertedInvoiceId: null },
+      include: {
+        customer: true,
+        items: {
+          include: { product: { select: { piecesPerBox: true, weightGrams: true } } },
+        },
+      },
+      orderBy: { orderDate: "desc" },
+      take: 200,
+    });
+    const soOrders = salesOrderRows
+      .filter((so) => so.customer !== null)
+      .filter((so) => {
+        if (!townSet) return true;
+        const on = cityMatchesRoute(so.customer?.city, townSet);
+        return otherTowns ? !on : on;
+      })
+      .filter((so) =>
+        words.length === 0
+          ? true
+          : words.every((w) =>
+              [so.orderNumber, so.notes, so.customer?.partyName ?? "", so.customer?.city ?? "", so.customer?.phone ?? ""]
+                .join(" ")
+                .toLowerCase()
+                .includes(w.toLowerCase())
+            )
+      )
+      .map((so) => {
+        let b = 0;
+        let loose = 0;
+        let w = 0;
+        for (const line of so.items) {
+          const l = computeLineAgg(line);
+          b += l.boxes;
+          loose += l.loosePieces;
+          w += l.weightKg;
+        }
+        return {
+          // The SO id rides in invoiceId — the planner's selection key —
+          // while salesOrderId + source mark it for trip-time conversion.
+          invoiceId: so.id,
+          invoiceNumber: so.orderNumber,
+          invoiceDate: so.orderDate,
+          customerId: so.customerId,
+          shopName: so.customer?.partyName ?? "",
+          town: so.customer?.city ?? "",
+          address: so.customer?.address ?? "",
+          phone: so.customer?.phone ?? "",
+          amount: round2(so.estimatedTotal),
+          paymentMode: "CREDIT", // collected at the stop per trip settlement
+          boxes: b,
+          loosePieces: loose,
+          weightKg: round2(w),
+          itemCount: so.items.length,
+          source: "SO",
+          salesOrderId: so.id,
+        };
+      });
+
+    for (const o of soOrders) {
+      if (o.customerId) seenCustomers.add(o.customerId);
+      boxes += o.boxes;
+      loosePieces += o.loosePieces;
+      weightKg += o.weightKg;
+      amount += o.amount;
+    }
+    const mergedOrders = [...orders, ...soOrders];
+
     return ok({
       ...(route ? { route } : {}),
-      orders,
+      orders: mergedOrders,
       totals: {
         shops: seenCustomers.size,
         boxes,

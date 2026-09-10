@@ -36,6 +36,7 @@ import LowStockView from "./views/low-stock";
 import BillingView from "./views/billing";
 import B2CCounterView from "./views/b2c-counter";
 import InvoiceRegisterView from "./views/invoice-register";
+import SalesOrdersView from "./views/sales-orders";
 import SalesReturnsView from "./views/sales-returns";
 import CustomersView from "./views/customers";
 import ReceiptsView from "./views/receipts";
@@ -77,6 +78,7 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   "inventory/low-stock": LowStockView,
   "sales/billing": BillingView,
   "sales/b2c": B2CCounterView,
+  "sales/orders": SalesOrdersView,
   "sales/invoices": InvoiceRegisterView,
   "sales/returns": SalesReturnsView,
   "sales/customers": CustomersView,

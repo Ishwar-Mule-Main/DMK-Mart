@@ -13,6 +13,7 @@ import {
   handleApiError,
   ok,
 } from "@/app/api/v1/_lib/api";
+import { releaseOrderReservationOnCancel } from "@/app/api/v1/_lib/salesOrder";
 
 const ORDER_INCLUDE = {
   customer: { select: { id: true, partyName: true, phone: true, city: true, address: true } },
@@ -50,7 +51,7 @@ export async function PATCH(
 
     const status = getStr(body.status);
     if (status === "CANCELLED") {
-      if (existing.status !== "BOOKED") {
+      if (existing.status !== "BOOKED" && existing.status !== "CONFIRMED") {
         throw new BusinessError(
           "ERR_INVALID_STATUS",
           existing.status === "CONVERTED"
@@ -58,6 +59,10 @@ export async function PATCH(
             : "This order is already cancelled",
           409
         );
+      }
+      // CONFIRMED orders hold reserved stock — give it back first.
+      if (existing.status === "CONFIRMED" && existing.stockReserved) {
+        await releaseOrderReservationOnCancel(id);
       }
       const order = await db.salesOrder.update({
         where: { id },
