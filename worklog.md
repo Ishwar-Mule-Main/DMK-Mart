@@ -1205,3 +1205,20 @@ Stage Summary:
 - LOGISTICS MODULE IS LIVE END-TO-END: OTP-on-invoice (pre-check item the user asked to verify first — was missing, now built), routes master, unassigned pool, trip planner with live totals, dispatch push to driver /team, OTP + signature proof-of-delivery, settlement posting cash + ledgers, immutable CLOSED archive. Every endpoint exercised against Neon; browser-verified owner + driver golden paths.
 - Demo state on Neon: TRIP/0001 CLOSED (signature), TRIP/0002 CLOSED (OTP), TRIP/0003 CLOSED (OTP via ganesh), Nagar Route towns Pune/Latur/Wagholi/Solapur, driver accounts ravi (VERIFIER) + ganesh (DRIVER).
 - Backlog unchanged: verification request assignment, team-portal PO toast/sound, GRN print, CN/DN refund mode, FY-close wizard, Tasks A–F. New nice-to-haves: driver history tab in /team, WhatsApp share of run-sheet, per-stop COD photo proof.
+
+---
+Task ID: 49 (hotfix)
+Agent: ATLAS (main orchestrator)
+Task: /team login with ganesh/1234 not working
+
+Work Log:
+- Diagnosed: POST /api/v1/verification/login returned 401 — DB query found NO "ganesh" account in VerificationStaff (only "ravi" VERIFIER existed). Account was never created / lost in sandbox rollback (local .env now points back to SQLite db/custom.db; only 1 firm + 1 staff present).
+- Created staff account directly: name "Ganesh", username "ganesh", password 1234 hashed with the app's sha256("dmk::"+pw) scheme, role DRIVER, isActive true (firm DMK Mart cmtv08fqn0000ssvxow4d2pbo).
+- API verified via curl: correct creds → 200 with staff+firm payload; wrong password → 401.
+- Browser-verified end-to-end via agent-browser: opened /team, filled ganesh/1234, submitted → login succeeds, DRIVER role routes to DriverTripView showing "No active trip yet" empty state, zero console errors.
+- Checked production angle: no Neon connection string exists locally (.env is SQLite; real Neon URL lives only in Vercel env). If the owner tried ganesh on the Vercel deployment, the account must be added there via owner portal → Verification → Team (30s, self-service). Local preview is fully fixed.
+
+Stage Summary:
+- Root cause: missing staff record, not broken auth. ganesh/1234 now works on the sandbox preview as a DRIVER (sees delivery trip screen, empty state until a trip is dispatched to him).
+- Login flow, hashing scheme (sha256 dmk:: prefix + legacy-plain fallback) and role routing (DRIVER vs VERIFIER/SUPERVISOR) all confirmed working.
+- No schema or code changes required — data-only fix.
