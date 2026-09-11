@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
 
     const adjustments = await db.stockAdjustment.findMany({
       where: { firmId },
-      orderBy: { adjustDate: "desc" },
+      orderBy: [{ adjustDate: "desc" }, { createdAt: "desc" }],
       take: 200,
     });
     return ok(adjustments);

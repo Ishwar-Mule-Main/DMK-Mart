@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useT } from "@/lib/i18n";
 import { requestSettleInvoice } from "@/lib/settle-bus";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +62,7 @@ function paymentBadge(mode: string): "warning" | "success" | "info" | "neutral" 
 
 export default function InvoiceRegisterView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const setView = useErpStore((s) => s.setView);
 
@@ -74,7 +76,7 @@ export default function InvoiceRegisterView() {
   React.useEffect(() => {
     if (!activeFirmId) return;
     let alive = true;
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       try {
         const res = await apiGet<InvoiceListRow[]>("/api/v1/invoices", {
           firmId: activeFirmId,
@@ -85,15 +87,15 @@ export default function InvoiceRegisterView() {
       } catch (e) {
         if (alive) {
           setRows([]);
-          if (e instanceof ApiError) toast({ variant: "destructive", title: "Could not load invoices", description: e.message });
+          if (e instanceof ApiError) toast({ variant: "destructive", title: t("invr.errLoad"), description: e.message });
         }
       }
     }, 220);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
-  }, [activeFirmId, query, filter]);
+  }, [activeFirmId, query, filter, toast, t]);
 
   async function openDetail(id: string) {
     setDetailOpen(true);
@@ -103,7 +105,7 @@ export default function InvoiceRegisterView() {
       setDetail(inv);
     } catch (e) {
       setDetailOpen(false);
-      toast({ variant: "destructive", title: "Could not load invoice", description: e instanceof ApiError ? e.message : "Unknown error" });
+      toast({ variant: "destructive", title: t("invr.errLoadDetail"), description: e instanceof ApiError ? e.message : t("invr.errUnknown") });
     } finally {
       setDetailLoading(false);
     }
@@ -115,15 +117,15 @@ export default function InvoiceRegisterView() {
     requestSettleInvoice(inv.id, inv.customer.id);
     setView("sales/receipts");
     toast({
-      title: "Opening receipt dialog",
-      description: `${inv.invoiceNumber} · ${formatINR(inv.outstanding)} outstanding pre-allocated — confirm there.`,
+      title: t("invr.toastOpening"),
+      description: t("invr.toastOpeningDesc", { no: inv.invoiceNumber, amt: formatINR(inv.outstanding) }),
     });
   }
 
   function exportCsv() {
     const list = rows ?? [];
     downloadCSV("invoice-register.csv", [
-      ["Invoice #", "Date", "Customer / Walk-in", "Type", "Payment", "Taxable", "Tax", "Round off", "Grand Total", "Outstanding"],
+      [t("invr.csvNo"), t("cmn.date"), t("invr.csvCustomer"), t("invr.phType"), t("invr.csvPayment"), t("invr.sumTaxable"), t("cdn.colTax"), t("invr.csvRoundOff"), t("invr.sumGrand"), t("invr.csvOutstanding")],
       ...list.map((i) => [
         i.invoiceNumber,
         i.invoiceDate.slice(0, 10),
@@ -164,12 +166,12 @@ export default function InvoiceRegisterView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Invoice Register"
-        subtitle="All sales invoices — B2B credit & B2C counter, most recent first"
+        title={t("nav.invoices")}
+        subtitle={t("invr.subtitle")}
         icon={ReceiptText}
         actions={
           <Button size="sm" variant="outline" onClick={exportCsv} disabled={!rows || rows.length === 0} className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover">
-            <Download className="h-4 w-4" /> Export CSV
+            <Download className="h-4 w-4" /> {t("invr.exportCsv")}
           </Button>
         }
       />
@@ -177,40 +179,40 @@ export default function InvoiceRegisterView() {
       <SectionGrid
         list={
           <RegisterCard
-            title="Sales orders"
+            title={t("invr.cardTitle")}
             icon={ReceiptText}
             count={list.length}
-            countLabel="invoices"
+            countLabel={t("invr.invoices")}
             filters={
               <>
                 <div className="relative flex-1 min-w-0">
-                  <SearchInput value={query} onChange={setQuery} placeholder="Search invoice #, customer or walk-in name / phone…" className="pl-9" />
+                  <SearchInput value={query} onChange={setQuery} placeholder={t("invr.searchPh")} className="pl-9" />
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
                 </div>
                 <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
                   <SelectTrigger className={cn(inputCls, "sm:w-44 shrink-0")}>
-                    <SelectValue placeholder="Type" />
+                    <SelectValue placeholder={t("invr.phType")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All invoices</SelectItem>
-                    <SelectItem value="b2b">B2B only</SelectItem>
-                    <SelectItem value="counter">B2C counter only</SelectItem>
+                    <SelectItem value="all">{t("invr.allInvoices")}</SelectItem>
+                    <SelectItem value="b2b">{t("invr.b2bOnly")}</SelectItem>
+                    <SelectItem value="counter">{t("invr.counterOnly")}</SelectItem>
                   </SelectContent>
                 </Select>
               </>
             }
             footer={
               <>
-                <span><span className="font-money text-dmk-text-secondary">{formatINR(totalValue)}</span> listed value</span>
-                <span><span className="font-money text-dmk-warning">{openCredit.length}</span> open credit</span>
-                <span className="hidden sm:inline">hover a credit row to <span className="text-dmk-success font-semibold">Settle</span></span>
+                <span>{t("invr.listedValue", { amt: formatINR(totalValue) })}</span>
+                <span>{t("invr.openCredit", { n: openCredit.length })}</span>
+                <span className="hidden sm:inline">{t("invr.hoverSettle")} <span className="text-dmk-success font-semibold">{t("invr.settle")}</span></span>
               </>
             }
           >
             {rows === null ? (
               <LoadingRows rows={8} />
             ) : list.length === 0 ? (
-              <EmptyState icon={ReceiptText} title="No invoices found" hint="Create one from B2B Fast Billing or the Counter POS." />
+              <EmptyState icon={ReceiptText} title={t("invr.empty")} hint={t("invr.emptyHint")} />
             ) : (
               list.map((i) => {
                 const tax = Number(i.totalCgst) + Number(i.totalSgst) + Number(i.totalIgst);
@@ -226,7 +228,7 @@ export default function InvoiceRegisterView() {
                         <span className="text-[11px] text-dmk-text-muted shrink-0">{formatDate(i.invoiceDate)}</span>
                         {i.templateId && (
                           <span
-                            title="Auto-posted from a recurring billing template — see Recurring Billing → run history"
+                            title={t("invr.autoTip")}
                             className="inline-flex items-center gap-0.5 rounded-md bg-dmk-success/10 px-1.5 py-0.5 text-[9.5px] font-bold tracking-wide text-dmk-success shrink-0"
                           >
                             <Zap className="h-2.5 w-2.5" /> AUTO
@@ -239,11 +241,11 @@ export default function InvoiceRegisterView() {
                       </div>
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-2">
-                      <span className="text-[12px] text-dmk-text-secondary truncate" title={i.customer?.partyName || i.walkInName || "Walk-in"}>
-                        {i.customer?.partyName || i.walkInName || "Walk-in"}
+                      <span className="text-[12px] text-dmk-text-secondary truncate" title={i.customer?.partyName || i.walkInName || t("sale.walkIn")}>
+                        {i.customer?.partyName || i.walkInName || t("sale.walkIn")}
                       </span>
                       <span className="flex items-baseline gap-2 shrink-0">
-                        <span className="text-[10.5px] text-dmk-text-muted hidden sm:inline">taxable {formatINR(Number(i.subtotal))} · tax {formatINR(tax)}</span>
+                        <span className="text-[10.5px] text-dmk-text-muted hidden sm:inline">{t("invr.taxableTax", { t: formatINR(Number(i.subtotal)), x: formatINR(tax) })}</span>
                         <span className="font-money text-[13px] font-semibold text-dmk-text-primary">{formatINR(Number(i.grandTotal))}</span>
                       </span>
                     </div>
@@ -256,18 +258,18 @@ export default function InvoiceRegisterView() {
                               e.stopPropagation();
                               settleFromRow(i);
                             }}
-                            title={`Record a receipt settling ${i.invoiceNumber} (${formatINR(osd ?? 0)})`}
+                            title={t("invr.settleTip", { no: i.invoiceNumber, amt: formatINR(osd ?? 0) })}
                             className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-all border-dmk-border-medium bg-dmk-input-well hover:bg-dmk-hover text-dmk-success hover:border-dmk-success/40"
                           >
-                            <HandCoins className="h-3 w-3" /> Settle
+                            <HandCoins className="h-3 w-3" /> {t("invr.settle")}
                           </button>
                         )}
                         {settled ? (
                           <Badge tone="success">SETTLED</Badge>
                         ) : osd !== undefined ? (
-                          <span className="font-money text-[11.5px] font-semibold text-dmk-yellow">outstanding {formatINR(osd)}</span>
+                          <span className="font-money text-[11.5px] font-semibold text-dmk-yellow">{t("invr.outstanding", { amt: formatINR(osd) })}</span>
                         ) : (
-                          <span className="text-[10.5px] text-dmk-text-muted">outstanding …</span>
+                          <span className="text-[10.5px] text-dmk-text-muted">{t("invr.outstandingDots")}</span>
                         )}
                       </div>
                     )}
@@ -280,32 +282,32 @@ export default function InvoiceRegisterView() {
         aside={
           <>
             <div className="grid grid-cols-2 gap-3">
-              <KpiCard label="Invoices" value={String(list.length)} sub={`${creditCount} on credit`} icon={Layers} />
-              <KpiCard label="Sales value" value={formatINR(totalValue)} sub={`${formatINR(monthValue)} this month`} icon={IndianRupee} tone="orange" />
+              <KpiCard label={t("invr.kpiInvoices")} value={String(list.length)} sub={t("invr.kpiOnCredit", { n: creditCount })} icon={Layers} />
+              <KpiCard label={t("invr.kpiSalesValue")} value={formatINR(totalValue)} sub={t("invr.kpiThisMonthSub", { amt: formatINR(monthValue) })} icon={IndianRupee} tone="orange" />
               <KpiCard
-                label="Outstanding"
+                label={t("invr.kpiOutstanding")}
                 value={formatINR(openCreditValue)}
-                sub={`${openCredit.length} unsettled credit invoice${openCredit.length === 1 ? "" : "s"}`}
+                sub={t("invr.kpiUnsettled", { n: openCredit.length })}
                 icon={Clock3}
                 tone={openCreditValue > 0.009 ? "gold" : "success"}
               />
-              <KpiCard label="Settled" value={String(settledCount)} sub="credit invoices fully paid" icon={CheckCircle2} tone="success" />
+              <KpiCard label={t("invr.kpiSettled")} value={String(settledCount)} sub={t("invr.kpiSettledSub")} icon={CheckCircle2} tone="success" />
             </div>
 
             <AsideCard
-              title="Payment mix"
+              title={t("invr.payMix")}
               icon={Layers}
               iconClass="text-dmk-info"
-              footnote="Share of listed invoices by payment mode — credit sales sit in Receivables until settled."
+              footnote={t("invr.payMixFoot")}
             >
               <div className="space-y-2.5">
                 {payMix.length === 0 ? (
-                  <p className="text-[12px] text-dmk-text-muted">No invoices in the current filter.</p>
+                  <p className="text-[12px] text-dmk-text-muted">{t("invr.noInvFilter")}</p>
                 ) : (
                   payMix.map((x) => (
                     <MixBar
                       key={x.mode}
-                      label={<>{x.mode} <span className="text-dmk-text-muted">· {x.count} inv</span></>}
+                      label={<>{x.mode} <span className="text-dmk-text-muted">· {t("sale.invCount", { n: x.count })}</span></>}
                       value={formatINR(x.value)}
                       pct={(x.count / denom) * 100}
                       barClass={mixBar[x.mode] ?? "bg-dmk-yellow"}
@@ -316,20 +318,20 @@ export default function InvoiceRegisterView() {
             </AsideCard>
 
             <AsideCard
-              title="Sales channel"
+              title={t("invr.channel")}
               icon={ReceiptText}
               iconClass="text-dmk-yellow"
-              footnote="B2B invoices can carry credit terms; counter sales are settled on the spot."
+              footnote={t("invr.channelFoot")}
             >
               <div className="space-y-2.5">
                 <MixBar
-                  label={<><span className="dmk-badge dmk-badge-info">B2B</span> <span className="text-dmk-text-muted">· {b2bCount} inv</span></>}
+                  label={<><span className="dmk-badge dmk-badge-info">B2B</span> <span className="text-dmk-text-muted">· {t("sale.invCount", { n: b2bCount })}</span></>}
                   value={formatINR(list.filter((i) => !i.isCounterSale).reduce((s, i) => s + Number(i.grandTotal), 0))}
                   pct={(b2bCount / denom) * 100}
                   barClass="bg-dmk-blue"
                 />
                 <MixBar
-                  label={<><span className="dmk-badge dmk-badge-dr">COUNTER</span> <span className="text-dmk-text-muted">· {list.length - b2bCount} inv</span></>}
+                  label={<><span className="dmk-badge dmk-badge-dr">COUNTER</span> <span className="text-dmk-text-muted">· {t("sale.invCount", { n: list.length - b2bCount })}</span></>}
                   value={formatINR(list.filter((i) => i.isCounterSale).reduce((s, i) => s + Number(i.grandTotal), 0))}
                   pct={((list.length - b2bCount) / denom) * 100}
                   barClass="bg-dmk-yellow"
@@ -350,7 +352,7 @@ export default function InvoiceRegisterView() {
               {detail && <Badge tone={paymentBadge(detail.paymentMode)}>{detail.paymentMode}</Badge>}
               {detail?.templateId && (
                 <span
-                  title="Auto-posted from a recurring billing template"
+                  title={t("invr.autoTipShort")}
                   className="inline-flex items-center gap-0.5 rounded-md bg-dmk-success/10 px-1.5 py-0.5 text-[9.5px] font-bold tracking-wide text-dmk-success"
                 >
                   <Zap className="h-2.5 w-2.5" /> AUTO
@@ -358,7 +360,7 @@ export default function InvoiceRegisterView() {
               )}
             </DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
-              {detail ? `${formatDate(detail.invoiceDate)} · ${detail.customer?.partyName || detail.walkInName || "Walk-in"}` : "Loading…"}
+              {detail ? `${formatDate(detail.invoiceDate)} · ${detail.customer?.partyName || detail.walkInName || t("sale.walkIn")}` : t("cmn.loading")}
             </DialogDescription>
           </DialogHeader>
           {detailLoading || !detail ? (
@@ -371,13 +373,13 @@ export default function InvoiceRegisterView() {
                     <thead>
                       <tr>
                         <th>SKU</th>
-                        <th>Product</th>
-                        <th className="text-right">Qty</th>
-                        <th className="text-right">Rate</th>
-                        <th className="text-right">Disc%</th>
-                        <th className="text-right">Taxable</th>
-                        <th className="text-right">GST</th>
-                        <th className="text-right">Amount</th>
+                        <th>{t("cmn.product")}</th>
+                        <th className="text-right">{t("sale.qty")}</th>
+                        <th className="text-right">{t("cmn.rate")}</th>
+                        <th className="text-right">{t("invr.colDisc")}</th>
+                        <th className="text-right">{t("invr.sumTaxable")}</th>
+                        <th className="text-right">{t("bill.colGst")}</th>
+                        <th className="text-right">{t("cmn.amount")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -391,7 +393,7 @@ export default function InvoiceRegisterView() {
                           <td className="num text-[12px]">{formatINR(Number(li.taxableAmount))}</td>
                           <td className="num text-[12px] text-dmk-text-secondary">
                             {Number(li.cgstAmount) + Number(li.sgstAmount) > 0
-                              ? `${formatINR(Number(li.cgstAmount) + Number(li.sgstAmount))} (C+S)`
+                              ? `${formatINR(Number(li.cgstAmount) + Number(li.sgstAmount))} ${t("invr.csLabel")}`
                               : formatINR(Number(li.igstAmount))}
                           </td>
                           <td className="num text-[12px]">{formatINR(Number(li.totalAmount))}</td>
@@ -403,16 +405,16 @@ export default function InvoiceRegisterView() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="dmk-well p-3 space-y-1.5 text-[12.5px]">
-                  <div className="flex justify-between"><span className="text-dmk-text-muted">Taxable</span><span className="font-money">{formatINR(Number(detail.subtotal))}</span></div>
-                  <div className="flex justify-between"><span className="text-dmk-text-muted">Discounts</span><span className="font-money text-dmk-gold">−{formatINR(Number(detail.discountTotal))}</span></div>
+                  <div className="flex justify-between"><span className="text-dmk-text-muted">{t("invr.sumTaxable")}</span><span className="font-money">{formatINR(Number(detail.subtotal))}</span></div>
+                  <div className="flex justify-between"><span className="text-dmk-text-muted">{t("invr.sumDiscounts")}</span><span className="font-money text-dmk-gold">−{formatINR(Number(detail.discountTotal))}</span></div>
                   {Number(detail.totalCgst) > 0 && <div className="flex justify-between"><span className="text-dmk-text-muted">CGST</span><span className="font-money">{formatINR(Number(detail.totalCgst))}</span></div>}
                   {Number(detail.totalSgst) > 0 && <div className="flex justify-between"><span className="text-dmk-text-muted">SGST</span><span className="font-money">{formatINR(Number(detail.totalSgst))}</span></div>}
                   {Number(detail.totalIgst) > 0 && <div className="flex justify-between"><span className="text-dmk-text-muted">IGST</span><span className="font-money">{formatINR(Number(detail.totalIgst))}</span></div>}
-                  <div className="flex justify-between"><span className="text-dmk-text-muted">Round-off</span><span className="font-money">{formatINR(Number(detail.roundOff))}</span></div>
-                  <div className="flex justify-between border-t border-dmk-border-subtle pt-1.5"><span className="text-dmk-text-secondary font-semibold">Grand Total</span><span className="font-money text-[15px] text-dmk-yellow font-bold">{formatINR(Number(detail.grandTotal))}</span></div>
+                  <div className="flex justify-between"><span className="text-dmk-text-muted">{t("invr.sumRoundOff")}</span><span className="font-money">{formatINR(Number(detail.roundOff))}</span></div>
+                  <div className="flex justify-between border-t border-dmk-border-subtle pt-1.5"><span className="text-dmk-text-secondary font-semibold">{t("invr.sumGrand")}</span><span className="font-money text-[15px] text-dmk-yellow font-bold">{formatINR(Number(detail.grandTotal))}</span></div>
                 </div>
                 <div className="dmk-well p-3">
-                  <p className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted mb-1">Amount in words</p>
+                  <p className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted mb-1">{t("invr.words")}</p>
                   <p className="text-[12px] italic text-dmk-text-secondary">{detail.amountInWords || amountInWords(Number(detail.grandTotal))}</p>
                 </div>
               </div>
@@ -427,9 +429,9 @@ export default function InvoiceRegisterView() {
                 setView("docs/invoices");
               }}
             >
-              <FileText className="h-4 w-4" /> Open A4
+              <FileText className="h-4 w-4" /> {t("invr.openA4")}
             </Button>
-            <Button onClick={() => setDetailOpen(false)} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">Close</Button>
+            <Button onClick={() => setDetailOpen(false)} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">{t("cmn.close")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

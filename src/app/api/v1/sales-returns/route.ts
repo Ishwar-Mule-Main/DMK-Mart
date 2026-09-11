@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         customer: { select: { id: true, partyName: true } },
         items: { include: { product: { select: { id: true, sku: true, name: true } } } },
       },
-      orderBy: { returnDate: "desc" },
+      orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
       take: 200,
     });
     return ok(returns);

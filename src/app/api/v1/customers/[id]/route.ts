@@ -31,7 +31,7 @@ export async function GET(
 
     const rows = await db.ledgerEntry.findMany({
       where: { firmId: customer.firmId, customerId: id },
-      orderBy: { entryDate: "desc" },
+      orderBy: [{ entryDate: "desc" }, { createdAt: "desc" }],
       take: 100,
     });
     // Chronological order so balanceAfter chains read naturally

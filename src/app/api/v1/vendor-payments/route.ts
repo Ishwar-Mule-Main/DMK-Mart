@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
           select: { amount: true, purchaseOrder: { select: { poNumber: true } } },
         },
       },
-      orderBy: { paymentDate: "desc" },
+      orderBy: [{ paymentDate: "desc" }, { createdAt: "desc" }],
       take: 200,
     });
     return ok(payments);

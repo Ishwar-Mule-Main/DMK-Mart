@@ -29,6 +29,7 @@ import { streamCopilotChat } from "@/lib/copilot-stream";
 import { useErpStore } from "@/store/erp-store";
 import { useVoice } from "@/lib/voice";
 import { useToast } from "@/hooks/use-toast";
+import { useT, type TFn } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 interface Msg {
@@ -53,13 +54,13 @@ interface StockAlert {
 }
 
 /** Suggested questions — one horizontally scrollable strip on every breakpoint. */
-const SUGGESTIONS: Array<{ q: string; group: string; dot: string }> = [
-  { q: "Today's sales and collections?", group: "Sales", dot: "#ffc300" },
-  { q: "Top selling products this month?", group: "Sales", dot: "#ffc300" },
-  { q: "Which products are low on stock?", group: "Stock", dot: "#22c55e" },
-  { q: "How much damaged stock do I carry?", group: "Stock", dot: "#22c55e" },
-  { q: "How is my cash + bank position?", group: "Finance", dot: "#38bdf8" },
-  { q: "Top overdue customers this month?", group: "Finance", dot: "#38bdf8" },
+const SUGGESTIONS: Array<{ qKey: string; gKey: string; dot: string }> = [
+  { qKey: "cop.sug1q", gKey: "cop.sug1g", dot: "#ffc300" },
+  { qKey: "cop.sug2q", gKey: "cop.sug2g", dot: "#ffc300" },
+  { qKey: "cop.sug3q", gKey: "cop.sug3g", dot: "#22c55e" },
+  { qKey: "cop.sug4q", gKey: "cop.sug4g", dot: "#22c55e" },
+  { qKey: "cop.sug5q", gKey: "cop.sug5g", dot: "#38bdf8" },
+  { qKey: "cop.sug6q", gKey: "cop.sug6g", dot: "#38bdf8" },
 ];
 
 function fmtMoney(n: number): string {
@@ -103,7 +104,7 @@ function CopilotText({ text }: { text: string }) {
 
 // ── RIGHT column: live inventory stock alerts ───────────────────
 
-function StockAlertRow({ alert }: { alert: StockAlert }) {
+function StockAlertRow({ alert, t }: { alert: StockAlert; t: TFn }) {
   const out = alert.stockQuantity <= 0;
   const low = !out && alert.stockQuantity <= alert.lowStockThreshold;
   // Fill ratio against the reorder threshold — 0 for out-of-stock.
@@ -134,7 +135,7 @@ function StockAlertRow({ alert }: { alert: StockAlert }) {
               : "bg-dmk-warning/15 text-dmk-warning border border-dmk-warning/30"
           )}
         >
-          {out ? "OUT" : "LOW"}
+          {out ? t("cop.badgeOut") : t("cop.badgeLow")}
         </span>
       </div>
 
@@ -145,7 +146,7 @@ function StockAlertRow({ alert }: { alert: StockAlert }) {
             className={cn("h-full rounded-full transition-all", out ? "bg-dmk-danger" : "bg-dmk-warning")}
             style={{ width: `${Math.max(fillPct, out ? 0 : 6)}%` }}
             role="progressbar"
-            aria-label={`${alert.name} stock level`}
+            aria-label={t("cop.stockLevelAria", { name: alert.name })}
             aria-valuenow={alert.stockQuantity}
             aria-valuemin={0}
             aria-valuemax={alert.lowStockThreshold}
@@ -154,13 +155,15 @@ function StockAlertRow({ alert }: { alert: StockAlert }) {
         <div className="mt-1.5 flex items-center justify-between text-[10px]">
           <span className={cn("font-money font-semibold", out ? "text-dmk-danger" : "text-dmk-warning")}>
             {alert.stockQuantity} {alert.unit}
-            <span className="text-dmk-text-muted font-normal"> / thr {alert.lowStockThreshold}</span>
+            <span className="text-dmk-text-muted font-normal"> {t("cop.thr", { n: alert.lowStockThreshold })}</span>
           </span>
           <span className="text-dmk-text-muted">
-            short <span className="font-money text-dmk-text-secondary">{alert.shortfall}</span>
+            {t("cop.shortLabel")}{" "}
+            <span className="font-money text-dmk-text-secondary">{alert.shortfall}</span>
             {alert.damagedStock > 0 && (
               <>
-                {" · "}dmg <span className="text-dmk-text-secondary">{alert.damagedStock}</span>
+                {" · "}{t("cop.dmgLabel")}{" "}
+                <span className="text-dmk-text-secondary">{alert.damagedStock}</span>
               </>
             )}
           </span>
@@ -170,7 +173,7 @@ function StockAlertRow({ alert }: { alert: StockAlert }) {
   );
 }
 
-function StockAlertsPanel({ firmId }: { firmId: string | null }) {
+function StockAlertsPanel({ firmId, t }: { firmId: string | null; t: TFn }) {
   const setView = useErpStore((s) => s.setView);
   const [alerts, setAlerts] = React.useState<StockAlert[] | null>(null);
   const [syncing, setSyncing] = React.useState(false);
@@ -190,8 +193,8 @@ function StockAlertsPanel({ firmId }: { firmId: string | null }) {
   React.useEffect(() => {
     if (!firmId) return;
     load();
-    const t = setInterval(load, 60_000);
-    return () => clearInterval(t);
+    const timer = setInterval(load, 60_000);
+    return () => clearInterval(timer);
   }, [firmId, load]);
 
   const outCount = alerts?.filter((a) => a.stockQuantity <= 0).length ?? 0;
@@ -202,13 +205,13 @@ function StockAlertsPanel({ firmId }: { firmId: string | null }) {
   return (
     <aside
       className="rounded-xl border border-dmk-border-subtle bg-dmk-bg-secondary/60 p-3.5 flex flex-col min-h-[340px] lg:min-h-0 lg:h-full"
-      aria-label="Inventory stock alerts"
+      aria-label={t("cop.stockAlerts")}
       aria-live="polite"
     >
       <div className="flex items-center justify-between gap-2 mb-2">
         <p className="text-[10.5px] font-semibold uppercase tracking-wider text-dmk-text-muted flex items-center gap-1.5">
           <PackageX className="h-3.5 w-3.5 text-dmk-warning" />
-          Inventory stock alerts
+          {t("cop.stockAlerts")}
         </p>
         {alerts && alerts.length > 0 && (
           <span
@@ -219,7 +222,7 @@ function StockAlertsPanel({ firmId }: { firmId: string | null }) {
                 : "bg-dmk-warning/15 text-dmk-warning"
             )}
           >
-            {alerts.length} ALERT{alerts.length === 1 ? "" : "S"}
+            {alerts.length === 1 ? t("cop.alertCountOne") : t("cop.alertCountMany", { n: alerts.length })}
           </span>
         )}
       </div>
@@ -228,17 +231,17 @@ function StockAlertsPanel({ firmId }: { firmId: string | null }) {
       <div className="grid grid-cols-3 gap-1.5 mb-2.5">
         <div className="rounded-lg bg-dmk-danger/10 border border-dmk-danger/20 px-2 py-1.5">
           <p className="text-[14px] font-bold text-dmk-danger font-money leading-none">{outCount}</p>
-          <p className="text-[9px] text-dmk-text-muted mt-1 uppercase tracking-wide">Out of stock</p>
+          <p className="text-[9px] text-dmk-text-muted mt-1 uppercase tracking-wide">{t("cop.outOfStock")}</p>
         </div>
         <div className="rounded-lg bg-dmk-warning/10 border border-dmk-warning/20 px-2 py-1.5">
           <p className="text-[14px] font-bold text-dmk-warning font-money leading-none">{lowCount}</p>
-          <p className="text-[9px] text-dmk-text-muted mt-1 uppercase tracking-wide">Low stock</p>
+          <p className="text-[9px] text-dmk-text-muted mt-1 uppercase tracking-wide">{t("cop.lowStock")}</p>
         </div>
         <div className="rounded-lg bg-dmk-input-well border border-dmk-border-subtle px-2 py-1.5">
           <p className="text-[14px] font-bold text-dmk-text-primary font-money leading-none">
             {fmtMoney(restockCost)}
           </p>
-          <p className="text-[9px] text-dmk-text-muted mt-1 uppercase tracking-wide">Restock est.</p>
+          <p className="text-[9px] text-dmk-text-muted mt-1 uppercase tracking-wide">{t("cop.restockEst")}</p>
         </div>
       </div>
 
@@ -246,23 +249,23 @@ function StockAlertsPanel({ firmId }: { firmId: string | null }) {
       {alerts === null ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-2 py-8 text-center">
           <Loader2 className="h-5 w-5 animate-spin text-dmk-warning" />
-          <p className="text-[11.5px] text-dmk-text-muted">Syncing live stock levels…</p>
+          <p className="text-[11.5px] text-dmk-text-muted">{t("cop.syncing")}</p>
         </div>
       ) : alerts.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-2 py-8 text-center">
           <CheckCircle2 className="h-6 w-6 text-dmk-success" />
-          <p className="text-[12px] font-medium text-dmk-text-secondary">All stock levels are healthy</p>
+          <p className="text-[12px] font-medium text-dmk-text-secondary">{t("cop.allHealthy")}</p>
           <p className="text-[11px] text-dmk-text-muted">
-            Nothing is at or below its reorder threshold right now.
+            {t("cop.allHealthyHint")}
           </p>
         </div>
       ) : (
         <ul
           className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-0.5 max-h-[320px] lg:max-h-none [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-dmk-border-medium [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent"
-          aria-label="Products at or below reorder threshold"
+          aria-label={t("dash.lowStockSub")}
         >
           {alerts.map((a) => (
-            <StockAlertRow key={a.id} alert={a} />
+            <StockAlertRow key={a.id} alert={a} t={t} />
           ))}
         </ul>
       )}
@@ -276,13 +279,13 @@ function StockAlertsPanel({ firmId }: { firmId: string | null }) {
             )}
             aria-hidden
           />
-          {syncing ? "Syncing…" : "Auto-syncs with live stock"}
+          {syncing ? t("cop.syncingNow") : t("cop.autoSync")}
         </span>
         <button
           onClick={() => setView("inventory/low-stock")}
           className="text-[10.5px] font-semibold text-dmk-blue hover:underline shrink-0 inline-flex items-center gap-0.5"
         >
-          Open inventory <ArrowRight className="h-3 w-3" />
+          {t("cop.openInventory")} <ArrowRight className="h-3 w-3" />
         </button>
       </p>
     </aside>
@@ -295,6 +298,7 @@ export function DashboardAiChat() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const setView = useErpStore((s) => s.setView);
   const lang = useErpStore((s) => s.language);
+  const { t } = useT();
   const { toast } = useToast();
 
   const [messages, setMessages] = React.useState<Msg[]>([]);
@@ -359,13 +363,13 @@ export function DashboardAiChat() {
           onDone: (full) => {
             setMessages((prev) => [
               ...prev,
-              { id: nextId(), role: "copilot", text: full || "I could not generate a response — try again." },
+              { id: nextId(), role: "copilot", text: full || t("cop.noResponse") },
             ]);
             voice.flushSpeaking(full || "", false);
           },
           onError: (msg) => {
             streamFailed = true;
-            toast({ variant: "destructive", title: "AI Copilot unavailable", description: msg });
+            toast({ variant: "destructive", title: t("cop.unavailable"), description: msg });
           },
         }
       );
@@ -373,8 +377,8 @@ export function DashboardAiChat() {
       streamFailed = true;
       toast({
         variant: "destructive",
-        title: "AI Copilot unavailable",
-        description: e instanceof Error ? e.message : "Request failed",
+        title: t("cop.unavailable"),
+        description: e instanceof Error ? e.message : t("cop.requestFailed"),
       });
     } finally {
       // Preserve any partial answer produced before a mid-stream error.
@@ -394,7 +398,7 @@ export function DashboardAiChat() {
   }
 
   return (
-    <section aria-label="DMK AI Copilot" className="dmk-card relative overflow-hidden">
+    <section aria-label={t("cop.sectionAria")} className="dmk-card relative overflow-hidden">
       {/* Hero accent strip */}
       <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-dmk-yellow via-dmk-warning/50 to-transparent" />
 
@@ -407,13 +411,13 @@ export function DashboardAiChat() {
             </span>
             <div>
               <h2 className="text-[16px] font-semibold text-dmk-text-primary flex items-center gap-2">
-                DMK AI Copilot
+                {t("cop.sectionAria")}
                 <span className="dmk-badge bg-dmk-success/12 text-dmk-success h-5 px-2 text-[9px]">
-                  LIVE · YOUR BOOKS
+                  {t("cop.liveBadge")}
                 </span>
               </h2>
               <p className="text-[11.5px] text-dmk-text-muted">
-                Talk to your ERP — instant answers from sales, stock, receivables and ledgers, grounded on this firm only
+                {t("cop.tagline")}
               </p>
             </div>
           </div>
@@ -421,7 +425,7 @@ export function DashboardAiChat() {
             onClick={() => setView("ai")}
             className="text-[11.5px] font-semibold text-dmk-blue hover:underline shrink-0 self-start sm:self-auto"
           >
-            Open full Copilot →
+            {t("cop.openFull")}
           </button>
         </div>
 
@@ -432,7 +436,7 @@ export function DashboardAiChat() {
             <div
               ref={scrollRef}
               className="flex-1 min-h-[150px] max-h-[280px] lg:max-h-none overflow-y-auto space-y-2 pr-1"
-              aria-label="Copilot conversation"
+              aria-label={t("cop.convoAria")}
             >
               {messages.length === 0 && !loading && (
                 <div className="flex items-start gap-2">
@@ -440,9 +444,7 @@ export function DashboardAiChat() {
                     <Bot className="h-3 w-3" />
                   </span>
                   <p className="max-w-[82%] rounded-lg px-3 py-2 text-[12.5px] leading-relaxed bg-dmk-input-well border border-dmk-border-subtle text-dmk-text-secondary">
-                    Ask me anything about this firm — sales, receivables, stock, GST or P&amp;L.
-                    I read the live books, so every answer reflects real postings — and the
-                    stock alerts on the right stay live.
+                    {t("cop.emptyGreeting")}
                   </p>
                 </div>
               )}
@@ -485,7 +487,7 @@ export function DashboardAiChat() {
               )}
               {loading && !streamText && (
                 <div className="flex items-center gap-2 text-[12px] text-dmk-text-muted pl-8">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Copilot is checking the books…
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("cop.thinking")}
                 </div>
               )}
             </div>
@@ -495,15 +497,15 @@ export function DashboardAiChat() {
               <div
                 className="flex gap-1.5 overflow-x-auto pb-1.5 -mx-1 px-1 scroll-smooth [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:bg-dmk-border-medium [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent"
                 role="listbox"
-                aria-label="Suggested questions"
+                aria-label={t("cop.suggestedAria")}
               >
                 {SUGGESTIONS.map((s) => (
                   <button
-                    key={s.q}
+                    key={s.qKey}
                     role="option"
                     aria-selected={false}
-                    title={s.group}
-                    onClick={() => void send(s.q)}
+                    title={t(s.gKey)}
+                    onClick={() => void send(t(s.qKey))}
                     disabled={loading}
                     className="shrink-0 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-dmk-border-subtle bg-dmk-input-well px-3 py-1.5 text-[11.5px] text-dmk-text-secondary hover:border-dmk-yellow/40 hover:text-dmk-text-primary transition-colors disabled:opacity-50"
                   >
@@ -512,7 +514,7 @@ export function DashboardAiChat() {
                       style={{ background: s.dot }}
                       aria-hidden="true"
                     />
-                    {s.q}
+                    {t(s.qKey)}
                   </button>
                 ))}
               </div>
@@ -534,9 +536,9 @@ export function DashboardAiChat() {
                     void send();
                   }
                 }}
-                placeholder={voice.listening ? "Listening… speak now" : "Ask about sales, stock, receivables, P&L…"}
+                placeholder={voice.listening ? t("cop.listening") : t("cop.placeholder")}
                 className="h-11 w-full rounded-lg bg-dmk-input-well border border-dmk-border-subtle pl-3 pr-[72px] text-[13px] text-dmk-text-primary placeholder:text-dmk-text-disabled focus:outline-none focus:border-dmk-yellow/50"
-                aria-label="Ask AI Copilot"
+                aria-label={t("cop.askAria")}
               />
               {/* Voice mic — speech-to-speech */}
               <button
@@ -548,8 +550,8 @@ export function DashboardAiChat() {
                     ? "bg-dmk-danger text-white animate-pulse"
                     : "bg-dmk-input-well border border-dmk-border-subtle text-dmk-text-secondary hover:text-dmk-yellow"
                 )}
-                aria-label={voice.listening ? "Stop listening" : "Ask by voice"}
-                title={voice.listening ? "Stop listening" : "Ask by voice (speech-to-speech)"}
+                aria-label={voice.listening ? t("cop.stopListening") : t("cop.askVoice")}
+                title={voice.listening ? t("cop.stopListening") : t("cop.askVoiceTitle")}
               >
                 {voice.speaking ? <Volume2 className="h-4 w-4 text-dmk-success" /> : <Mic className="h-4 w-4" />}
               </button>
@@ -557,7 +559,7 @@ export function DashboardAiChat() {
                 onClick={() => void send()}
                 disabled={loading || !input.trim()}
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md bg-dmk-yellow text-[#0A0F1D] flex items-center justify-center disabled:opacity-40 transition-opacity"
-                aria-label="Send question"
+                aria-label={t("cop.sendAria")}
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CornerDownLeft className="h-4 w-4" />}
               </button>
@@ -565,7 +567,7 @@ export function DashboardAiChat() {
           </div>
 
           {/* ── RIGHT: live inventory stock alerts ── */}
-          <StockAlertsPanel firmId={activeFirmId} />
+          <StockAlertsPanel firmId={activeFirmId} t={t} />
         </div>
       </div>
     </section>

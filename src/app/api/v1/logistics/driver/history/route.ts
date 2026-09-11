@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
         status: { in: [...TRIP_HISTORY_STATUSES] },
       },
       include: { stops: { orderBy: { sequence: "asc" } } },
-      orderBy: { dispatchedAt: "desc" },
+      orderBy: [{ dispatchedAt: "desc" }, { createdAt: "desc" }],
       take: 10,
     });
 

@@ -19,6 +19,7 @@ import { Badge, EmptyState, ErrorText, LoadingRows, PageHeader } from "../shared
 import { Button } from "@/components/ui/button";
 import { apiGet } from "@/lib/api-client";
 import { formatINR } from "@/lib/format";
+import { useT, type TFn } from "@/lib/i18n";
 import { useErpStore } from "@/store/erp-store";
 import { cn } from "@/lib/utils";
 
@@ -59,16 +60,21 @@ const CLASS_TONE: Record<string, BadgeTone> = {
   EXPENSE: "danger",
 };
 
-const CLASS_HINT: Record<string, string> = {
-  ASSET: "Debit-natural — what the firm owns",
-  LIABILITY: "Credit-natural — what the firm owes",
-  EQUITY: "Owner capital + retained profits",
-  REVENUE: "Credit-natural — sales & other income",
-  EXPENSE: "Debit-natural — costs incurred",
+const CLASS_HINT: Record<string, (t: TFn) => string> = {
+  ASSET: (t) => t("coa.hintAsset"),
+  LIABILITY: (t) => t("coa.hintLiability"),
+  EQUITY: (t) => t("coa.hintEquity"),
+  REVENUE: (t) => t("coa.hintRevenue"),
+  EXPENSE: (t) => t("coa.hintExpense"),
 };
+
+function classHint(t: TFn, cls: string): string {
+  return CLASS_HINT[cls]?.(t) ?? "";
+}
 
 export default function ChartOfAccountsView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const { t } = useT();
   const [data, setData] = React.useState<TbResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -86,7 +92,7 @@ export default function ChartOfAccountsView() {
       })
       .catch((e) => {
         if (alive) {
-          setError(e instanceof Error ? e.message : "Failed to load chart of accounts");
+          setError(e instanceof Error ? e.message : t("coa.errLoad"));
           setData(null);
         }
       })
@@ -120,8 +126,8 @@ export default function ChartOfAccountsView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Chart of Accounts"
-        subtitle="Standard trading-ledger accounts seeded automatically at firm creation"
+        title={t("coa.title")}
+        subtitle={t("coa.subtitle")}
         icon={Landmark}
         actions={
           <Button
@@ -131,7 +137,7 @@ export default function ChartOfAccountsView() {
             disabled={loading}
             className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> {t("cmn.refresh")}
           </Button>
         }
       />
@@ -140,9 +146,7 @@ export default function ChartOfAccountsView() {
       <div className="dmk-well px-3 py-2.5 flex items-start gap-2.5">
         <Sprout className="h-4 w-4 text-dmk-success mt-0.5 shrink-0" />
         <p className="text-[12px] text-dmk-text-secondary">
-          Accounts are seeded automatically at firm creation and follow the standard
-          trading-ledger layout (Cash &rarr; Bank &rarr; Debtors &rarr; Stock &rarr; ITC &rarr; Creditors &rarr; GST &rarr; Capital &rarr; Income &rarr; Expenses).
-          This register is read-only — balances update live from posted vouchers.
+          {t("coa.seedNote")}
         </p>
       </div>
 
@@ -151,7 +155,7 @@ export default function ChartOfAccountsView() {
       {loading && !data ? (
         <LoadingRows rows={8} />
       ) : !data ? (
-        <EmptyState icon={Landmark} title="Chart of accounts unavailable" hint="Try refreshing once the firm is loaded." />
+        <EmptyState icon={Landmark} title={t("coa.unavailable")} hint={t("coa.tryRefresh")} />
       ) : (
         <>
           {/* ── Class summary chips ──────────────────────── */}
@@ -163,12 +167,12 @@ export default function ChartOfAccountsView() {
               >
                 <Badge tone={CLASS_TONE[cls] ?? "neutral"}>{cls}</Badge>
                 <span className="font-semibold text-dmk-text-primary">{rows.length}</span>
-                <span className="text-dmk-text-muted">accounts</span>
+                <span className="text-dmk-text-muted">{t("coa.accounts")}</span>
               </span>
             ))}
             <span className="dmk-well inline-flex items-center gap-2 px-3 py-1.5 text-[12px]">
               <Badge tone={data.balanced ? "success" : "danger"}>
-                {data.balanced ? "BOOKS BALANCED" : "OUT OF BALANCE"}
+                {data.balanced ? t("coa.booksBalanced") : t("coa.outOfBalance")}
               </Badge>
               <span className="text-dmk-text-muted font-money">
                 Σ {formatINR(data.totalDebit)}
@@ -198,11 +202,11 @@ export default function ChartOfAccountsView() {
                       )}
                       <Badge tone={CLASS_TONE[cls] ?? "neutral"}>{cls}</Badge>
                       <span className="text-[12px] text-dmk-text-muted truncate hidden sm:inline">
-                        {CLASS_HINT[cls]}
+                        {classHint(t, cls)}
                       </span>
                     </span>
                     <span className="flex items-center gap-3 text-[11.5px] shrink-0">
-                      <span className="text-dmk-text-muted">{rows.length} accts</span>
+                      <span className="text-dmk-text-muted">{t("coa.acctsCount", { n: rows.length })}</span>
                       <span className="font-money text-dmk-yellow hidden md:inline">Dr {formatINR(classDr)}</span>
                       <span className="font-money text-dmk-info hidden md:inline">Cr {formatINR(classCr)}</span>
                     </span>
@@ -210,16 +214,16 @@ export default function ChartOfAccountsView() {
 
                   {!isCollapsed &&
                     (rows.length === 0 ? (
-                      <p className="px-4 pb-4 text-[12px] text-dmk-text-muted">No accounts with balances in this class.</p>
+                      <p className="px-4 pb-4 text-[12px] text-dmk-text-muted">{t("coa.noAccountsInClass")}</p>
                     ) : (
                       <div className="overflow-x-auto border-t border-dmk-border-subtle">
                         <table className="dmk-table">
                           <thead>
                             <tr>
-                              <th className="w-24">Code</th>
-                              <th>Account Name</th>
-                              <th className="hidden md:table-cell">Group</th>
-                              <th className="num text-right w-44">Balance (₹)</th>
+                              <th className="w-24">{t("coa.code")}</th>
+                              <th>{t("coa.accountName")}</th>
+                              <th className="hidden md:table-cell">{t("coa.group")}</th>
+                              <th className="num text-right w-44">{t("coa.balance")}</th>
                             </tr>
                           </thead>
                           <tbody>

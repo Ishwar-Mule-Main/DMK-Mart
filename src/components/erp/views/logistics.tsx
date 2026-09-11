@@ -96,6 +96,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { A4PrintPortal, printA4 } from "@/components/erp/print-portal";
 import { cn } from "@/lib/utils";
+import { useT, type TFn } from "@/lib/i18n";
 
 // ═══════════════════════════════════════════════════════════════
 // API CONTRACT TYPES (/api/v1/logistics/*)
@@ -271,14 +272,19 @@ const EMPTY_TOTALS: UnassignedTotals = {
   expectedUpi: 0,
 };
 
-const STATUS_FILTERS: Array<{ value: "ALL" | TripStatus; label: string }> = [
-  { value: "ALL", label: "All" },
-  { value: "PLANNED", label: "Planned" },
-  { value: "DISPATCHED", label: "Dispatched" },
-  { value: "IN_PROGRESS", label: "In progress" },
-  { value: "COMPLETED", label: "Completed" },
-  { value: "CLOSED", label: "Closed" },
+const STATUS_FILTERS: Array<{ value: "ALL" | TripStatus }> = [
+  { value: "ALL" },
+  { value: "PLANNED" },
+  { value: "DISPATCHED" },
+  { value: "IN_PROGRESS" },
+  { value: "COMPLETED" },
+  { value: "CLOSED" },
 ];
+
+/** Status chip label — enum value → log.filter.* key. */
+function statusLabel(t: TFn, status: "ALL" | TripStatus): string {
+  return t(`log.filter.${status}`);
+}
 
 function fmtInt(n: number): string {
   return Math.round(n).toLocaleString("en-IN");
@@ -377,13 +383,14 @@ function Chip({
 }
 
 function SplitChips({ cash, upi }: { cash: number; upi: number }) {
+  const { t } = useT();
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <span className="dmk-badge dmk-badge-success inline-flex items-center gap-1">
-        <Banknote className="h-3 w-3" /> Cash {formatINR(cash)}
+        <Banknote className="h-3 w-3" /> {t("log.cash")} {formatINR(cash)}
       </span>
       <span className="dmk-badge dmk-badge-info inline-flex items-center gap-1">
-        <Smartphone className="h-3 w-3" /> UPI {formatINR(upi)}
+        <Smartphone className="h-3 w-3" /> {t("log.upi")} {formatINR(upi)}
       </span>
     </div>
   );
@@ -391,12 +398,13 @@ function SplitChips({ cash, upi }: { cash: number; upi: number }) {
 
 /** Amber "Off-route" tag — marks an order pulled from outside the trip's route. */
 function OffRouteTag() {
+  const { t } = useT();
   return (
     <span
       className="inline-flex shrink-0 items-center rounded-full border border-[rgba(245,158,11,0.3)] bg-[rgba(245,158,11,0.15)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#F59E0B]"
-      title="Customer town is not on this route — the owner added it from other towns"
+      title={t("log.offRouteTitle")}
     >
-      Off-route
+      {t("log.offRoute")}
     </span>
   );
 }
@@ -421,6 +429,7 @@ function refreshIconBtn(onClick: () => void, label: string) {
 
 export function LogisticsUnassignedView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const setView = useErpStore((s) => s.setView);
   const seedPlanner = useErpStore((s) => s.seedPlanner);
@@ -435,8 +444,8 @@ export function LogisticsUnassignedView() {
   const [refresh, setRefresh] = React.useState(0);
 
   React.useEffect(() => {
-    const t = setTimeout(() => setDebounced(query), 220);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setDebounced(query), 220);
+    return () => clearTimeout(timer);
   }, [query]);
 
   React.useEffect(() => {
@@ -473,7 +482,7 @@ export function LogisticsUnassignedView() {
         if (alive) {
           setData({ orders: [], totals: EMPTY_TOTALS });
           if (e instanceof ApiError)
-            toast({ variant: "destructive", title: "Could not load unassigned orders", description: e.message });
+            toast({ variant: "destructive", title: t("log.un.toastLoadFail"), description: e.message });
         }
       })
       .finally(() => {
@@ -510,8 +519,8 @@ export function LogisticsUnassignedView() {
     seedPlanner(ids);
     setView("logistics/planner");
     toast({
-      title: `${ids.length} order${ids.length === 1 ? "" : "s"} handed to the Trip Planner`,
-      description: `${formatINR(amount)} to collect — pick a driver and dispatch.`,
+      title: t(ids.length === 1 ? "log.un.handoff1" : "log.un.handoffN", { n: ids.length }),
+      description: t("log.un.handoffDesc", { amt: formatINR(amount) }),
     });
   }
 
@@ -522,23 +531,23 @@ export function LogisticsUnassignedView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Unassigned Orders"
-        subtitle="Billed orders waiting to be loaded on a delivery trip"
+        title={t("log.un.title")}
+        subtitle={t("log.un.subtitle")}
         icon={MapPinned}
-        actions={refreshIconBtn(() => setRefresh((r) => r + 1), "Refresh unassigned orders")}
+        actions={refreshIconBtn(() => setRefresh((r) => r + 1), t("log.un.ariaRefresh"))}
       />
 
       {/* Sticky totals strip — 6 stat cards, wraps on mobile */}
       <div className="sticky top-14 z-20 -mx-3 border-b border-dmk-border-subtle bg-dmk-bg-primary/95 px-3 py-2.5 backdrop-blur-sm sm:-mx-5 sm:px-5">
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-          <KpiCard label="Shops" value={fmtInt(totals.shops)} icon={Users} />
-          <KpiCard label="Boxes" value={fmtInt(totals.boxes)} icon={Boxes} />
-          <KpiCard label="Loose pcs" value={fmtInt(totals.loosePieces)} icon={Package} />
-          <KpiCard label="Weight (kg)" value={fmtKg(totals.weightKg)} icon={Scale} />
-          <KpiCard label="Amount to collect" value={formatINR(totals.amount)} icon={IndianRupee} tone="yellow" />
+          <KpiCard label={t("log.kpi.shops")} value={fmtInt(totals.shops)} icon={Users} />
+          <KpiCard label={t("log.kpi.boxes")} value={fmtInt(totals.boxes)} icon={Boxes} />
+          <KpiCard label={t("log.kpi.loosePcs")} value={fmtInt(totals.loosePieces)} icon={Package} />
+          <KpiCard label={t("log.kpi.weightKg")} value={fmtKg(totals.weightKg)} icon={Scale} />
+          <KpiCard label={t("log.kpi.amountCollect")} value={formatINR(totals.amount)} icon={IndianRupee} tone="yellow" />
           <div className="dmk-kpi flex flex-col gap-2 p-4">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-              Cash / UPI split
+              {t("log.kpi.cashUpiSplit")}
             </span>
             <SplitChips cash={totals.expectedCash} upi={totals.expectedUpi} />
           </div>
@@ -547,9 +556,9 @@ export function LogisticsUnassignedView() {
 
       {/* Route chips + search */}
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1" role="group" aria-label="Filter by route">
+        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1" role="group" aria-label={t("log.un.ariaFilterRoute")}>
           <Chip active={routeId === ""} onClick={() => setRouteId("")}>
-            All towns
+            {t("log.un.allTowns")}
           </Chip>
           {routes.map((r) => (
             <Chip key={r.id} active={routeId === r.id} onClick={() => setRouteId(r.id)}>
@@ -562,7 +571,7 @@ export function LogisticsUnassignedView() {
           <SearchInput
             value={query}
             onChange={setQuery}
-            placeholder="Search shop, town, invoice…"
+            placeholder={t("log.un.searchPh")}
             className="pl-9"
           />
           <SearchLens />
@@ -573,16 +582,16 @@ export function LogisticsUnassignedView() {
       {selected.size > 0 && (
         <div className="dmk-card flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[13px] text-dmk-text-secondary">
-            <span className="font-bold text-dmk-text-primary">{selected.size}</span> order
-            {selected.size === 1 ? "" : "s"} selected ·{" "}
-            <span className="font-money font-semibold text-dmk-yellow">{formatINR(selectedAmount)}</span> to
-            collect
+            <span className="font-bold text-dmk-text-primary">{selected.size}</span>{" "}
+            {t(selected.size === 1 ? "log.un.orderSel1" : "log.un.orderSelN")} ·{" "}
+            <span className="font-money font-semibold text-dmk-yellow">{formatINR(selectedAmount)}</span>{" "}
+            {t("log.toCollect")}
           </p>
           <Button
             className="h-11 bg-dmk-yellow px-4 text-[13px] font-semibold text-[#0A0F1D] hover:bg-dmk-yellow/90"
             onClick={planTrip}
           >
-            Plan trip with {selected.size} order{selected.size === 1 ? "" : "s"} →
+            {t(selected.size === 1 ? "log.un.planTrip1" : "log.un.planTripN", { n: selected.size })}
           </Button>
         </div>
       )}
@@ -594,8 +603,8 @@ export function LogisticsUnassignedView() {
         ) : orders.length === 0 ? (
           <EmptyState
             icon={PackageOpen}
-            title="No unassigned orders"
-            hint="Every billed order is already on a trip — new invoices appear here the moment they are posted."
+            title={t("log.un.emptyTitle")}
+            hint={t("log.un.emptyHint")}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -604,20 +613,20 @@ export function LogisticsUnassignedView() {
                 <tr>
                   <th className="w-10">
                     <Checkbox
-                      aria-label="Select all visible orders"
+                      aria-label={t("log.un.ariaSelectAll")}
                       checked={allVisibleSelected}
                       onCheckedChange={toggleAll}
                       className="border-dmk-border-medium data-[state=checked]:bg-dmk-yellow data-[state=checked]:text-[#0A0F1D] data-[state=checked]:border-dmk-yellow"
                     />
                   </th>
-                  <th>Invoice</th>
-                  <th>Shop</th>
-                  <th>Town</th>
-                  <th>Mode</th>
-                  <th className="text-right">Boxes</th>
-                  <th className="text-right">Loose</th>
-                  <th className="text-right">Weight</th>
-                  <th className="text-right">Amount</th>
+                  <th>{t("log.col.invoice")}</th>
+                  <th>{t("log.col.shop")}</th>
+                  <th>{t("log.col.town")}</th>
+                  <th>{t("log.col.mode")}</th>
+                  <th className="text-right">{t("log.col.boxes")}</th>
+                  <th className="text-right">{t("log.col.loose")}</th>
+                  <th className="text-right">{t("log.col.weight")}</th>
+                  <th className="text-right">{t("log.col.amount")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -643,7 +652,7 @@ export function LogisticsUnassignedView() {
                     >
                       <td onClick={(e) => e.stopPropagation()}>
                         <Checkbox
-                          aria-label={`Select ${o.invoiceNumber}`}
+                          aria-label={t("log.aria.selInvoice", { no: o.invoiceNumber })}
                           checked={checked}
                           onCheckedChange={() => toggleRow(o.invoiceId)}
                           className="h-[18px] w-[18px] border-dmk-border-medium data-[state=checked]:border-dmk-yellow data-[state=checked]:bg-dmk-yellow data-[state=checked]:text-[#0A0F1D]"
@@ -697,6 +706,7 @@ function SearchLens() {
 
 export function LogisticsTripPlannerView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const seedPlanner = useErpStore((s) => s.seedPlanner);
   const seedRef = React.useRef<string[]>([]);
@@ -746,7 +756,7 @@ export function LogisticsTripPlannerView() {
         if (alive) {
           setRoutes([]);
           if (e instanceof ApiError)
-            toast({ variant: "destructive", title: "Could not load routes", description: e.message });
+            toast({ variant: "destructive", title: t("log.pl.toastRoutesFail"), description: e.message });
         }
       });
     return () => {
@@ -793,8 +803,8 @@ export function LogisticsTripPlannerView() {
           const usable = seed.filter((id) => present.has(id));
           if (usable.length < seed.length) {
             toast({
-              title: "Some orders are on other routes",
-              description: `${seed.length - usable.length} of ${seed.length} picked order(s) do not belong to this route — plan them separately.`,
+              title: t("log.pl.toastSeedPartial"),
+              description: t("log.pl.toastSeedPartialDesc", { bad: seed.length - usable.length, total: seed.length }),
             });
           }
           setSelected(new Set(usable));
@@ -805,7 +815,7 @@ export function LogisticsTripPlannerView() {
         if (alive) {
           setData({ orders: [], totals: EMPTY_TOTALS });
           if (e instanceof ApiError)
-            toast({ variant: "destructive", title: "Could not load orders for this route", description: e.message });
+            toast({ variant: "destructive", title: t("log.pl.toastOrdersFail"), description: e.message });
         }
       })
       .finally(() => {
@@ -882,8 +892,8 @@ export function LogisticsTripPlannerView() {
     const fresh = picked.filter((o) => !selected.has(o.invoiceId));
     if (fresh.length === 0) {
       toast({
-        title: "Already on this trip",
-        description: "Those order(s) are already selected for this trip.",
+        title: t("log.pl.toastAlready"),
+        description: t("log.pl.toastAlreadyDesc"),
       });
       return;
     }
@@ -895,8 +905,8 @@ export function LogisticsTripPlannerView() {
     extraOrdersRef.current = merged;
     setExtraOrders(merged);
     toast({
-      title: `${fresh.length} non-route order${fresh.length === 1 ? "" : "s"} added`,
-      description: "They will show an Off-route tag on the run sheet.",
+      title: t(fresh.length === 1 ? "log.pl.toastAdded1" : "log.pl.toastAddedN", { n: fresh.length }),
+      description: t("log.pl.toastAddedDesc"),
     });
   }
 
@@ -937,8 +947,12 @@ export function LogisticsTripPlannerView() {
         firmId: activeFirmId,
       });
       toast({
-        title: "Trip dispatched",
-        description: `${trip.tripNumber} is on the road — ${stops.length} stops · ${formatINR(totals.amount)} to collect.`,
+        title: t("log.toast.dispatched"),
+        description: t("log.toast.dispatchedDesc1", {
+          no: trip.tripNumber,
+          n: stops.length,
+          amt: formatINR(totals.amount),
+        }),
       });
       setPrintPack({ tripId: trip.id });
       setSelected(new Set());
@@ -953,11 +967,11 @@ export function LogisticsTripPlannerView() {
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Dispatch failed",
+        title: t("log.toast.dispatchFail"),
         description:
           e instanceof ApiError
             ? e.message
-            : "Could not dispatch this trip — check the Trips register for a stuck PLANNED trip.",
+            : t("log.toast.dispatchFailDesc"),
       });
       setRefresh((r) => r + 1);
     } finally {
@@ -970,19 +984,19 @@ export function LogisticsTripPlannerView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Trip Planner"
-        subtitle="Pick orders, sequence the stops, dispatch and print the pack"
+        title={t("log.pl.title")}
+        subtitle={t("log.pl.subtitle")}
         icon={RouteIcon}
         actions={
           <>
-            {refreshIconBtn(() => setRefresh((r) => r + 1), "Refresh planner")}
+            {refreshIconBtn(() => setRefresh((r) => r + 1), t("log.pl.ariaRefresh"))}
             <Button
               size="sm"
               variant="outline"
               className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
               onClick={() => setRoutesOpen(true)}
             >
-              <Truck className="h-4 w-4" /> Manage routes
+              <Truck className="h-4 w-4" /> {t("log.pl.manageRoutes")}
             </Button>
           </>
         }
@@ -991,14 +1005,14 @@ export function LogisticsTripPlannerView() {
       {routes !== null && routes.length === 0 ? (
         <EmptyState
           icon={RouteIcon}
-          title="No delivery routes yet"
-          hint="Create your first route — name it and list the towns it covers, e.g. “Nagar Route: Wagholi, Shikrapur, Shirur”."
+          title={t("log.pl.emptyTitle")}
+          hint={t("log.pl.emptyHint")}
           action={
             <Button
               className="h-10 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
               onClick={() => setRoutesOpen(true)}
             >
-              <Plus className="h-4 w-4" /> Manage routes
+              <Plus className="h-4 w-4" /> {t("log.pl.manageRoutes")}
             </Button>
           }
         />
@@ -1011,14 +1025,14 @@ export function LogisticsTripPlannerView() {
                 <RouteIcon className="h-4 w-4 shrink-0 text-dmk-yellow" strokeWidth={1.75} />
                 <Select value={routeId || undefined} onValueChange={changeRoute}>
                   <SelectTrigger className="h-9 w-full min-w-[220px] border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary sm:w-[280px]">
-                    <SelectValue placeholder="Choose a route" />
+                    <SelectValue placeholder={t("log.pl.chooseRoute")} />
                   </SelectTrigger>
                   <SelectContent className="border-dmk-border-subtle bg-[#111c32] text-dmk-text-primary">
                     {(routes ?? []).map((r) => (
                       <SelectItem key={r.id} value={r.id}>
                         {r.name}
-                        {r.towns ? ` — ${r.towns.split(",").length} towns` : ""}
-                        {!r.isActive ? " (inactive)" : ""}
+                        {r.towns ? ` — ${t("log.pl.townsCount", { n: r.towns.split(",").length })}` : ""}
+                        {!r.isActive ? ` ${t("log.pl.inactiveSuffix")}` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1026,7 +1040,7 @@ export function LogisticsTripPlannerView() {
               </div>
               {data?.route?.towns ? (
                 <p className="min-w-0 flex-1 truncate text-[11.5px] text-dmk-text-muted">
-                  Towns: {data.route.towns}
+                  {t("log.pl.townsColon", { towns: data.route.towns })}
                 </p>
               ) : null}
             </div>
@@ -1034,9 +1048,9 @@ export function LogisticsTripPlannerView() {
             <div className="dmk-card overflow-hidden">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-dmk-border-subtle px-4 py-2.5">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-[13px] font-bold text-dmk-text-primary">Unassigned orders</h2>
+                  <h2 className="text-[13px] font-bold text-dmk-text-primary">{t("log.pl.ordersCardTitle")}</h2>
                   <span className="dmk-badge bg-dmk-input-well text-dmk-text-secondary">
-                    {selected.size} selected
+                    {t("log.pl.selectedCount", { n: selected.size })}
                   </span>
                 </div>
                 {routeId && (
@@ -1044,11 +1058,11 @@ export function LogisticsTripPlannerView() {
                     size="sm"
                     variant="outline"
                     disabled={loading}
-                    aria-label="Add orders from other towns"
+                    aria-label={t("log.pl.ariaAddOtherTowns")}
                     className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
                     onClick={() => setOtherTownsOpen(true)}
                   >
-                    <PackageOpen className="h-3.5 w-3.5" /> From other towns
+                    <PackageOpen className="h-3.5 w-3.5" /> {t("log.pl.fromOtherTowns")}
                   </Button>
                 )}
               </div>
@@ -1057,8 +1071,8 @@ export function LogisticsTripPlannerView() {
               ) : orders.length === 0 ? (
                 <EmptyState
                   icon={PackageOpen}
-                  title="Nothing waiting on this route"
-                  hint="Every billed order for this route is already on a trip. Switch routes or check the Trips register."
+                  title={t("log.pl.emptyRouteTitle")}
+                  hint={t("log.pl.emptyRouteHint")}
                 />
               ) : (
                 <div className="max-h-[calc(100vh-420px)] overflow-y-auto overflow-x-auto">
@@ -1066,13 +1080,13 @@ export function LogisticsTripPlannerView() {
                     <thead>
                       <tr>
                         <th className="w-10" />
-                        <th>Invoice</th>
-                        <th>Shop</th>
-                        <th>Town</th>
-                        <th>Mode</th>
-                        <th className="text-right">Boxes</th>
-                        <th className="text-right">Weight</th>
-                        <th className="text-right">Amount</th>
+                        <th>{t("log.col.invoice")}</th>
+                        <th>{t("log.col.shop")}</th>
+                        <th>{t("log.col.town")}</th>
+                        <th>{t("log.col.mode")}</th>
+                        <th className="text-right">{t("log.col.boxes")}</th>
+                        <th className="text-right">{t("log.col.weight")}</th>
+                        <th className="text-right">{t("log.col.amount")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1089,7 +1103,7 @@ export function LogisticsTripPlannerView() {
                           >
                             <td onClick={(e) => e.stopPropagation()}>
                               <Checkbox
-                                aria-label={`Select ${o.invoiceNumber}`}
+                                aria-label={t("log.aria.selInvoice", { no: o.invoiceNumber })}
                                 checked={checked}
                                 onCheckedChange={() => toggleSelect(o.invoiceId)}
                                 className="h-[18px] w-[18px] border-dmk-border-medium data-[state=checked]:border-dmk-yellow data-[state=checked]:bg-dmk-yellow data-[state=checked]:text-[#0A0F1D]"
@@ -1110,7 +1124,7 @@ export function LogisticsTripPlannerView() {
                             <td className="num text-[12.5px]">
                               {fmtInt(o.boxes)}
                               {o.loosePieces > 0 ? (
-                                <span className="text-dmk-text-muted"> +{fmtInt(o.loosePieces)} loose</span>
+                                <span className="text-dmk-text-muted"> {t("log.pl.looseSuffix", { n: fmtInt(o.loosePieces) })}</span>
                               ) : null}
                             </td>
                             <td className="num text-[12px] text-dmk-text-secondary">{fmtKg(o.weightKg)}</td>
@@ -1125,16 +1139,16 @@ export function LogisticsTripPlannerView() {
             </div>
 
             {/* Stop sequence — sits under the orders card in the left column */}
-            <section className="dmk-card p-4" aria-label="Stop sequence">
+            <section className="dmk-card p-4" aria-label={t("log.pl.stopSeqTitle")}>
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
-                  Stop sequence
+                  {t("log.pl.stopSeqTitle")}
                 </h3>
-                <span className="text-[11px] text-dmk-text-muted">{sequenced.length} stops</span>
+                <span className="text-[11px] text-dmk-text-muted">{t("log.pl.stopsCount", { n: sequenced.length })}</span>
               </div>
               {sequenced.length === 0 ? (
                 <p className="py-4 text-center text-[12px] text-dmk-text-muted">
-                  Tick orders above — they appear here in drop order.
+                  {t("log.pl.stopSeqEmpty")}
                 </p>
               ) : (
                 <ol className="max-h-[280px] space-y-1.5 overflow-y-auto pr-1">
@@ -1156,7 +1170,7 @@ export function LogisticsTripPlannerView() {
                       <div className="flex shrink-0 gap-1">
                         <button
                           type="button"
-                          aria-label={`Move ${o.shopName} up`}
+                          aria-label={t("log.pl.ariaMoveUp", { shop: o.shopName })}
                           disabled={idx === 0}
                           className="flex h-11 w-11 items-center justify-center rounded-md text-dmk-text-secondary transition-colors hover:bg-dmk-hover hover:text-dmk-text-primary disabled:opacity-30"
                           onClick={() => moveStop(o.invoiceId, -1)}
@@ -1165,7 +1179,7 @@ export function LogisticsTripPlannerView() {
                         </button>
                         <button
                           type="button"
-                          aria-label={`Move ${o.shopName} down`}
+                          aria-label={t("log.pl.ariaMoveDown", { shop: o.shopName })}
                           disabled={idx === sequenced.length - 1}
                           className="flex h-11 w-11 items-center justify-center rounded-md text-dmk-text-secondary transition-colors hover:bg-dmk-hover hover:text-dmk-text-primary disabled:opacity-30"
                           onClick={() => moveStop(o.invoiceId, 1)}
@@ -1183,17 +1197,17 @@ export function LogisticsTripPlannerView() {
           {/* RIGHT — dispatch panel */}
           <aside className="flex min-w-0 flex-col gap-4">
             {/* Live totals */}
-            <section className="dmk-card p-4" aria-label="Selected order totals">
+            <section className="dmk-card p-4" aria-label={t("log.pl.ariaTotals")}>
               <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
-                Trip totals — selected
+                {t("log.pl.tripTotals")}
               </h3>
               <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-[12.5px]">
-                <TotalRow label="Shops" value={fmtInt(totals.shops)} />
-                <TotalRow label="Boxes" value={fmtInt(totals.boxes)} />
-                <TotalRow label="Loose pcs" value={fmtInt(totals.loose)} />
-                <TotalRow label="Weight" value={fmtKg(totals.weight)} />
+                <TotalRow label={t("log.kpi.shops")} value={fmtInt(totals.shops)} />
+                <TotalRow label={t("log.kpi.boxes")} value={fmtInt(totals.boxes)} />
+                <TotalRow label={t("log.kpi.loosePcs")} value={fmtInt(totals.loose)} />
+                <TotalRow label={t("log.col.weight")} value={fmtKg(totals.weight)} />
                 <div className="col-span-2 border-t border-dmk-border-subtle pt-2.5">
-                  <TotalRow label="Amount to collect" value={formatINR(totals.amount)} strong />
+                  <TotalRow label={t("log.kpi.amountCollect")} value={formatINR(totals.amount)} strong />
                 </div>
                 <div className="col-span-2">
                   <SplitChips cash={totals.cash} upi={totals.upi} />
@@ -1202,20 +1216,20 @@ export function LogisticsTripPlannerView() {
             </section>
 
             {/* Driver / vehicle / notes */}
-            <section className="dmk-card space-y-3 p-4" aria-label="Trip assignment">
+            <section className="dmk-card space-y-3 p-4" aria-label={t("log.pl.assignment")}>
               <h3 className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
-                Driver & vehicle
+                {t("log.pl.driverVehicle")}
               </h3>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                  Driver
+                  {t("log.pl.driver")}
                 </label>
                 <Select
                   value={driverId || undefined}
                   onValueChange={(v) => setDriverId(v)}
                 >
                   <SelectTrigger className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary">
-                    <SelectValue placeholder={drivers.length === 0 ? "No staff yet — add in Settings" : "Select driver"} />
+                    <SelectValue placeholder={drivers.length === 0 ? t("log.pl.noStaffPh") : t("log.pl.selectDriver")} />
                   </SelectTrigger>
                   <SelectContent className="border-dmk-border-subtle bg-[#111c32] text-dmk-text-primary">
                     {drivers.map((s) => (
@@ -1229,7 +1243,7 @@ export function LogisticsTripPlannerView() {
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                  Vehicle number
+                  {t("log.pl.vehicleNo")}
                 </label>
                 <Input
                   value={vehicle}
@@ -1240,12 +1254,12 @@ export function LogisticsTripPlannerView() {
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                  <StickyNote className="h-3 w-3" /> Trip notes (optional)
+                  <StickyNote className="h-3 w-3" /> {t("log.pl.notesLabel")}
                 </label>
                 <Input
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. Collect empty crates from Shirur"
+                  placeholder={t("log.pl.notesPh")}
                   className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
                 />
               </div>
@@ -1261,7 +1275,7 @@ export function LogisticsTripPlannerView() {
               ) : (
                 <Send className="h-4 w-4" />
               )}
-              {dispatching ? "Dispatching…" : "Dispatch Trip"}
+              {dispatching ? t("log.pl.dispatching") : t("log.pl.dispatchTrip")}
             </Button>
           </aside>
         </div>
@@ -1332,6 +1346,7 @@ function OtherTownsDialog({
   const [orders, setOrders] = React.useState<UnassignedOrder[] | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [chosen, setChosen] = React.useState<string[]>([]); // dialog-selection order
+  const { t } = useT();
 
   // Fresh fetch + empty selection on every open.
   React.useEffect(() => {
@@ -1382,21 +1397,20 @@ function OtherTownsDialog({
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[680px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-dmk-text-primary">
-            <PackageOpen className="h-4 w-4 text-dmk-yellow" /> Add orders from other towns
+            <PackageOpen className="h-4 w-4 text-dmk-yellow" /> {t("log.otd.title")}
           </DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
-            Orders outside {routeName} that have no trip yet.
+            {t("log.otd.desc", { route: routeName })}
           </DialogDescription>
         </DialogHeader>
 
         {/* Amber warning banner */}
         <div className="rounded-lg border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)] px-3.5 py-3">
           <p className="flex items-center gap-1.5 text-[12.5px] font-bold text-dmk-warning">
-            <TriangleAlert className="h-3.5 w-3.5" /> Non-route orders
+            <TriangleAlert className="h-3.5 w-3.5" /> {t("log.otd.warnTitle")}
           </p>
           <p className="mt-1 text-[11.5px] leading-relaxed text-dmk-text-secondary">
-            These orders belong to towns NOT on {routeName}. Adding them sends them on this trip anyway — the
-            driver&apos;s run sheet will mark them off-route.
+            {t("log.otd.warnBody", { route: routeName })}
           </p>
         </div>
 
@@ -1405,7 +1419,7 @@ function OtherTownsDialog({
             <LoadingRows rows={5} />
           ) : rows.length === 0 ? (
             <p className="py-8 text-center text-[12px] text-dmk-text-muted">
-              No unassigned orders outside this route — every other town is clear.
+              {t("log.otd.empty")}
             </p>
           ) : (
             <ul className="divide-y divide-dmk-border-subtle">
@@ -1418,7 +1432,7 @@ function OtherTownsDialog({
                       aria-pressed={checked}
                     >
                       <Checkbox
-                        aria-label={`Select ${o.invoiceNumber} — ${o.shopName}`}
+                        aria-label={t("log.aria.selShop", { no: o.invoiceNumber, shop: o.shopName })}
                         checked={checked}
                         onCheckedChange={() => toggle(o.invoiceId)}
                         className="h-[18px] w-[18px] shrink-0 border-dmk-border-medium data-[state=checked]:border-dmk-yellow data-[state=checked]:bg-dmk-yellow data-[state=checked]:text-[#0A0F1D]"
@@ -1429,7 +1443,7 @@ function OtherTownsDialog({
                           <span className="truncate">{o.shopName}</span>
                         </p>
                         <p className="truncate text-[10.5px] text-dmk-text-muted">
-                          {o.town || "—"} · {fmtInt(o.boxes)} box{o.boxes === 1 ? "" : "es"} · {fmtKg(o.weightKg)}
+                          {o.town || "—"} · {t(o.boxes === 1 ? "log.otd.boxCount1" : "log.otd.boxCountN", { n: fmtInt(o.boxes) })} · {fmtKg(o.weightKg)}
                         </p>
                       </div>
                       <div className="shrink-0 text-right">
@@ -1452,14 +1466,14 @@ function OtherTownsDialog({
             className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            {t("cmn.cancel")}
           </Button>
           <Button
             className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
             disabled={chosenRows.length === 0}
             onClick={confirm}
           >
-            Add {chosenRows.length} order{chosenRows.length === 1 ? "" : "s"}
+            {t(chosenRows.length === 1 ? "log.otd.add1" : "log.otd.addN", { n: chosenRows.length })}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1483,6 +1497,7 @@ function ManageRoutesDialog({
   onChanged: () => void;
 }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
 
   const [formOpen, setFormOpen] = React.useState(false);
@@ -1551,15 +1566,15 @@ function ManageRoutesDialog({
   }, [formOpen, activeFirmId]);
 
   const townList = React.useMemo(
-    () => towns.split(",").map((t) => t.trim()).filter(Boolean),
+    () => towns.split(",").map((x) => x.trim()).filter(Boolean),
     [towns]
   );
-  const checkedTownKeys = React.useMemo(() => new Set(townList.map((t) => t.toLowerCase())), [townList]);
+  const checkedTownKeys = React.useMemo(() => new Set(townList.map((x) => x.toLowerCase())), [townList]);
 
   // Catalog + custom chips + pre-existing route towns (edit mode) merged;
   // entries the catalog doesn't know render as 0-shop rows.
   const mergedTowns = React.useMemo(() => {
-    const known = new Map(townCandidates.map((t) => [t.name.toLowerCase(), t]));
+    const known = new Map(townCandidates.map((tc) => [tc.name.toLowerCase(), tc]));
     for (const n of [...customTowns, ...townList]) {
       const k = n.toLowerCase();
       if (!known.has(k)) known.set(k, { name: n, customerCount: 0, unassignedCount: 0, usedInRoutes: [] });
@@ -1570,10 +1585,10 @@ function ManageRoutesDialog({
   function toggleTown(name: string) {
     // Functional update — safe even if two toggles land in one React batch.
     setTowns((prev) => {
-      const list = prev.split(",").map((t) => t.trim()).filter(Boolean);
+      const list = prev.split(",").map((x) => x.trim()).filter(Boolean);
       const k = name.toLowerCase();
-      const without = list.filter((t) => t.toLowerCase() !== k);
-      const has = list.some((t) => t.toLowerCase() === k);
+      const without = list.filter((x) => x.toLowerCase() !== k);
+      const has = list.some((x) => x.toLowerCase() === k);
       return (has ? without : [...without, name]).join(", ");
     });
   }
@@ -1583,12 +1598,12 @@ function ManageRoutesDialog({
     if (!n) return;
     setNewTown("");
     const k = n.toLowerCase();
-    if (!mergedTowns.some((t) => t.name.toLowerCase() === k)) {
+    if (!mergedTowns.some((tc) => tc.name.toLowerCase() === k)) {
       setCustomTowns((prev) => [...prev, n]);
     }
     if (!checkedTownKeys.has(k)) {
       setTowns((prev) => {
-        const list = prev.split(",").map((t) => t.trim()).filter(Boolean);
+        const list = prev.split(",").map((x) => x.trim()).filter(Boolean);
         return [...list, n].join(", ");
       });
     }
@@ -1597,7 +1612,7 @@ function ManageRoutesDialog({
   async function saveRoute() {
     if (!activeFirmId) return;
     if (!name.trim()) {
-      setFormError("Route name is required.");
+      setFormError(t("log.rt.errNameRequired"));
       return;
     }
     setSaving(true);
@@ -1607,7 +1622,7 @@ function ManageRoutesDialog({
       name: name.trim(),
       towns: towns
         .split(",")
-        .map((t) => t.trim())
+        .map((x) => x.trim())
         .filter(Boolean)
         .join(", "),
       startFrom: startFrom.trim(),
@@ -1617,15 +1632,15 @@ function ManageRoutesDialog({
     try {
       if (editOf) {
         await apiPatch<LogisticsRoute>(`/api/v1/logistics/routes/${editOf.id}?firmId=${activeFirmId}`, payload);
-        toast({ title: "Route updated", description: `“${payload.name}” saved.` });
+        toast({ title: t("log.toast.routeUpdated"), description: t("log.toast.routeUpdatedDesc", { name: payload.name }) });
       } else {
         await apiPost<LogisticsRoute>("/api/v1/logistics/routes", payload);
-        toast({ title: "Route created", description: `“${payload.name}” is ready for trip planning.` });
+        toast({ title: t("log.toast.routeCreated"), description: t("log.toast.routeCreatedDesc", { name: payload.name }) });
       }
       setFormOpen(false);
       onChanged();
     } catch (e) {
-      setFormError(e instanceof ApiError ? e.message : "Could not save this route.");
+      setFormError(e instanceof ApiError ? e.message : t("log.rt.errSave"));
     } finally {
       setSaving(false);
     }
@@ -1637,16 +1652,16 @@ function ManageRoutesDialog({
     try {
       await apiDelete(`/api/v1/logistics/routes/${deleteOf.id}?firmId=${activeFirmId}`);
       toast({
-        title: "Route deleted",
-        description: `“${deleteOf.name}” removed. Trips already planned on it are untouched.`,
+        title: t("log.toast.routeDeleted"),
+        description: t("log.toast.routeDeletedDesc", { name: deleteOf.name }),
       });
       setDeleteOf(null);
       onChanged();
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Delete failed",
-        description: e instanceof ApiError ? e.message : "Could not delete this route.",
+        title: t("log.toast.deleteFail"),
+        description: e instanceof ApiError ? e.message : t("log.toast.deleteFailDesc"),
       });
     } finally {
       setDeleting(false);
@@ -1658,15 +1673,15 @@ function ManageRoutesDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
           <DialogHeader>
-            <DialogTitle className="text-dmk-text-primary">Delivery routes</DialogTitle>
+            <DialogTitle className="text-dmk-text-primary">{t("log.rt.title")}</DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
-              Routes group towns into a truck run — orders are planned per route.
+              {t("log.rt.desc")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
             {routes.length === 0 ? (
-              <p className="py-6 text-center text-[12.5px] text-dmk-text-muted">No routes yet.</p>
+              <p className="py-6 text-center text-[12.5px] text-dmk-text-muted">{t("log.rt.none")}</p>
             ) : (
               routes.map((r) => (
                 <div
@@ -1676,12 +1691,12 @@ function ManageRoutesDialog({
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-2 text-[13px] font-semibold text-dmk-text-primary">
                       {r.name}
-                      <Badge tone={r.isActive ? "success" : "neutral"}>{r.isActive ? "Active" : "Inactive"}</Badge>
+                      <Badge tone={r.isActive ? "success" : "neutral"}>{r.isActive ? t("log.active") : t("log.inactive")}</Badge>
                     </p>
                     <p className="truncate text-[11px] text-dmk-text-muted">
-                      {r.towns || "No towns listed"}
+                      {r.towns || t("log.rt.noTowns")}
                       {r.startFrom ? ` · ${r.startFrom} → ${r.endTo || "—"}` : ""}
-                      {` · ${r.tripCount} trip${r.tripCount === 1 ? "" : "s"}`}
+                      {` · ${t(r.tripCount === 1 ? "log.rt.tripCount1" : "log.rt.tripCountN", { n: r.tripCount })}`}
                     </p>
                   </div>
                   <Button
@@ -1690,7 +1705,7 @@ function ManageRoutesDialog({
                     className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
                     onClick={() => openEdit(r)}
                   >
-                    <Pencil className="h-3.5 w-3.5" /> Edit
+                    <Pencil className="h-3.5 w-3.5" /> {t("cmn.edit")}
                   </Button>
                   <Button
                     size="sm"
@@ -1698,7 +1713,7 @@ function ManageRoutesDialog({
                     className="h-8 border-dmk-border-subtle text-dmk-danger/80 hover:bg-dmk-hover hover:text-dmk-danger"
                     onClick={() => setDeleteOf(r)}
                   >
-                    Delete
+                    {t("cmn.delete")}
                   </Button>
                 </div>
               ))
@@ -1707,10 +1722,10 @@ function ManageRoutesDialog({
 
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => onOpenChange(false)}>
-              Close
+              {t("cmn.close")}
             </Button>
             <Button className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={openNew}>
-              <Plus className="h-4 w-4" /> New route
+              <Plus className="h-4 w-4" /> {t("log.rt.newRoute")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1720,48 +1735,47 @@ function ManageRoutesDialog({
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
-            <DialogTitle className="text-dmk-text-primary">{editOf ? "Edit route" : "New route"}</DialogTitle>
+            <DialogTitle className="text-dmk-text-primary">{editOf ? t("log.rt.formTitleEdit") : t("log.rt.formTitleNew")}</DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
-              Set where the truck starts and ends, then tick the towns it covers — the planner shows unassigned
-              orders per route.
+              {t("log.rt.formDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                Route name *
+                {t("log.rt.nameLabel")}
               </label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Nagar Route"
+                placeholder={t("log.rt.namePh")}
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                  Trip starts from
+                  {t("log.rt.startLabel")}
                 </label>
                 <Input
                   value={startFrom}
                   onChange={(e) => setStartFrom(e.target.value)}
-                  placeholder="Warehouse, Pune"
+                  placeholder={t("log.rt.startPh")}
                   list="dmk-route-town-options"
-                  aria-label="Trip starts from"
+                  aria-label={t("log.rt.ariaStart")}
                   className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
                 />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                  Trip ends at
+                  {t("log.rt.endLabel")}
                 </label>
                 <Input
                   value={endTo}
                   onChange={(e) => setEndTo(e.target.value)}
-                  placeholder="Back at warehouse"
+                  placeholder={t("log.rt.endPh")}
                   list="dmk-route-town-options"
-                  aria-label="Trip ends at"
+                  aria-label={t("log.rt.ariaEnd")}
                   className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
                 />
               </div>
@@ -1779,28 +1793,28 @@ function ManageRoutesDialog({
                 <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/50 p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                      Towns on this route
+                      {t("log.rt.townsOnRoute")}
                     </p>
                     <span className="text-[10.5px] text-dmk-text-muted">
-                      {townList.length} selected
+                      {t("log.pl.selectedCount", { n: townList.length })}
                     </span>
                   </div>
                   {townsLoading ? (
-                    <p className="py-3 text-center text-[11.5px] text-dmk-text-muted">Loading towns…</p>
+                    <p className="py-3 text-center text-[11.5px] text-dmk-text-muted">{t("log.rt.loadingTowns")}</p>
                   ) : (
                     <>
                       <div className="grid max-h-56 grid-cols-2 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-3">
                         {mergedTowns
                           .filter(
-                            (t) =>
-                              t.name.trim().toLowerCase() !== startFrom.trim().toLowerCase() &&
-                              t.name.trim().toLowerCase() !== endTo.trim().toLowerCase()
+                            (tc) =>
+                              tc.name.trim().toLowerCase() !== startFrom.trim().toLowerCase() &&
+                              tc.name.trim().toLowerCase() !== endTo.trim().toLowerCase()
                           )
-                          .map((t) => {
-                            const checked = checkedTownKeys.has(t.name.toLowerCase());
+                          .map((tc) => {
+                            const checked = checkedTownKeys.has(tc.name.toLowerCase());
                             return (
                               <label
-                                key={t.name}
+                                key={tc.name}
                                 className={cn(
                                   "flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[12px] transition-colors",
                                   checked
@@ -1810,16 +1824,16 @@ function ManageRoutesDialog({
                                 aria-pressed={checked}
                               >
                                 <Checkbox
-                                  aria-label={`Include ${t.name} on this route`}
+                                  aria-label={t("log.aria.includeTown", { town: tc.name })}
                                   checked={checked}
-                                  onCheckedChange={() => toggleTown(t.name)}
+                                  onCheckedChange={() => toggleTown(tc.name)}
                                   className="h-[15px] w-[15px] shrink-0 border-dmk-border-medium data-[state=checked]:border-dmk-yellow data-[state=checked]:bg-dmk-yellow data-[state=checked]:text-[#0A0F1D]"
                                 />
                                 <span className="min-w-0 flex-1 truncate font-medium text-dmk-text-primary">
-                                  {t.name}
+                                  {tc.name}
                                 </span>
                                 <span className="shrink-0 text-[10px] text-dmk-text-muted">
-                                  {t.customerCount > 0 ? `${t.customerCount} shops` : "—"}
+                                  {tc.customerCount > 0 ? t("log.rt.shopCount", { n: tc.customerCount }) : "—"}
                                 </span>
                               </label>
                             );
@@ -1836,14 +1850,14 @@ function ManageRoutesDialog({
                               addCustomTown();
                             }
                           }}
-                          placeholder="Add a town not listed…"
-                          aria-label="Add a town not listed"
+                          placeholder={t("log.rt.addTownPh")}
+                          aria-label={t("log.rt.ariaAddTownInput")}
                           className="h-8 border-dmk-border-subtle bg-dmk-input-well text-[12px] text-dmk-text-primary dmk-input"
                         />
                         <Button
                           size="sm"
                           variant="outline"
-                          aria-label="Add town to route"
+                          aria-label={t("log.rt.ariaAddTownBtn")}
                           disabled={!newTown.trim()}
                           className="h-8 w-8 shrink-0 border-dmk-border-subtle p-0 text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
                           onClick={addCustomTown}
@@ -1853,7 +1867,7 @@ function ManageRoutesDialog({
                       </div>
                       {townList.length > 0 && (
                         <p className="mt-2 truncate text-[10.5px] text-dmk-text-muted">
-                          Route towns: {townList.join(", ")}
+                          {t("log.rt.routeTownsColon", { towns: townList.join(", ") })}
                         </p>
                       )}
                     </>
@@ -1861,18 +1875,18 @@ function ManageRoutesDialog({
                 </div>
               ) : (
                 <p className="text-[11px] text-dmk-text-muted">
-                  Fill in where the trip starts and ends to pick the towns it covers.
+                  {t("log.rt.pickTownsHint")}
                 </p>
               )
             ) : (
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                  Towns (comma separated)
+                  {t("log.rt.townsFallbackLabel")}
                 </label>
                 <Textarea
                   value={towns}
                   onChange={(e) => setTowns(e.target.value)}
-                  placeholder="Wagholi, Shikrapur, Shirur, Ahmednagar"
+                  placeholder={t("log.rt.townsFallbackPh")}
                   rows={3}
                   className="border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
                 />
@@ -1880,8 +1894,8 @@ function ManageRoutesDialog({
             )}
             <div className="flex items-center justify-between rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-3 py-2.5">
               <div>
-                <p className="text-[12.5px] font-medium text-dmk-text-primary">Active</p>
-                <p className="text-[10.5px] text-dmk-text-muted">Inactive routes stay out of the planner dropdown default.</p>
+                <p className="text-[12.5px] font-medium text-dmk-text-primary">{t("log.rt.activeLabel")}</p>
+                <p className="text-[10.5px] text-dmk-text-muted">{t("log.rt.activeHint")}</p>
               </div>
               <Switch checked={isActive} onCheckedChange={setIsActive} />
             </div>
@@ -1893,10 +1907,10 @@ function ManageRoutesDialog({
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setFormOpen(false)}>
-              Cancel
+              {t("cmn.cancel")}
             </Button>
             <Button className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" disabled={saving} onClick={saveRoute}>
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />} {editOf ? "Save changes" : "Create route"}
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />} {editOf ? t("cmn.saveChanges") : t("log.rt.formTitleNew")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1906,14 +1920,14 @@ function ManageRoutesDialog({
       <AlertDialog open={Boolean(deleteOf)} onOpenChange={(v) => !v && setDeleteOf(null)}>
         <AlertDialogContent className="border-dmk-border-subtle bg-[#111c32]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-dmk-text-primary">Delete “{deleteOf?.name}”?</AlertDialogTitle>
+            <AlertDialogTitle className="text-dmk-text-primary">{t("log.rt.deleteTitle", { name: deleteOf?.name ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription className="text-dmk-text-muted">
-              Trips already planned on this route are not affected. Orders on future runs will need another route.
+              {t("log.rt.deleteBody")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
-              Cancel
+              {t("cmn.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
@@ -1923,7 +1937,7 @@ function ManageRoutesDialog({
                 confirmDelete();
               }}
             >
-              {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Delete route
+              {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} {t("log.rt.deleteBtn")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1938,6 +1952,7 @@ function ManageRoutesDialog({
 
 export function LogisticsTripsRegisterView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
 
   const [trips, setTrips] = React.useState<LogisticsTrip[] | null>(null);
@@ -1957,8 +1972,11 @@ export function LogisticsTripsRegisterView() {
     try {
       await apiDelete(`/api/v1/logistics/trips/${deleteOf.id}?firmId=${activeFirmId}`);
       toast({
-        title: "Trip deleted",
-        description: `${deleteOf.tripNumber} was permanently deleted — its order${deleteOf.totalStops === 1 ? "" : "s"} returned to the unassigned pool.`,
+        title: t("log.toast.tripDeleted"),
+        description: t(
+          deleteOf.totalStops === 1 ? "log.toast.tripDeletedDesc1" : "log.toast.tripDeletedDescN",
+          { no: deleteOf.tripNumber, n: deleteOf.totalStops }
+        ),
       });
       setDeleteOf(null);
       setRefresh((r) => r + 1);
@@ -1966,8 +1984,8 @@ export function LogisticsTripsRegisterView() {
       setDeleteOf(null);
       toast({
         variant: "destructive",
-        title: "Could not delete this trip",
-        description: e instanceof ApiError ? e.message : "Something went wrong — try again.",
+        title: t("log.toast.tripDeleteFail"),
+        description: e instanceof ApiError ? e.message : t("log.cmn.tryAgain"),
       });
     } finally {
       setDeleting(false);
@@ -1975,8 +1993,8 @@ export function LogisticsTripsRegisterView() {
   }
 
   React.useEffect(() => {
-    const t = setTimeout(() => setDebounced(query), 220);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setDebounced(query), 220);
+    return () => clearTimeout(timer);
   }, [query]);
 
   React.useEffect(() => {
@@ -1994,7 +2012,7 @@ export function LogisticsTripsRegisterView() {
         if (alive) {
           setTrips([]);
           if (e instanceof ApiError)
-            toast({ variant: "destructive", title: "Could not load trips", description: e.message });
+            toast({ variant: "destructive", title: t("log.toast.tripsFail"), description: e.message });
         }
       });
     return () => {
@@ -2005,17 +2023,17 @@ export function LogisticsTripsRegisterView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Trips & Settlement"
-        subtitle="Live delivery trips, proof of delivery and cash settlement"
+        title={t("log.tr.title")}
+        subtitle={t("log.tr.subtitle")}
         icon={Truck}
-        actions={refreshIconBtn(() => setRefresh((r) => r + 1), "Refresh trips")}
+        actions={refreshIconBtn(() => setRefresh((r) => r + 1), t("log.tr.ariaRefresh"))}
       />
 
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1" role="group" aria-label="Filter by trip status">
+        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1" role="group" aria-label={t("log.tr.ariaFilterStatus")}>
           {STATUS_FILTERS.map((f) => (
             <Chip key={f.value} active={status === f.value} onClick={() => setStatus(f.value)}>
-              {f.label}
+              {statusLabel(t, f.value)}
             </Chip>
           ))}
         </div>
@@ -2023,7 +2041,7 @@ export function LogisticsTripsRegisterView() {
           <SearchInput
             value={query}
             onChange={setQuery}
-            placeholder="Search trip #, route, driver, vehicle…"
+            placeholder={t("log.tr.searchPh")}
             className="pl-9"
           />
           <SearchLens />
@@ -2036,58 +2054,58 @@ export function LogisticsTripsRegisterView() {
         ) : trips.length === 0 ? (
           <EmptyState
             icon={Truck}
-            title="No trips here yet"
-            hint="Plan a trip from the Trip Planner — pick unassigned orders, add a driver and dispatch."
+            title={t("log.tr.emptyTitle")}
+            hint={t("log.tr.emptyHint")}
           />
         ) : (
           <div className="divide-y divide-dmk-border-subtle">
-            {trips.map((t) => {
-              const delivered = t.deliveredStops ?? t.stops.filter((s) => s.status === "DELIVERED").length;
-              const pct = t.totalStops > 0 ? Math.round((delivered / t.totalStops) * 100) : 0;
+            {trips.map((trip) => {
+              const delivered = trip.deliveredStops ?? trip.stops.filter((s) => s.status === "DELIVERED").length;
+              const pct = trip.totalStops > 0 ? Math.round((delivered / trip.totalStops) * 100) : 0;
               return (
-                <RegisterRow key={t.id} onClick={() => setDetailId(t.id)}>
+                <RegisterRow key={trip.id} onClick={() => setDetailId(trip.id)}>
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                     <div className="min-w-[130px]">
-                      <p className="font-money text-[13.5px] font-bold text-dmk-text-primary">{t.tripNumber}</p>
-                      <p className="truncate text-[11px] text-dmk-text-muted">{t.routeName}</p>
+                      <p className="font-money text-[13.5px] font-bold text-dmk-text-primary">{trip.tripNumber}</p>
+                      <p className="truncate text-[11px] text-dmk-text-muted">{trip.routeName}</p>
                     </div>
                     <div className="min-w-[130px]">
-                      <p className="truncate text-[12.5px] text-dmk-text-secondary">{t.driverName || "—"}</p>
-                      <p className="truncate text-[11px] text-dmk-text-muted">{t.vehicleNumber || "No vehicle"}</p>
+                      <p className="truncate text-[12.5px] text-dmk-text-secondary">{trip.driverName || "—"}</p>
+                      <p className="truncate text-[11px] text-dmk-text-muted">{trip.vehicleNumber || t("log.noVehicle")}</p>
                     </div>
                     <div className="min-w-[150px] max-w-[210px] flex-1">
                       <div className="flex items-center justify-between text-[11px] text-dmk-text-muted">
                         <span>
-                          {delivered}/{t.totalStops} delivered
+                          {t("log.tr.progress", { n: delivered, total: trip.totalStops })}
                         </span>
                         <span>{pct}%</span>
                       </div>
                       <Progress
                         value={pct}
-                        aria-label={`${delivered} of ${t.totalStops} stops delivered`}
+                        aria-label={t("log.tr.ariaProgress", { n: delivered, total: trip.totalStops })}
                         className="mt-1 h-1.5 bg-dmk-input-well [&>[data-slot=progress-indicator]]:bg-dmk-yellow"
                       />
                     </div>
-                    <Badge tone={tripTone(t.status)}>{t.status}</Badge>
-                    {(t.status === "PLANNED" || t.status === "DISPATCHED") && (
+                    <Badge tone={tripTone(trip.status)}>{trip.status}</Badge>
+                    {(trip.status === "PLANNED" || trip.status === "DISPATCHED") && (
                       <Button
                         size="sm"
                         variant="ghost"
-                        aria-label={`Delete ${t.tripNumber}`}
-                        title={`Delete ${t.tripNumber}`}
+                        aria-label={t("log.aria.deleteTrip", { no: trip.tripNumber })}
+                        title={t("log.aria.deleteTrip", { no: trip.tripNumber })}
                         className="h-8 w-8 p-0 text-dmk-danger/70 hover:bg-dmk-hover hover:text-dmk-danger"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setDeleteOf(t);
+                          setDeleteOf(trip);
                         }}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     )}
                     <div className="ml-auto flex items-center gap-4">
-                      <Money value={t.totalAmount} className="text-[13px] font-semibold text-dmk-yellow" />
+                      <Money value={trip.totalAmount} className="text-[13px] font-semibold text-dmk-yellow" />
                       <span className="w-[110px] text-right text-[11px] text-dmk-text-muted">
-                        {t.dispatchedAt ? `Disp. ${fmtDateTime(t.dispatchedAt)}` : `Created ${formatDate(t.createdAt)}`}
+                        {trip.dispatchedAt ? t("log.tr.dispAt", { dt: fmtDateTime(trip.dispatchedAt) }) : t("log.tr.createdAt", { dt: formatDate(trip.createdAt) })}
                       </span>
                     </div>
                   </div>
@@ -2114,16 +2132,16 @@ export function LogisticsTripsRegisterView() {
       <AlertDialog open={Boolean(deleteOf)} onOpenChange={(v) => !v && setDeleteOf(null)}>
         <AlertDialogContent className="border-dmk-border-subtle bg-[#111c32]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-dmk-text-primary">Delete {deleteOf?.tripNumber}?</AlertDialogTitle>
+            <AlertDialogTitle className="text-dmk-text-primary">{t("log.tr.deleteTitle", { no: deleteOf?.tripNumber ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription className="text-dmk-text-muted">
               {deleteOf?.status === "DISPATCHED"
-                ? "This dispatched trip has no deliveries yet and will be permanently deleted — orders return to the unassigned pool. Once deliveries start, deletion is blocked."
-                : "This planned trip will be permanently deleted and its orders return to the unassigned pool. The trip is archived to Deleted Data."}
+                ? t("log.tr.deleteBodyDispatched")
+                : t("log.tr.deleteBodyPlanned")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
-              Keep trip
+              {t("log.tr.keepTrip")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
@@ -2133,7 +2151,7 @@ export function LogisticsTripsRegisterView() {
                 confirmDeleteTrip();
               }}
             >
-              {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Delete trip
+              {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} {t("log.tr.deleteTripBtn")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2170,6 +2188,7 @@ function TripDetailDialog({
   onOpenPrintPack: (tripId: string) => void;
 }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
 
   const [trip, setTrip] = React.useState<LogisticsTrip | null>(null);
@@ -2208,7 +2227,7 @@ function TripDetailDialog({
         setTrip(r.trip);
         setError(null);
       } catch (e) {
-        setError(e instanceof ApiError ? e.message : "Could not load this trip.");
+        setError(e instanceof ApiError ? e.message : t("log.td.loadFail"));
       } finally {
         if (!silent) setLoading(false);
       }
@@ -2275,14 +2294,14 @@ function TripDetailDialog({
       await apiPost<{ trip?: LogisticsTrip }>(`/api/v1/logistics/trips/${trip.id}/dispatch`, {
         firmId: activeFirmId,
       });
-      toast({ title: "Trip dispatched", description: `${trip.tripNumber} is on the road.` });
+      toast({ title: t("log.toast.dispatched"), description: t("log.toast.dispatchedDesc2", { no: trip.tripNumber }) });
       await load(true);
       onChanged();
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Dispatch failed",
-        description: e instanceof ApiError ? e.message : "Could not dispatch this trip.",
+        title: t("log.toast.dispatchFail"),
+        description: e instanceof ApiError ? e.message : t("log.toast.dispatchFailShort"),
       });
     } finally {
       setDispatching(false);
@@ -2300,15 +2319,15 @@ function TripDetailDialog({
         driverName: driver?.name ?? undefined,
         vehicleNumber: editVehicle.trim() || undefined,
       });
-      toast({ title: "Trip updated", description: "Driver and vehicle saved." });
+      toast({ title: t("log.toast.tripUpdated"), description: t("log.toast.tripUpdatedDesc") });
       setEditOpen(false);
       await load(true);
       onChanged();
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Update failed",
-        description: e instanceof ApiError ? e.message : "Could not update this trip.",
+        title: t("log.toast.updateFail"),
+        description: e instanceof ApiError ? e.message : t("log.toast.updateFailDesc"),
       });
     } finally {
       setSavingEdit(false);
@@ -2321,8 +2340,11 @@ function TripDetailDialog({
     try {
       await apiDelete(`/api/v1/logistics/trips/${trip.id}?firmId=${activeFirmId}`);
       toast({
-        title: "Trip deleted",
-        description: `${trip.tripNumber} was permanently deleted — its ${trip.totalStops} order${trip.totalStops === 1 ? "" : "s"} returned to the unassigned pool.`,
+        title: t("log.toast.tripDeleted"),
+        description: t(
+          trip.totalStops === 1 ? "log.toast.tripDeletedDesc1" : "log.toast.tripDeletedDescN",
+          { no: trip.tripNumber, n: trip.totalStops }
+        ),
       });
       setDeleteOpen(false);
       onOpenChange(false);
@@ -2331,8 +2353,8 @@ function TripDetailDialog({
       setDeleteOpen(false);
       toast({
         variant: "destructive",
-        title: "Could not delete this trip",
-        description: e instanceof ApiError ? e.message : "Something went wrong — try again.",
+        title: t("log.toast.tripDeleteFail"),
+        description: e instanceof ApiError ? e.message : t("log.cmn.tryAgain"),
       });
     } finally {
       setDeleting(false);
@@ -2347,15 +2369,15 @@ function TripDetailDialog({
         firmId: activeFirmId,
       });
       const cash = res.trip?.collectedCash ?? settleActuals.cash;
-      toast({ title: `Trip closed — ${formatINR(cash)} posted to cash book` });
+      toast({ title: t("log.toast.closeTrip", { amt: formatINR(cash) }) });
       setCompleteOpen(false);
       await load(true);
       onChanged();
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Could not close the trip",
-        description: e instanceof ApiError ? e.message : "Settlement failed — try again.",
+        title: t("log.toast.closeFail"),
+        description: e instanceof ApiError ? e.message : t("log.toast.closeFailDesc"),
       });
       setCompleteOpen(false);
     } finally {
@@ -2406,11 +2428,11 @@ function TripDetailDialog({
     if (!activeFirmId || !trip) return;
     const amt = Number(addAmount);
     if (!addAmount.trim() || !Number.isFinite(amt) || amt <= 0) {
-      toast({ variant: "destructive", title: "Enter an amount greater than zero" });
+      toast({ variant: "destructive", title: t("log.toast.enterAmount") });
       return;
     }
     if (!addCustomerId) {
-      toast({ variant: "destructive", title: "Pick the shop this money belongs to" });
+      toast({ variant: "destructive", title: t("log.toast.pickShop") });
       return;
     }
     setAddingMoney(true);
@@ -2427,8 +2449,11 @@ function TripDetailDialog({
       );
       if (res.trip) setTrip(res.trip);
       toast({
-        title: `${addMode === "CASH" ? "Cash" : "UPI"} ${formatINR(amt)} added to settlement`,
-        description: "It posts to the books together with the stop collections when the trip closes.",
+        title: t("log.toast.addedToSettlement", {
+          mode: addMode === "CASH" ? t("log.cash") : t("log.upi"),
+          amt: formatINR(amt),
+        }),
+        description: t("log.toast.addedToSettlementDesc"),
       });
       setAddMoneyOpen(false);
       setAddAmount("");
@@ -2438,8 +2463,8 @@ function TripDetailDialog({
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Could not add the collection",
-        description: e instanceof ApiError ? e.message : "Something went wrong — try again.",
+        title: t("log.toast.addFail"),
+        description: e instanceof ApiError ? e.message : t("log.cmn.tryAgain"),
       });
     } finally {
       setAddingMoney(false);
@@ -2455,12 +2480,12 @@ function TripDetailDialog({
         { body: JSON.stringify({ firmId: activeFirmId, entryId }) }
       );
       if (res.trip) setTrip(res.trip);
-      toast({ title: "Entry removed from settlement" });
+      toast({ title: t("log.toast.entryRemoved") });
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Could not remove the entry",
-        description: e instanceof ApiError ? e.message : "Something went wrong — try again.",
+        title: t("log.toast.removeFail"),
+        description: e instanceof ApiError ? e.message : t("log.cmn.tryAgain"),
       });
     } finally {
       setRemovingEntryId(null);
@@ -2473,16 +2498,20 @@ function TripDetailDialog({
         <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[680px]">
           <DialogHeader>
             <DialogTitle className="flex flex-wrap items-center gap-2 text-dmk-text-primary">
-              <span className="font-money">{trip?.tripNumber ?? "Trip"}</span>
+              <span className="font-money">{trip?.tripNumber ?? t("log.wordTrip")}</span>
               {trip && <Badge tone={tripTone(trip.status)}>{trip.status}</Badge>}
             </DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
               {trip
-                ? `${trip.routeName} · ${trip.driverName || "No driver"} · ${trip.vehicleNumber || "No vehicle"}`
-                : "Loading trip…"}
+                ? t("log.td.desc", {
+                    route: trip.routeName,
+                    driver: trip.driverName || t("log.noDriver"),
+                    vehicle: trip.vehicleNumber || t("log.noVehicle"),
+                  })
+                : t("log.td.loading")}
               {trip && isActiveTrip(trip.status) && (
                 <span className="ml-1 inline-flex items-center gap-1 text-dmk-yellow">
-                  <Loader2 className="h-3 w-3 animate-spin" /> live — refreshing every 15s
+                  <Loader2 className="h-3 w-3 animate-spin" /> {t("log.td.live")}
                 </span>
               )}
             </DialogDescription>
@@ -2497,7 +2526,7 @@ function TripDetailDialog({
           ) : trip ? (
             <div className="space-y-4">
               {/* Stop timeline */}
-              <ol className="space-y-1.5" aria-label="Delivery stops">
+              <ol className="space-y-1.5" aria-label={t("log.td.ariaStops")}>
                 {trip.stops.map((s) => {
                   const delivered = s.status === "DELIVERED";
                   return (
@@ -2510,9 +2539,9 @@ function TripDetailDialog({
                           {s.sequence}
                         </span>
                         {delivered ? (
-                          <CheckCircle2 className="h-4 w-4 text-dmk-success" aria-label="Delivered" />
+                          <CheckCircle2 className="h-4 w-4 text-dmk-success" aria-label={t("log.aria.delivered")} />
                         ) : (
-                          <Circle className="h-4 w-4 text-dmk-text-disabled" aria-label="Pending" />
+                          <Circle className="h-4 w-4 text-dmk-text-disabled" aria-label={t("log.aria.pending")} />
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -2527,17 +2556,17 @@ function TripDetailDialog({
                           {s.phone ? ` · ${s.phone}` : ""}
                         </p>
                         <p className="mt-0.5 text-[11.5px] text-dmk-text-secondary">
-                          {s.boxes} boxes · {s.loosePieces} loose · {fmtKg(s.weightKg)} ·{" "}
+                          {t("log.td.stopLine", { boxes: s.boxes, loose: s.loosePieces })} · {fmtKg(s.weightKg)} ·{" "}
                           <span className="font-money font-semibold text-dmk-yellow">{formatINR(s.amount)}</span>{" "}
                           <span className="text-dmk-text-muted">({s.expectedMode})</span>
                         </p>
                         {delivered && (
                           <p className="mt-0.5 text-[11px] text-dmk-success">
-                            Delivered {fmtDateTime(s.deliveredAt)}
+                            {t("log.td.deliveredAt", { dt: fmtDateTime(s.deliveredAt) })}
                             {s.collectedAmount > 0
-                              ? ` · collected ${formatINR(s.collectedAmount)}${s.collectedMode ? ` via ${s.collectedMode}` : ""}`
+                              ? ` · ${t("log.td.collectedVia", { amt: formatINR(s.collectedAmount), mode: s.collectedMode })}`
                               : ""}
-                            {s.otpAttempts > 0 ? ` · ${s.otpAttempts} OTP attempt${s.otpAttempts === 1 ? "" : "s"}` : ""}
+                            {s.otpAttempts > 0 ? ` · ${t(s.otpAttempts === 1 ? "log.td.otpAttempts1" : "log.td.otpAttemptsN", { n: s.otpAttempts })}` : ""}
                           </p>
                         )}
                       </div>
@@ -2548,10 +2577,10 @@ function TripDetailDialog({
 
               {/* Settlement panel — live actuals + manual additions */}
               {settleVisible && (
-                <section className="dmk-well rounded-lg border border-dmk-border-subtle p-4" aria-label="Cash settlement">
+                <section className="dmk-well rounded-lg border border-dmk-border-subtle p-4" aria-label={t("log.td.settlement")}>
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <h3 className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
-                      Settlement
+                      {t("log.td.settlement")}
                     </h3>
                     {canComplete && (
                       <Button
@@ -2562,30 +2591,30 @@ function TripDetailDialog({
                         aria-expanded={addMoneyOpen}
                       >
                         <Plus className={cn("h-3.5 w-3.5", addMoneyOpen && "rotate-45", "transition-transform")} />
-                        Add money
+                        {t("log.td.addMoney")}
                       </Button>
                     )}
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <SettleRow
-                      label="Cash"
+                      label={t("log.cash")}
                       expected={trip.expectedCash}
                       collected={displayCash}
                       sub={
                         manualCash > 0
-                          ? `Stops ${formatINR(stopCash)} + added ${formatINR(manualCash)}`
+                          ? t("log.td.stopsPlusAdded", { a: formatINR(stopCash), b: formatINR(manualCash) })
                           : undefined
                       }
                       icon={<Banknote className="h-3.5 w-3.5" />}
                     />
                     <SettleRow
-                      label="UPI"
+                      label={t("log.upi")}
                       expected={trip.expectedUpi}
                       collected={displayUpi}
                       sub={
                         manualUpi > 0
-                          ? `Stops ${formatINR(stopUpi)} + added ${formatINR(manualUpi)}`
+                          ? t("log.td.stopsPlusAdded", { a: formatINR(stopUpi), b: formatINR(manualUpi) })
                           : undefined
                       }
                       icon={<Smartphone className="h-3.5 w-3.5" />}
@@ -2596,9 +2625,9 @@ function TripDetailDialog({
                   {canComplete && addMoneyOpen && (
                     <div className="mt-3 space-y-2.5 rounded-lg border border-dmk-border-subtle bg-dmk-input-well p-3 dmk-enter">
                       <p className="text-[12px] font-semibold text-dmk-text-primary">
-                        Add a collection the driver&apos;s stops don&apos;t show
+                        {t("log.td.addMoneyPrompt")}
                       </p>
-                      <div className="grid grid-cols-2 gap-2" role="group" aria-label="Entry mode">
+                      <div className="grid grid-cols-2 gap-2" role="group" aria-label={t("log.td.ariaEntryMode")}>
                         {(["CASH", "UPI"] as const).map((m) => (
                           <button
                             key={m}
@@ -2622,7 +2651,7 @@ function TripDetailDialog({
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <div className="space-y-1">
                           <label htmlFor="add-money-amount" className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted block">
-                            Amount (₹)
+                            {t("log.td.amountLabel")}
                           </label>
                           <Input
                             id="add-money-amount"
@@ -2638,11 +2667,11 @@ function TripDetailDialog({
                         </div>
                         <div className="space-y-1">
                           <label className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted block">
-                            Shop on this trip
+                            {t("log.td.shopOnTrip")}
                           </label>
                           <Select value={addCustomerId} onValueChange={setAddCustomerId}>
                             <SelectTrigger className="h-9 border-dmk-border-subtle bg-transparent text-[12.5px] text-dmk-text-primary">
-                              <SelectValue placeholder="Pick the shop" />
+                              <SelectValue placeholder={t("log.td.pickShop")} />
                             </SelectTrigger>
                             <SelectContent className="border-dmk-border-subtle bg-[#111c32] text-dmk-text-primary">
                               {stopShops.map((s) => (
@@ -2656,19 +2685,19 @@ function TripDetailDialog({
                       </div>
                       <div className="space-y-1">
                         <label htmlFor="add-money-note" className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted block">
-                          Note (optional)
+                          {t("log.td.noteLabel")}
                         </label>
                         <Input
                           id="add-money-note"
                           value={addNote}
                           onChange={(e) => setAddNote(e.target.value)}
-                          placeholder="e.g. cash handed at office / late UPI"
+                          placeholder={t("log.td.notePh")}
                           className="h-9 border-dmk-border-subtle bg-transparent text-[12.5px] text-dmk-text-primary dmk-input"
                         />
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-[10.5px] text-dmk-text-muted">
-                          Posts to the books when the trip closes.
+                          {t("log.td.postsOnClose")}
                         </p>
                         <Button
                           className="h-9 bg-dmk-yellow px-4 text-[12.5px] font-bold text-[#0A0F1D] hover:bg-dmk-yellow/90"
@@ -2676,7 +2705,7 @@ function TripDetailDialog({
                           onClick={addSettlementMoney}
                         >
                           {addingMoney ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                          Add to settlement
+                          {t("log.td.addToSettlement")}
                         </Button>
                       </div>
                     </div>
@@ -2684,7 +2713,7 @@ function TripDetailDialog({
 
                   {/* Recorded manual additions */}
                   {entries.length > 0 && (
-                    <ul className="mt-3 space-y-1.5" aria-label="Manual settlement additions">
+                    <ul className="mt-3 space-y-1.5" aria-label={t("log.td.ariaManualList")}>
                       {entries.map((e) => (
                         <li
                           key={e.id}
@@ -2707,7 +2736,7 @@ function TripDetailDialog({
                               {e.note ? <span className="font-normal text-dmk-text-muted"> · {e.note}</span> : ""}
                             </p>
                             <p className="text-[10.5px] text-dmk-text-muted">
-                              {e.mode} · added {fmtDateTime(e.createdAt)}
+                              {t("log.td.addedAt", { mode: e.mode, dt: fmtDateTime(e.createdAt) })}
                             </p>
                           </div>
                           <span className="font-money text-[13px] font-bold text-dmk-text-primary shrink-0">
@@ -2718,7 +2747,7 @@ function TripDetailDialog({
                               type="button"
                               onClick={() => removeSettlementEntry(e.id)}
                               disabled={removingEntryId === e.id}
-                              aria-label={`Remove ${e.mode} entry for ${e.customerName}`}
+                              aria-label={t("log.aria.removeEntry", { mode: e.mode, shop: e.customerName })}
                               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dmk-text-muted transition-colors hover:bg-dmk-hover hover:text-dmk-danger disabled:opacity-40"
                             >
                               {removingEntryId === e.id ? (
@@ -2735,21 +2764,21 @@ function TripDetailDialog({
 
                   <div className="mt-3 space-y-1.5 border-t border-dmk-border-subtle pt-2.5 text-[12.5px]">
                     <div className="flex items-center justify-between">
-                      <span className="text-dmk-text-muted">Total collected (cash + UPI)</span>
+                      <span className="text-dmk-text-muted">{t("log.td.totalCollected")}</span>
                       <span className="font-money font-bold text-dmk-text-primary">
                         {formatINR(displayCash + displayUpi)}
                       </span>
                     </div>
                     {stillOnAccount > 0.004 && (
                       <div className="flex items-center justify-between">
-                        <span className="text-dmk-text-muted">Still on account (credit)</span>
+                        <span className="text-dmk-text-muted">{t("log.td.stillOnAccount")}</span>
                         <span className="font-money font-semibold text-dmk-text-secondary">
                           {formatINR(stillOnAccount)}
                         </span>
                       </div>
                     )}
                     <div className="flex items-center justify-between">
-                      <span className="text-dmk-text-muted">Variance vs expected</span>
+                      <span className="text-dmk-text-muted">{t("log.td.variance")}</span>
                       <span
                         className={cn(
                           "font-money font-bold",
@@ -2763,7 +2792,7 @@ function TripDetailDialog({
                   </div>
                   {trip.status === "CLOSED" && (
                     <p className="mt-2 text-[11.5px] text-dmk-success">
-                      Trip closed {fmtDateTime(trip.closedAt)} — cash posted to the books.
+                      {t("log.td.closedLine", { dt: fmtDateTime(trip.closedAt) })}
                     </p>
                   )}
                   {canComplete && (
@@ -2773,7 +2802,7 @@ function TripDetailDialog({
                       onClick={() => setCompleteOpen(true)}
                     >
                       {completing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                      Complete Trip &amp; Post Cash
+                      {t("log.td.completeBtn")}
                     </Button>
                   )}
                 </section>
@@ -2781,12 +2810,12 @@ function TripDetailDialog({
 
               {/* Trip-level footer stats */}
               <div className="dmk-well flex flex-wrap items-center gap-x-5 gap-y-1 rounded-lg px-4 py-2.5 text-[11.5px] text-dmk-text-muted">
-                <span>{trip.totalStops} stops</span>
-                <span>{fmtInt(trip.totalBoxes)} boxes</span>
-                <span>{fmtInt(trip.totalLoosePieces)} loose</span>
+                <span>{t("log.pl.stopsCount", { n: trip.totalStops })}</span>
+                <span>{t("log.td.boxesCount", { n: fmtInt(trip.totalBoxes) })}</span>
+                <span>{t("log.td.looseCount", { n: fmtInt(trip.totalLoosePieces) })}</span>
                 <span>{fmtKg(trip.totalWeightKg)}</span>
-                <span className="font-money text-dmk-text-secondary">{formatINR(trip.totalAmount)} total</span>
-                {trip.dispatchedAt && <span>Dispatched {fmtDateTime(trip.dispatchedAt)}</span>}
+                <span className="font-money text-dmk-text-secondary">{t("log.td.totalSuffix", { amt: formatINR(trip.totalAmount) })}</span>
+                {trip.dispatchedAt && <span>{t("log.td.dispatchedAt", { dt: fmtDateTime(trip.dispatchedAt) })}</span>}
               </div>
 
               {/* PLANNED actions */}
@@ -2802,13 +2831,13 @@ function TripDetailDialog({
                         setEditOpen(true);
                       }}
                     >
-                      <Pencil className="h-4 w-4" /> Edit driver / vehicle
+                      <Pencil className="h-4 w-4" /> {t("log.td.editDriverVehicle")}
                     </Button>
                   ) : (
                     <div className="flex-1 space-y-2 rounded-lg border border-dmk-border-subtle bg-dmk-input-well p-3">
                       <Select value={editDriverId || undefined} onValueChange={setEditDriverId}>
                         <SelectTrigger className="h-9 border-dmk-border-subtle bg-transparent text-[13px] text-dmk-text-primary">
-                          <SelectValue placeholder="Select driver" />
+                          <SelectValue placeholder={t("log.pl.selectDriver")} />
                         </SelectTrigger>
                         <SelectContent className="border-dmk-border-subtle bg-[#111c32] text-dmk-text-primary">
                           {drivers.map((s) => (
@@ -2822,7 +2851,7 @@ function TripDetailDialog({
                       <Input
                         value={editVehicle}
                         onChange={(e) => setEditVehicle(e.target.value.toUpperCase())}
-                        placeholder="Vehicle number"
+                        placeholder={t("log.td.vehiclePh")}
                         className="h-9 border-dmk-border-subtle bg-transparent text-[13px] text-dmk-text-primary dmk-input"
                       />
                       <div className="flex gap-2">
@@ -2831,14 +2860,14 @@ function TripDetailDialog({
                           disabled={savingEdit}
                           onClick={saveEdit}
                         >
-                          {savingEdit && <Loader2 className="h-4 w-4 animate-spin" />} Save
+                          {savingEdit && <Loader2 className="h-4 w-4 animate-spin" />} {t("cmn.save")}
                         </Button>
                         <Button
                           variant="outline"
                           className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
                           onClick={() => setEditOpen(false)}
                         >
-                          Cancel
+                          {t("cmn.cancel")}
                         </Button>
                       </div>
                     </div>
@@ -2849,14 +2878,14 @@ function TripDetailDialog({
                     onClick={dispatchNow}
                   >
                     {dispatching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    Dispatch now
+                    {t("log.td.dispatchNow")}
                   </Button>
                   <Button
                     variant="outline"
                     className="h-11 flex-1 border-dmk-border-subtle text-dmk-danger/90 hover:bg-dmk-hover hover:text-dmk-danger"
                     onClick={() => setDeleteOpen(true)}
                   >
-                    <Trash2 className="h-4 w-4" /> Delete trip
+                    <Trash2 className="h-4 w-4" /> {t("log.tr.deleteTripBtn")}
                   </Button>
                 </div>
               )}
@@ -2868,7 +2897,7 @@ function TripDetailDialog({
                   className="h-11 w-full border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
                   onClick={() => onOpenPrintPack(trip.id)}
                 >
-                  <Printer className="h-4 w-4" /> Open print pack (loading sheet · run-sheet · bills + OTP)
+                  <Printer className="h-4 w-4" /> {t("log.td.openPrintPack")}
                 </Button>
               )}
 
@@ -2879,7 +2908,7 @@ function TripDetailDialog({
                   className="h-11 w-full border-dmk-border-subtle text-dmk-danger/90 hover:bg-dmk-hover hover:text-dmk-danger"
                   onClick={() => setDeleteOpen(true)}
                 >
-                  <Trash2 className="h-4 w-4" /> Delete trip
+                  <Trash2 className="h-4 w-4" /> {t("log.tr.deleteTripBtn")}
                 </Button>
               )}
             </div>
@@ -2891,16 +2920,16 @@ function TripDetailDialog({
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent className="border-dmk-border-subtle bg-[#111c32]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-dmk-text-primary">Delete {trip?.tripNumber}?</AlertDialogTitle>
+            <AlertDialogTitle className="text-dmk-text-primary">{t("log.tr.deleteTitle", { no: trip?.tripNumber ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription className="text-dmk-text-muted">
               {trip?.status === "DISPATCHED"
-                ? "This dispatched trip has no deliveries yet and will be permanently deleted — orders return to the unassigned pool. Once deliveries start, deletion is blocked."
-                : "This planned trip will be permanently deleted and its orders return to the unassigned pool. The trip is archived to Deleted Data."}
+                ? t("log.tr.deleteBodyDispatched")
+                : t("log.tr.deleteBodyPlanned")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
-              Keep trip
+              {t("log.tr.keepTrip")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
@@ -2910,7 +2939,7 @@ function TripDetailDialog({
                 deleteTrip();
               }}
             >
-              {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Delete trip
+              {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} {t("log.tr.deleteTripBtn")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2920,25 +2949,24 @@ function TripDetailDialog({
       <AlertDialog open={completeOpen} onOpenChange={setCompleteOpen}>
         <AlertDialogContent className="border-dmk-border-subtle bg-[#111c32]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-dmk-text-primary">Close {trip?.tripNumber} and post cash?</AlertDialogTitle>
+            <AlertDialogTitle className="text-dmk-text-primary">{t("log.td.closeTitle", { no: trip?.tripNumber ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-dmk-text-muted">
                 <p>
-                  Cash {formatINR(displayCash)} posts to the cash book and UPI {formatINR(displayUpi)} to the bank.
+                  {t("log.td.closeBody1", { cash: formatINR(displayCash), upi: formatINR(displayUpi) })}
                   {stillOnAccount > 0.004
-                    ? ` ${formatINR(stillOnAccount)} stays on account (credit bills not collected yet).`
+                    ? ` ${t("log.td.closeBodyStays", { amt: formatINR(stillOnAccount) })}`
                     : ""}
                 </p>
                 <p>
-                  Expected was {formatINR((trip?.expectedCash ?? 0) + (trip?.expectedUpi ?? 0))}. Every collection
-                  posts a customer receipt — this settles the trip permanently.
+                  {t("log.td.closeBody2", { amt: formatINR((trip?.expectedCash ?? 0) + (trip?.expectedUpi ?? 0)) })}
                 </p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
-              Not yet
+              {t("log.td.notYet")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-dmk-yellow font-semibold text-[#0A0F1D] hover:bg-dmk-yellow/90"
@@ -2948,7 +2976,7 @@ function TripDetailDialog({
                 completeTrip();
               }}
             >
-              {completing && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Complete Trip &amp; Post Cash
+              {completing && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} {t("log.td.completeBtn")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2971,13 +2999,14 @@ function SettleRow({
   sub?: string;
   icon: React.ReactNode;
 }) {
+  const { t } = useT();
   return (
     <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-3 py-2.5">
       <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">
         {icon} {label}
       </p>
       <div className="mt-1 flex items-baseline justify-between gap-2 text-[12px]">
-        <span className="text-dmk-text-muted">Expected {formatINR(expected)}</span>
+        <span className="text-dmk-text-muted">{t("log.td.expectedAmt", { amt: formatINR(expected) })}</span>
         <span className="font-money text-[14px] font-bold text-dmk-text-primary">{formatINR(collected)}</span>
       </div>
       {sub && <p className="mt-0.5 text-[10.5px] text-dmk-text-muted">{sub}</p>}
@@ -3001,6 +3030,7 @@ function initialsOf(name: string): string {
 
 export function LogisticsDriversView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
 
   const [staff, setStaff] = React.useState<LogisticsStaff[] | null>(null);
@@ -3066,7 +3096,7 @@ export function LogisticsDriversView() {
   async function createDriver() {
     if (!activeFirmId) return;
     if (!addName.trim() || !addUsername.trim() || addPassword.length < 4) {
-      setAddError("Name, username and a password of at least 4 characters are required.");
+      setAddError(t("log.dr.errRequired"));
       return;
     }
     setAddSaving(true);
@@ -3081,13 +3111,13 @@ export function LogisticsDriversView() {
         role: "DRIVER",
       });
       toast({
-        title: "Driver created",
-        description: `${addName.trim()} can now sign in at /team.`,
+        title: t("log.toast.driverCreated"),
+        description: t("log.toast.driverCreatedDesc", { name: addName.trim() }),
       });
       setAddOpen(false);
       setRefresh((r) => r + 1);
     } catch (e) {
-      setAddError(e instanceof ApiError ? e.message : "Could not create this driver.");
+      setAddError(e instanceof ApiError ? e.message : t("log.dr.errCreate"));
     } finally {
       setAddSaving(false);
     }
@@ -3096,7 +3126,7 @@ export function LogisticsDriversView() {
   async function saveDriver() {
     if (!editOf) return;
     if (editPassword && editPassword.length < 4) {
-      setEditError("New password must be at least 4 characters.");
+      setEditError(t("log.dr.errPwShort"));
       return;
     }
     setEditSaving(true);
@@ -3109,13 +3139,13 @@ export function LogisticsDriversView() {
     try {
       await apiPatch<LogisticsStaff>(`/api/v1/verification/staff/${editOf.id}`, data);
       toast({
-        title: "Driver updated",
-        description: editPassword ? "Details saved and password reset." : "Details saved.",
+        title: t("log.toast.driverUpdated"),
+        description: editPassword ? t("log.toast.driverUpdatedPw") : t("log.toast.driverUpdatedDesc"),
       });
       setEditOf(null);
       setRefresh((r) => r + 1);
     } catch (e) {
-      setEditError(e instanceof ApiError ? e.message : "Could not update this driver.");
+      setEditError(e instanceof ApiError ? e.message : t("log.dr.errUpdate"));
     } finally {
       setEditSaving(false);
     }
@@ -3127,8 +3157,8 @@ export function LogisticsDriversView() {
     try {
       await apiDelete(`/api/v1/verification/staff/${deleteOf.id}`);
       toast({
-        title: "Driver deactivated",
-        description: `${deleteOf.name} can no longer sign in at /team. Restore from Deleted Data if needed.`,
+        title: t("log.toast.driverDeactivated"),
+        description: t("log.toast.driverDeactivatedDesc", { name: deleteOf.name }),
       });
       setDeleteOf(null);
       setRefresh((r) => r + 1);
@@ -3136,8 +3166,8 @@ export function LogisticsDriversView() {
       setDeleteOf(null);
       toast({
         variant: "destructive",
-        title: "Could not deactivate this driver",
-        description: e instanceof ApiError ? e.message : "Something went wrong — try again.",
+        title: t("log.toast.deactivateFail"),
+        description: e instanceof ApiError ? e.message : t("log.cmn.tryAgain"),
       });
     } finally {
       setDeleting(false);
@@ -3147,15 +3177,15 @@ export function LogisticsDriversView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Drivers"
-        subtitle="Create driver accounts, manage passwords, deactivate leavers — drivers sign in at /team"
+        title={t("log.dr.title")}
+        subtitle={t("log.dr.subtitle")}
         icon={IdCard}
         actions={
           <Button
             className="h-9 bg-dmk-yellow text-[13px] font-semibold text-[#0A0F1D] hover:bg-dmk-yellow/90"
             onClick={openAdd}
           >
-            <Plus className="h-4 w-4" /> Add driver
+            <Plus className="h-4 w-4" /> {t("log.dr.addDriver")}
           </Button>
         }
       />
@@ -3163,12 +3193,10 @@ export function LogisticsDriversView() {
       {/* Info banner */}
       <div className="dmk-well border-[rgba(245,158,11,0.35)] p-4">
         <p className="flex items-center gap-1.5 text-[12.5px] font-bold text-dmk-warning">
-          <TriangleAlert className="h-3.5 w-3.5" /> One team system, role-routed
+          <TriangleAlert className="h-3.5 w-3.5" /> {t("log.dr.bannerTitle")}
         </p>
         <p className="mt-1 text-[11.5px] leading-relaxed text-dmk-text-secondary">
-          Driver accounts live in the same team system as PO verification. A driver logging in at /team sees ONLY
-          their delivery trips — never the owner ERP. Verification staff login at /team shows the goods-in
-          checkpoint instead.
+          {t("log.dr.bannerBody")}
         </p>
       </div>
 
@@ -3179,14 +3207,14 @@ export function LogisticsDriversView() {
         ) : drivers.length === 0 ? (
           <EmptyState
             icon={IdCard}
-            title="No driver accounts yet"
-            hint="Create a driver account for each person who delivers trips — they sign in at /team with the username and password you set here."
+            title={t("log.dr.emptyTitle")}
+            hint={t("log.dr.emptyHint")}
             action={
               <Button
                 className="h-10 bg-dmk-yellow text-[13px] font-semibold text-[#0A0F1D] hover:bg-dmk-yellow/90"
                 onClick={openAdd}
               >
-                <Plus className="h-4 w-4" /> Add driver
+                <Plus className="h-4 w-4" /> {t("log.dr.addDriver")}
               </Button>
             }
           />
@@ -3203,7 +3231,7 @@ export function LogisticsDriversView() {
                 <div className="min-w-0 flex-1">
                   <p className="flex flex-wrap items-center gap-2 text-[13.5px] font-semibold text-dmk-text-primary">
                     {d.name}
-                    <Badge tone={d.isActive ? "success" : "neutral"}>{d.isActive ? "Active" : "Inactive"}</Badge>
+                    <Badge tone={d.isActive ? "success" : "neutral"}>{d.isActive ? t("log.active") : t("log.inactive")}</Badge>
                   </p>
                   <p className="truncate text-[11.5px] text-dmk-text-muted">
                     @{d.username}
@@ -3217,7 +3245,7 @@ export function LogisticsDriversView() {
                     className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
                     onClick={() => openEdit(d)}
                   >
-                    <Pencil className="h-3.5 w-3.5" /> Edit
+                    <Pencil className="h-3.5 w-3.5" /> {t("cmn.edit")}
                   </Button>
                   <Button
                     size="sm"
@@ -3225,7 +3253,7 @@ export function LogisticsDriversView() {
                     className="h-8 border-dmk-border-subtle text-dmk-danger/80 hover:bg-dmk-hover hover:text-dmk-danger"
                     onClick={() => setDeleteOf(d)}
                   >
-                    Delete
+                    {t("cmn.delete")}
                   </Button>
                 </div>
               </div>
@@ -3234,63 +3262,63 @@ export function LogisticsDriversView() {
         )}
       </div>
       <p className="text-[11px] text-dmk-text-muted">
-        Checker/supervisor accounts are managed in PO Verification → Team.
+        {t("log.dr.checkerNote")}
       </p>
 
       {/* Add driver */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
-            <DialogTitle className="text-dmk-text-primary">Add driver</DialogTitle>
+            <DialogTitle className="text-dmk-text-primary">{t("log.dr.addDriver")}</DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
-              The driver signs in at /team with this username and password.
+              {t("log.dr.addDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                Name *
+                {t("log.dr.nameReq")}
               </label>
               <Input
                 value={addName}
                 onChange={(e) => setAddName(e.target.value)}
-                placeholder="e.g. Ganesh Pawar"
+                placeholder={t("log.dr.namePh")}
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
               />
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                Username *
+                {t("log.dr.usernameReq")}
               </label>
               <Input
                 value={addUsername}
                 onChange={(e) => setAddUsername(e.target.value.toLowerCase())}
-                placeholder="e.g. ganesh"
+                placeholder={t("log.dr.usernamePh")}
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
               />
-              <p className="text-[10.5px] text-dmk-text-muted">used to sign in at /team</p>
+              <p className="text-[10.5px] text-dmk-text-muted">{t("log.dr.usernameNote")}</p>
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                Password *
+                {t("log.dr.passwordReq")}
               </label>
               <Input
                 type="password"
                 value={addPassword}
                 onChange={(e) => setAddPassword(e.target.value)}
-                placeholder="min 4 characters"
+                placeholder={t("log.dr.passwordPh")}
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
               />
-              <p className="text-[10.5px] text-dmk-text-muted">share securely — driver changes it nowhere</p>
+              <p className="text-[10.5px] text-dmk-text-muted">{t("log.dr.passwordNote")}</p>
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                Phone
+                {t("cmn.phone")}
               </label>
               <Input
                 value={addPhone}
                 onChange={(e) => setAddPhone(e.target.value)}
-                placeholder="e.g. 98765 43210"
+                placeholder={t("log.dr.phonePh")}
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
               />
             </div>
@@ -3306,14 +3334,14 @@ export function LogisticsDriversView() {
               className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
               onClick={() => setAddOpen(false)}
             >
-              Cancel
+              {t("cmn.cancel")}
             </Button>
             <Button
               className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
               disabled={addSaving}
               onClick={createDriver}
             >
-              {addSaving && <Loader2 className="h-4 w-4 animate-spin" />} Create driver
+              {addSaving && <Loader2 className="h-4 w-4 animate-spin" />} {t("log.dr.createBtn")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3323,15 +3351,15 @@ export function LogisticsDriversView() {
       <Dialog open={Boolean(editOf)} onOpenChange={(v) => !v && setEditOf(null)}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
-            <DialogTitle className="text-dmk-text-primary">Edit driver — {editOf?.name}</DialogTitle>
+            <DialogTitle className="text-dmk-text-primary">{t("log.dr.editTitle", { name: editOf?.name ?? "" })}</DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
-              @{editOf?.username} · signs in at /team
+              {t("log.dr.editDesc", { username: editOf?.username ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                Name
+                {t("cmn.name")}
               </label>
               <Input
                 value={editName}
@@ -3341,31 +3369,31 @@ export function LogisticsDriversView() {
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                Phone
+                {t("cmn.phone")}
               </label>
               <Input
                 value={editPhone}
                 onChange={(e) => setEditPhone(e.target.value)}
-                placeholder="e.g. 98765 43210"
+                placeholder={t("log.dr.phonePh")}
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
               />
             </div>
             <div className="flex items-center justify-between rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-3 py-2.5">
               <div>
-                <p className="text-[12.5px] font-medium text-dmk-text-primary">Active</p>
-                <p className="text-[10.5px] text-dmk-text-muted">Inactive drivers cannot sign in at /team.</p>
+                <p className="text-[12.5px] font-medium text-dmk-text-primary">{t("log.rt.activeLabel")}</p>
+                <p className="text-[10.5px] text-dmk-text-muted">{t("log.dr.activeHint2")}</p>
               </div>
               <Switch checked={editActive} onCheckedChange={setEditActive} />
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                Reset password (optional)
+                {t("log.dr.resetPw")}
               </label>
               <Input
                 type="password"
                 value={editPassword}
                 onChange={(e) => setEditPassword(e.target.value)}
-                placeholder="leave blank to keep the current password"
+                placeholder={t("log.dr.resetPwPh")}
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
               />
             </div>
@@ -3381,14 +3409,14 @@ export function LogisticsDriversView() {
               className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
               onClick={() => setEditOf(null)}
             >
-              Cancel
+              {t("cmn.cancel")}
             </Button>
             <Button
               className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
               disabled={editSaving}
               onClick={saveDriver}
             >
-              {editSaving && <Loader2 className="h-4 w-4 animate-spin" />} Save changes
+              {editSaving && <Loader2 className="h-4 w-4 animate-spin" />} {t("cmn.saveChanges")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3398,15 +3426,14 @@ export function LogisticsDriversView() {
       <AlertDialog open={Boolean(deleteOf)} onOpenChange={(v) => !v && setDeleteOf(null)}>
         <AlertDialogContent className="border-dmk-border-subtle bg-[#111c32]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-dmk-text-primary">Deactivate {deleteOf?.name}?</AlertDialogTitle>
+            <AlertDialogTitle className="text-dmk-text-primary">{t("log.dr.deactivateTitle", { name: deleteOf?.name ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription className="text-dmk-text-muted">
-              Their /team sign-in stops working immediately. The account is archived in Deleted Data and can be
-              restored there.
+              {t("log.dr.deactivateBody")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
-              Cancel
+              {t("cmn.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
@@ -3416,7 +3443,7 @@ export function LogisticsDriversView() {
                 deleteDriver();
               }}
             >
-              {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Deactivate
+              {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} {t("cmn.deactivate")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3686,6 +3713,7 @@ function SheetHeader({
 }
 
 function LoadingSheetSheet({ trip, rollup }: { trip: LogisticsTrip; rollup: RollupRow[] }) {
+  const { t } = useT();
   const totBoxes = rollup.reduce((s, r) => s + r.boxes, 0);
   const totLoose = rollup.reduce((s, r) => s + r.loose, 0);
   const totQty = rollup.reduce((s, r) => s + r.qty, 0);
@@ -3712,7 +3740,7 @@ function LoadingSheetSheet({ trip, rollup }: { trip: LogisticsTrip; rollup: Roll
             <th className="pr-2">Product</th>
             <th className="pr-2 text-right">Boxes</th>
             <th className="pr-2 text-right">Loose</th>
-            <th className="pr-2 text-right">Total Qty</th>
+            <th className="pr-2 text-right">{t("log.colTotalQty")}</th>
             <th className="pr-2 text-right">Weight</th>
             <th className="w-14 text-center">Loaded</th>
           </tr>
@@ -3820,6 +3848,7 @@ function RunSheetSheet({ trip }: { trip: LogisticsTrip }) {
 }
 
 function BillSheet({ trip, stop }: { trip: LogisticsTrip; stop: TripStop }) {
+  const { t } = useT();
   const otp = stopOtp(stop);
   const items = stop.items ?? [];
   return (
@@ -3830,7 +3859,7 @@ function BillSheet({ trip, stop }: { trip: LogisticsTrip; stop: TripStop }) {
       <div className="flex items-start justify-between border-b-2 border-gray-900 pb-3">
         <div>
           <p className="text-[20px] font-extrabold tracking-tight">DMK MART</p>
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-600">Delivery Bill Cover</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-600">{t("log.billCover")}</p>
         </div>
         <div className="text-right text-[11px] leading-relaxed">
           <p className="font-bold">{stop.invoiceNumber ?? stop.invoiceId}</p>
@@ -3891,7 +3920,7 @@ function BillSheet({ trip, stop }: { trip: LogisticsTrip; stop: TripStop }) {
       </div>
 
       <div className="mt-auto rounded-md border-4 border-gray-900 p-5 text-center">
-        <p className="text-[12px] font-bold uppercase tracking-[0.2em]">Delivery Verification OTP</p>
+        <p className="text-[12px] font-bold uppercase tracking-[0.2em]">{t("log.otpLabel")}</p>
         <p className="my-3 text-[36px] font-black leading-none tracking-[0.35em]">{spacedOtp(otp)}</p>
         <p className="text-[11.5px] text-gray-700">
           Check your goods and share this code with the driver upon delivery.

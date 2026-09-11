@@ -26,7 +26,7 @@ import {
 import { useErpStore, useActiveFirm } from "@/store/erp-store";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { formatINR, toISODate, amountInWords } from "@/lib/format";
-import { calculateBulkPricing, formatLabel, TIERS } from "@/lib/pricing";
+import { calculateBulkPricing, TIERS } from "@/lib/pricing";
 import { round2 } from "@/lib/gst";
 import type { Customer, Product, Invoice } from "@/types/erp";
 import {
@@ -56,6 +56,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useT, type TFn } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 // ─── Indian states (code → name) ───────────────────────────────
@@ -78,8 +79,28 @@ const STATES: Array<{ code: string; name: string }> = [
   { code: "03", name: "Punjab (03)" },
 ];
 
-function tierLabel(key: string): string {
-  return TIERS.find((t) => t.key === key)?.label ?? "Retailer";
+/** Translated tier label — falls back to the pricing-lib English label. */
+function tierLabel(t: TFn, key: string): string {
+  switch (key) {
+    case "tier1Distributor": return t("sale.tierDistributor");
+    case "tier2Wholesale": return t("sale.tierWholesale");
+    case "tier3SemiWholesale": return t("sale.tierSemiWholesale");
+    case "tier4Retailer": return t("sale.tierRetailer");
+    case "tier5Mrp": return t("sale.tierMrp");
+    default: return TIERS.find((x) => x.key === key)?.label ?? t("sale.tierRetailer");
+  }
+}
+
+/** Translated packaging-format label (mirrors lib/pricing formatLabel). */
+function packLabel(t: TFn, format: string): string {
+  switch (format) {
+    case "MASTER_LOT_50": return t("sale.pkMaster");
+    case "CRATE_24": return t("sale.pkCrate");
+    case "BOX_12": return t("sale.pkBox");
+    case "SET_10": return t("sale.pkSet");
+    case "PACKET_5": return t("sale.pkPacket");
+    default: return t("sale.pkPiece");
+  }
 }
 
 function tierPriceOf(p: Product, tierKey: string): number {
@@ -134,6 +155,7 @@ const PAYMENT_MODES = ["CREDIT", "CASH", "UPI", "NEFT"] as const;
 
 export default function BillingView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   const setView = useErpStore((s) => s.setView);
@@ -204,19 +226,19 @@ export default function BillingView() {
       setCustOpen(false);
       return;
     }
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       try {
         setCustSearching(true);
         const res = await apiGet<Customer[]>("/api/v1/customers", { firmId: activeFirmId, type: "B2B", search: q });
         setCustResults(res.slice(0, 8));
         setCustOpen(res.length > 0);
       } catch (e) {
-        if (e instanceof ApiError) toast({ variant: "destructive", title: "Customer search failed", description: e.message });
+        if (e instanceof ApiError) toast({ variant: "destructive", title: t("bill.toastSearchFailed"), description: e.message });
       } finally {
         setCustSearching(false);
       }
     }, 220);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [custQuery, activeFirmId]);
 
   // ── Product typeahead (debounced, min 1 char) ────────────────
@@ -228,7 +250,7 @@ export default function BillingView() {
       setProdOpen(false);
       return;
     }
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       try {
         setProdSearching(true);
         const res = await apiGet<Product[] | { products: Product[] }>("/api/v1/products", { firmId: activeFirmId, search: q, activeOnly: "true" });
@@ -237,12 +259,12 @@ export default function BillingView() {
         setProdOpen(list.length > 0);
         setProdHi(0);
       } catch (e) {
-        if (e instanceof ApiError) toast({ variant: "destructive", title: "Product search failed", description: e.message });
+        if (e instanceof ApiError) toast({ variant: "destructive", title: t("bill.toastProdSearchFailed"), description: e.message });
       } finally {
         setProdSearching(false);
       }
     }, 220);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [prodQuery, activeFirmId]);
 
   function addProduct(p: Product) {
@@ -308,13 +330,13 @@ export default function BillingView() {
   const creditWarning = React.useMemo(() => {
     if (!customer || customer.customerType !== "B2B") return null;
     if (paymentMode !== "CREDIT") return null;
-    if (customer.creditLimit <= 0) return "No credit limit set — CREDIT sale may be blocked by the server.";
+    if (customer.creditLimit <= 0) return t("bill.creditNoLimit");
     const outstanding = Number(customer.closingBalance) || 0;
     if (outstanding + totals.grand > customer.creditLimit) {
-      return `Credit check: outstanding ${formatINR(outstanding)} + this sale ${formatINR(totals.grand)} exceeds limit ${formatINR(customer.creditLimit)}. Server will block this sale.`;
+      return t("bill.creditExceeded", { out: formatINR(outstanding), sale: formatINR(totals.grand), limit: formatINR(customer.creditLimit) });
     }
     return null;
-  }, [customer, paymentMode, totals.grand]);
+  }, [customer, paymentMode, totals.grand, t]);
 
   async function confirmSale() {
     if (!activeFirmId || !customer || lines.length === 0) return;
@@ -337,13 +359,13 @@ export default function BillingView() {
       setLastInvoice(inv);
       setSuccessOpen(true);
       resetCart();
-      toast({ title: `Invoice ${inv.invoiceNumber} created`, description: `${formatINR(inv.grandTotal)} · ${paymentMode}` });
+      toast({ title: t("bill.toastCreated", { no: inv.invoiceNumber }), description: `${formatINR(inv.grandTotal)} · ${paymentMode}` });
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Something went wrong while posting the invoice.";
+      const msg = e instanceof ApiError ? e.message : t("bill.errUnknown");
       const code = e instanceof ApiError ? e.code : "ERR_UNKNOWN";
       toast({
         variant: "destructive",
-        title: code === "ERR_CUSTOMER_CREDIT_LOCK" ? "Credit limit blocked" : code === "ERR_INSUFFICIENT_SELLABLE_STOCK" ? "Stock unavailable" : "Sale failed",
+        title: code === "ERR_CUSTOMER_CREDIT_LOCK" ? t("bill.errCreditBlocked") : code === "ERR_INSUFFICIENT_SELLABLE_STOCK" ? t("bill.errStockUnavailable") : t("bill.errSaleFailed"),
         description: `${msg} (${code})`,
       });
     } finally {
@@ -353,19 +375,19 @@ export default function BillingView() {
 
   if (!activeFirmId) {
     return (
-      <EmptyState icon={ShoppingCart} title="No active firm" hint="Select a firm from the header switcher to start billing." />
+      <EmptyState icon={ShoppingCart} title={t("sale.noFirm")} hint={t("sale.noFirmHint")} />
     );
   }
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="B2B Fast Billing"
-        subtitle={`Tier pricing with bulk packaging discounts · GST ${totals.intra ? "CGST+SGST (intra-state)" : "IGST (inter-state)"} preview`}
+        title={t("nav.billing")}
+        subtitle={t("bill.subtitle", { mode: totals.intra ? t("bill.gstIntra") : t("bill.gstInter") })}
         icon={ReceiptText}
         actions={
           <Button variant="outline" size="sm" onClick={resetCart} disabled={lines.length === 0} className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover">
-            <Trash2 className="h-4 w-4" /> Clear cart
+            <Trash2 className="h-4 w-4" /> {t("bill.clearCart")}
           </Button>
         }
       />
@@ -379,9 +401,9 @@ export default function BillingView() {
         {/* Customer picker */}
         <div className="dmk-card p-4 space-y-3 min-w-0 lg:col-start-1 lg:row-start-1">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Customer</span>
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("cmn.customer")}</span>
               <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setNewCustOpen(true)}>
-                <UserPlus className="h-3.5 w-3.5" /> New Customer
+                <UserPlus className="h-3.5 w-3.5" /> {t("bill.newCustomer")}
               </Button>
             </div>
 
@@ -392,15 +414,15 @@ export default function BillingView() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[14px] font-semibold text-dmk-text-primary truncate">{customer.partyName}</span>
-                      <Badge tone={tierBadgeTone(customer.assignedTier)}>{tierLabel(customer.assignedTier)}</Badge>
+                      <Badge tone={tierBadgeTone(customer.assignedTier)}>{tierLabel(t, customer.assignedTier)}</Badge>
                     </div>
                     <div className="text-[11.5px] text-dmk-text-muted mt-1 flex flex-wrap gap-x-3">
                       <span>GSTIN <span className="font-money text-dmk-text-secondary">{customer.gstin || "—"}</span></span>
-                      <span>State {customer.stateCode || "—"} {customer.stateCode === firm?.stateCode ? "(intra)" : "(inter)"}</span>
+                      <span>{t("bill.state", { code: customer.stateCode || "—" })} {customer.stateCode === firm?.stateCode ? t("bill.intra") : t("bill.inter")}</span>
                     </div>
                   </div>
                   <button
-                    aria-label="Change customer"
+                    aria-label={t("bill.changeCustomer")}
                     onClick={() => setCustomer(null)}
                     className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md border border-dmk-border-subtle text-dmk-text-muted hover:text-dmk-danger hover:border-dmk-danger/40 transition-colors"
                   >
@@ -412,16 +434,16 @@ export default function BillingView() {
                 <div className="rounded-md border border-dmk-border-subtle bg-dmk-bg-primary/60 p-2.5 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[9.5px] uppercase tracking-widest font-bold text-dmk-text-muted inline-flex items-center gap-1.5">
-                      <BookUser className="h-3 w-3 text-dmk-gold" /> Sundry Debtor · A/c 1100
+                      <BookUser className="h-3 w-3 text-dmk-gold" /> {t("bill.sundry")}
                     </span>
                     {sundryLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 text-dmk-text-muted animate-spin" aria-label="Loading sundry standing" />
+                      <Loader2 className="h-3.5 w-3.5 text-dmk-text-muted animate-spin" aria-label={t("bill.ariaLoadingSundry")} />
                     ) : sundryDebtor && sundryDebtor.overdueCount > 0 ? (
                       <span className="dmk-badge bg-dmk-danger/15 text-dmk-danger text-[9.5px] px-1.5 py-0.5 inline-flex items-center gap-1">
-                        <Timer className="h-2.5 w-2.5" /> {sundryDebtor.overdueCount} overdue
+                        <Timer className="h-2.5 w-2.5" /> {t("bill.overdueBadge", { n: sundryDebtor.overdueCount })}
                       </span>
                     ) : sundryDebtor && sundryDebtor.ledgerBalance <= 0.005 ? (
-                      <span className="dmk-badge bg-dmk-success/15 text-dmk-success text-[9.5px] px-1.5 py-0.5">NO DUES</span>
+                      <span className="dmk-badge bg-dmk-success/15 text-dmk-success text-[9.5px] px-1.5 py-0.5">{t("bill.noDues")}</span>
                     ) : null}
                   </div>
 
@@ -429,7 +451,7 @@ export default function BillingView() {
                     <>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">Ledger balance</p>
+                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">{t("bill.ledgerBalance")}</p>
                           <p className={cn("font-money text-[13.5px] font-semibold", sundryDebtor.ledgerBalance > 0.005 ? "text-dmk-yellow" : sundryDebtor.ledgerBalance < -0.005 ? "text-dmk-success" : "text-dmk-text-muted")}>
                             {sundryDebtor.ledgerBalance > 0.005
                               ? `Dr ${formatINR(sundryDebtor.ledgerBalance)}`
@@ -439,10 +461,10 @@ export default function BillingView() {
                           </p>
                         </div>
                         <div>
-                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">Open invoices</p>
+                          <p className="text-[9.5px] uppercase tracking-wider text-dmk-text-muted">{t("bill.openInvoices")}</p>
                           <p className="font-money text-[13.5px] font-semibold text-dmk-text-primary">
                             {formatINR(sundryDebtor.openOutstanding)}
-                            <span className="text-[10.5px] font-normal text-dmk-text-muted"> · {sundryDebtor.openInvoiceCount} inv</span>
+                            <span className="text-[10.5px] font-normal text-dmk-text-muted"> · {t("sale.invCount", { n: sundryDebtor.openInvoiceCount })}</span>
                           </p>
                         </div>
                       </div>
@@ -450,9 +472,9 @@ export default function BillingView() {
                       {sundryDebtor.creditLimit > 0 && (
                         <div>
                           <div className="flex items-center justify-between text-[10.5px] mb-1">
-                            <span className="text-dmk-text-muted">Credit limit {formatINR(sundryDebtor.creditLimit)} · {sundryDebtor.creditDays}d terms</span>
+                            <span className="text-dmk-text-muted">{t("bill.creditLimitTerms", { amt: formatINR(sundryDebtor.creditLimit), days: sundryDebtor.creditDays })}</span>
                             <span className={cn("font-semibold", sundryDebtor.overLimit ? "text-dmk-danger" : sundryDebtor.utilizationPct >= 85 ? "text-dmk-warning" : "text-dmk-success")}>
-                              {sundryDebtor.utilizationPct.toFixed(0)}% used
+                              {t("bill.pctUsed", { pct: sundryDebtor.utilizationPct.toFixed(0) })}
                             </span>
                           </div>
                           <div className="h-1.5 w-full rounded-full bg-dmk-input-well overflow-hidden">
@@ -462,8 +484,8 @@ export default function BillingView() {
                             />
                           </div>
                           <p className="text-[10px] text-dmk-text-muted mt-0.5">
-                            Available credit <span className="font-money text-dmk-text-secondary">{formatINR(Math.max(sundryDebtor.available ?? 0, 0))}</span>
-                            {sundryDebtor.unapplied > 0.005 && <> · unapplied receipts <span className="font-money text-dmk-success">{formatINR(sundryDebtor.unapplied)}</span></>}
+                            {t("bill.availableCredit")} <span className="font-money text-dmk-text-secondary">{formatINR(Math.max(sundryDebtor.available ?? 0, 0))}</span>
+                            {sundryDebtor.unapplied > 0.005 && <> · {t("bill.unappliedReceipts")} <span className="font-money text-dmk-success">{formatINR(sundryDebtor.unapplied)}</span></>}
                           </p>
                         </div>
                       )}
@@ -471,7 +493,7 @@ export default function BillingView() {
                       {sundryDebtor.oldestInvoice && (
                         <p className="text-[10.5px] text-dmk-text-muted flex items-center gap-1.5">
                           <ReceiptText className="h-3 w-3 shrink-0" />
-                          Oldest open <span className="font-mono text-dmk-text-secondary">{sundryDebtor.oldestInvoice.no}</span>
+                          {t("bill.oldestOpen")} <span className="font-mono text-dmk-text-secondary">{sundryDebtor.oldestInvoice.no}</span>
                           <span className={cn("font-semibold", sundryDebtor.oldestInvoice.ageDays > 60 ? "text-dmk-danger" : "text-dmk-text-secondary")}>
                             {sundryDebtor.oldestInvoice.ageDays}d
                           </span>
@@ -479,13 +501,13 @@ export default function BillingView() {
                       )}
                     </>
                   ) : (
-                    <p className="text-[11px] text-dmk-text-muted">Sundry standing unavailable — balance feeds from the ledger.</p>
+                    <p className="text-[11px] text-dmk-text-muted">{t("bill.sundryUnavailable")}</p>
                   )}
                 </div>
               </div>
             ) : (
               <div className="relative">
-                <SearchInput value={custQuery} onChange={setCustQuery} placeholder="Search B2B customers by name, phone or GSTIN…" className="pl-9" />
+                <SearchInput value={custQuery} onChange={setCustQuery} placeholder={t("bill.searchCustPh")} className="pl-9" />
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
                 {custSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted animate-spin" />}
                 {custOpen && custResults.length > 0 && (
@@ -502,10 +524,10 @@ export default function BillingView() {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-[13px] font-medium text-dmk-text-primary truncate">{c.partyName}</span>
-                          <Badge tone={tierBadgeTone(c.assignedTier)}>{tierLabel(c.assignedTier)}</Badge>
+                          <Badge tone={tierBadgeTone(c.assignedTier)}>{tierLabel(t, c.assignedTier)}</Badge>
                         </div>
                         <div className="text-[11px] text-dmk-text-muted mt-0.5">
-                          {c.city || "—"} · {c.phone || "no phone"} · {c.gstin || "no GSTIN"}
+                          {c.city || "—"} · {c.phone || t("sale.noPhone")} · {c.gstin || t("sale.noGstin")}
                         </div>
                       </button>
                     ))}
@@ -517,19 +539,19 @@ export default function BillingView() {
 
         {/* Payment summary — bottom of the LEFT 30% pane (below customer) */}
         <div className="dmk-elevated p-5 space-y-4 min-w-0 lg:col-start-1 lg:row-start-2 lg:overflow-y-auto">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Invoice summary</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("bill.summary")}</span>
 
             <div className="space-y-2">
               <div className="flex justify-between text-[13px]">
-                <span className="text-dmk-text-secondary">Subtotal (tier prices)</span>
+                <span className="text-dmk-text-secondary">{t("bill.subtotalTier")}</span>
                 <span className="font-money text-dmk-text-primary">{formatINR(totals.baseSubtotal)}</span>
               </div>
               <div className="flex justify-between text-[13px]">
-                <span className="text-dmk-text-secondary">Bulk + manual discounts</span>
+                <span className="text-dmk-text-secondary">{t("bill.bulkManualDisc")}</span>
                 <span className="font-money text-dmk-gold">{totals.savings > 0 ? `−${formatINR(totals.savings)}` : formatINR(0)}</span>
               </div>
               <div className="flex justify-between text-[13px] border-t border-dmk-border-subtle pt-2">
-                <span className="text-dmk-text-secondary">Taxable value</span>
+                <span className="text-dmk-text-secondary">{t("bill.taxableValue")}</span>
                 <span className="font-money text-dmk-text-primary">{formatINR(totals.taxable)}</span>
               </div>
               {totals.intra ? (
@@ -550,22 +572,22 @@ export default function BillingView() {
                 </div>
               )}
               <div className="flex justify-between text-[12px] text-dmk-text-muted">
-                <span>Round-off</span>
+                <span>{t("bill.roundOff")}</span>
                 <span className="font-money">{totals.roundOff !== 0 ? formatINR(totals.roundOff) : "—"}</span>
               </div>
             </div>
 
             <div className="border-t border-dmk-border-medium pt-3 flex items-end justify-between">
-              <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">Grand Total</span>
+              <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("bill.grandTotal")}</span>
               <span className="font-money text-[28px] font-bold leading-none text-dmk-yellow">{formatINR(totals.grand)}</span>
             </div>
             <p className="text-[11.5px] italic text-dmk-text-muted">{amountInWords(totals.grand)}</p>
 
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
-              <Field label="Payment mode">
+              <Field label={t("bill.paymentMode")}>
                 <Select value={paymentMode} onValueChange={(v) => setPaymentMode(v as (typeof PAYMENT_MODES)[number])}>
                   <SelectTrigger className={cn(inputCls, "w-full")}>
-                    <SelectValue placeholder="Mode" />
+                    <SelectValue placeholder={t("bill.mode")} />
                   </SelectTrigger>
                   <SelectContent>
                     {PAYMENT_MODES.map((m) => (
@@ -574,8 +596,8 @@ export default function BillingView() {
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Invoice date">
-                <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className={inputCls} aria-label="Invoice date" />
+              <Field label={t("bill.invoiceDate")}>
+                <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className={inputCls} aria-label={t("bill.invoiceDate")} />
               </Field>
             </div>
 
@@ -592,15 +614,15 @@ export default function BillingView() {
               disabled={!customer || lines.length === 0 || submitting}
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {submitting ? "Posting invoice…" : "Confirm Sale"}
+              {submitting ? t("bill.posting") : t("bill.confirmSale")}
             </Button>
-            {!customer && <p className="text-[11px] text-dmk-text-muted text-center">Select a B2B customer to enable billing</p>}
+            {!customer && <p className="text-[11px] text-dmk-text-muted text-center">{t("bill.selectCustomerHint")}</p>}
           </div>
 
         {/* ══════════ RIGHT 70% — PRODUCT SEARCH (top) + CART (below) ══════════ */}
         {/* Product typeahead */}
         <div className="dmk-card p-4 space-y-3 min-w-0 lg:col-start-2 lg:row-start-1">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Add products</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("bill.addProducts")}</span>
             <div className="relative">
               <Input
                 value={prodQuery}
@@ -619,9 +641,9 @@ export default function BillingView() {
                     setProdOpen(false);
                   }
                 }}
-                placeholder="Scan or type SKU / product name, press Enter to add first match…"
+                placeholder={t("bill.prodSearchPh")}
                 className={cn(inputCls, "h-10 pl-9")}
-                aria-label="Product search"
+                aria-label={t("bill.productSearchAria")}
               />
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
               {prodSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted animate-spin" />}
@@ -648,7 +670,7 @@ export default function BillingView() {
                           <span className="font-money text-[12.5px] text-dmk-gold shrink-0">{formatINR(tp)}</span>
                         </div>
                         <div className="text-[11px] text-dmk-text-muted mt-0.5">
-                          {tierLabel(tierKey)} price · GST {p.gstRate}% · {p.unit} · stock {p.stockQuantity}
+                          {t("bill.tierPriceLine", { tier: tierLabel(t, tierKey), gst: p.gstRate, unit: p.unit, stock: p.stockQuantity })}
                         </div>
                       </button>
                     );
@@ -664,23 +686,23 @@ export default function BillingView() {
               {lines.length === 0 ? (
                 <EmptyState
                   icon={ShoppingCart}
-                  title="Cart is empty"
-                  hint="Search a product above (SKU or name) and press Enter to add the first match. Quantity unlocks automatic bulk discounts."
+                  title={t("bill.cartEmpty")}
+                  hint={t("bill.cartEmptyHint")}
                 />
               ) : (
                 <table className="dmk-table min-w-[860px] [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
                   <thead>
                     <tr>
-                      <th>SKU</th>
-                      <th>Product</th>
-                      <th className="text-right">Qty</th>
-                      <th className="text-right">Tier price</th>
-                      <th>Packaging</th>
-                      <th className="text-right">Disc %</th>
-                      <th className="text-right">Eff. price</th>
-                      <th className="text-right">Taxable</th>
-                      <th className="text-right">GST</th>
-                      <th className="text-right">Saved</th>
+                      <th>{t("cmn.sku")}</th>
+                      <th>{t("cmn.product")}</th>
+                      <th className="text-right">{t("sale.qty")}</th>
+                      <th className="text-right">{t("bill.colTierPrice")}</th>
+                      <th>{t("bill.colPackaging")}</th>
+                      <th className="text-right">{t("sale.disc")}</th>
+                      <th className="text-right">{t("bill.colEffPrice")}</th>
+                      <th className="text-right">{t("bill.colTaxable")}</th>
+                      <th className="text-right">{t("bill.colGst")}</th>
+                      <th className="text-right">{t("bill.colSaved")}</th>
                       <th />
                     </tr>
                   </thead>
@@ -694,7 +716,7 @@ export default function BillingView() {
                           <td className="whitespace-nowrap">
                             <p className="text-[12px] text-dmk-text-primary">
                               {l.product.name}{" "}
-                              <span className="text-[10.5px] text-dmk-text-muted">· {l.product.unit} · stock {l.product.stockQuantity}</span>
+                              <span className="text-[10.5px] text-dmk-text-muted">{t("bill.stockUnit", { unit: l.product.unit, stock: l.product.stockQuantity })}</span>
                             </p>
                           </td>
                           <td className="text-right">
@@ -704,7 +726,7 @@ export default function BillingView() {
                               step={1}
                               value={l.qty}
                               onChange={(e) => setQty(l.product.id, Number(e.target.value) || 1)}
-                              aria-label={`Quantity for ${l.product.name}`}
+                              aria-label={t("bill.qtyAria", { name: l.product.name })}
                               className="h-8 w-16 bg-dmk-input-well border-dmk-border-subtle text-[12.5px] font-money text-right ml-auto dmk-input"
                             />
                           </td>
@@ -712,11 +734,11 @@ export default function BillingView() {
                           <td>
                             {bp.discountPct > 0 ? (
                               <span className="inline-flex flex-col">
-                                <span className="text-[11.5px] text-dmk-text-secondary">{formatLabel(bp.format)}</span>
-                                <span className="text-[10.5px] font-semibold text-dmk-gold">−{bp.discountPct}% bulk</span>
+                                <span className="text-[11.5px] text-dmk-text-secondary">{packLabel(t, bp.format)}</span>
+                                <span className="text-[10.5px] font-semibold text-dmk-gold">{t("bill.bulkPct", { pct: bp.discountPct })}</span>
                               </span>
                             ) : (
-                              <span className="text-[11.5px] text-dmk-text-muted">Piece</span>
+                              <span className="text-[11.5px] text-dmk-text-muted">{t("bill.piece")}</span>
                             )}
                           </td>
                           <td className="text-right">
@@ -728,8 +750,8 @@ export default function BillingView() {
                               value={l.manualDiscPct}
                               onChange={(e) => setDisc(l.product.id, Number(e.target.value) || 0)}
                               disabled={!canOverridePrice}
-                              title={canOverridePrice ? undefined : "Discount overrides are not enabled for your account"}
-                              aria-label={`Manual discount percent for ${l.product.name}`}
+                              title={canOverridePrice ? undefined : t("bill.discDisabled")}
+                              aria-label={t("bill.discAria", { name: l.product.name })}
                               className="h-8 w-16 bg-dmk-input-well border-dmk-border-subtle text-[12.5px] font-money text-right ml-auto dmk-input disabled:opacity-50 disabled:cursor-not-allowed"
                             />
                           </td>
@@ -740,7 +762,7 @@ export default function BillingView() {
                           <td>
                             <button
                               onClick={() => removeLine(l.product.id)}
-                              aria-label={`Remove ${l.product.name}`}
+                              aria-label={t("bill.removeAria", { name: l.product.name })}
                               className="h-8 w-8 inline-flex items-center justify-center rounded-md text-dmk-text-muted hover:text-dmk-danger hover:bg-dmk-hover transition-colors"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -763,37 +785,37 @@ export default function BillingView() {
           <DialogHeader>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-dmk-success" />
-              <DialogTitle className="text-dmk-text-primary">Invoice created</DialogTitle>
+              <DialogTitle className="text-dmk-text-primary">{t("bill.successTitle")}</DialogTitle>
             </div>
             <DialogDescription className="text-dmk-text-muted">
-              Journal, ledger and stock movements have been posted.
+              {t("bill.successDesc")}
             </DialogDescription>
           </DialogHeader>
           {lastInvoice && (
             <div className="dmk-well p-4 space-y-2 text-[13px]">
               <div className="flex justify-between">
-                <span className="text-dmk-text-muted">Invoice #</span>
+                <span className="text-dmk-text-muted">{t("bill.invoiceNo")}</span>
                 <span className="font-money text-dmk-text-primary">{lastInvoice.invoiceNumber}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-dmk-text-muted">Date</span>
+                <span className="text-dmk-text-muted">{t("cmn.date")}</span>
                 <span className="text-dmk-text-secondary">{lastInvoice.invoiceDate.slice(0, 10)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-dmk-text-muted">Customer</span>
+                <span className="text-dmk-text-muted">{t("cmn.customer")}</span>
                 <span className="text-dmk-text-secondary">{lastInvoice.customer?.partyName ?? lastInvoice.walkInName ?? "—"}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-dmk-text-muted">Payment</span>
+                <span className="text-dmk-text-muted">{t("bill.payment")}</span>
                 <Badge tone={lastInvoice.paymentMode === "CREDIT" ? "warning" : "success"}>{lastInvoice.paymentMode}</Badge>
               </div>
               <div className="flex justify-between border-t border-dmk-border-subtle pt-2">
-                <span className="text-dmk-text-muted">Grand total</span>
+                <span className="text-dmk-text-muted">{t("bill.grandTotal")}</span>
                 <span className="font-money text-[16px] text-dmk-yellow">{formatINR(lastInvoice.grandTotal)}</span>
               </div>
               {lastInvoice.deliveryOtp ? (
                 <div className="rounded-md border-2 border-dmk-yellow/70 bg-dmk-yellow/10 px-3 py-2 text-center">
-                  <p className="text-[10px] uppercase tracking-wider font-bold text-dmk-text-muted">Delivery Verification OTP (printed on bill)</p>
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-dmk-text-muted">{t("bill.otpTitle")}</p>
                   <p className="font-money text-[22px] font-bold tracking-[0.4em] text-dmk-yellow leading-tight">{lastInvoice.deliveryOtp.split("").join(" ")}</p>
                 </div>
               ) : null}
@@ -808,10 +830,10 @@ export default function BillingView() {
                 setView("docs/invoices");
               }}
             >
-              <FileText className="h-4 w-4" /> View A4 document
+              <FileText className="h-4 w-4" /> {t("bill.viewA4")}
             </Button>
             <Button className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={() => setSuccessOpen(false)}>
-              New sale
+              {t("bill.newSale")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -823,7 +845,7 @@ export default function BillingView() {
         onCreated={(c) => {
           setCustomer(c);
           setNewCustOpen(false);
-          toast({ title: `Customer added — ${c.partyName}` });
+          toast({ title: t("bill.custAdded", { name: c.partyName }) });
         }}
       />
     </div>
@@ -843,6 +865,7 @@ function NewCustomerDialog({
   onCreated: (c: Customer) => void;
 }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   const [saving, setSaving] = React.useState(false);
@@ -866,7 +889,7 @@ function NewCustomerDialog({
   async function submit() {
     if (!activeFirmId) return;
     if (!form.city.trim() || !form.firmName.trim()) {
-      toast({ variant: "destructive", title: "Missing fields", description: "City and firm name are required (party name is composed as “City FirmName”)." });
+      toast({ variant: "destructive", title: t("bill.errMissing"), description: t("bill.errMissingDesc") });
       return;
     }
     setSaving(true);
@@ -886,8 +909,8 @@ function NewCustomerDialog({
       onCreated(c);
       setForm((f) => ({ ...f, city: "", firmName: "", gstin: "", phone: "", creditLimit: "0" }));
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not create customer.";
-      toast({ variant: "destructive", title: "Create failed", description: msg });
+      const msg = e instanceof ApiError ? e.message : t("bill.errCreateDesc");
+      toast({ variant: "destructive", title: t("bill.errCreate"), description: msg });
     } finally {
       setSaving(false);
     }
@@ -897,23 +920,23 @@ function NewCustomerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
-          <DialogTitle className="text-dmk-text-primary">New B2B customer</DialogTitle>
-          <DialogDescription className="text-dmk-text-muted">Location-first naming — party name becomes “City FirmName”.</DialogDescription>
+          <DialogTitle className="text-dmk-text-primary">{t("bill.ncTitle")}</DialogTitle>
+          <DialogDescription className="text-dmk-text-muted">{t("bill.ncDesc")}</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="City *">
-            <Input value={form.city} onChange={set("city")} placeholder="e.g. Latur" className={inputCls} />
+          <Field label={t("bill.ncCity")}>
+            <Input value={form.city} onChange={set("city")} placeholder={t("bill.phCity")} className={inputCls} />
           </Field>
-          <Field label="Firm name *">
-            <Input value={form.firmName} onChange={set("firmName")} placeholder="e.g. Ishwar Mule" className={inputCls} />
+          <Field label={t("bill.ncFirm")}>
+            <Input value={form.firmName} onChange={set("firmName")} placeholder={t("bill.phFirm")} className={inputCls} />
           </Field>
-          <Field label="GSTIN">
+          <Field label={t("bill.ncGstin")}>
             <Input value={form.gstin} onChange={set("gstin")} placeholder="27…" className={cn(inputCls, "font-money")} />
           </Field>
-          <Field label="Phone">
+          <Field label={t("bill.ncPhone")}>
             <Input value={form.phone} onChange={set("phone")} placeholder="98…" className={cn(inputCls, "font-money")} />
           </Field>
-          <Field label="State code">
+          <Field label={t("bill.ncState")}>
             <Select value={form.stateCode} onValueChange={(v) => setForm((f) => ({ ...f, stateCode: v }))}>
               <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue /></SelectTrigger>
               <SelectContent className="max-h-64">
@@ -923,29 +946,29 @@ function NewCustomerDialog({
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Assigned tier">
+          <Field label={t("bill.ncTier")}>
             <Select value={form.assignedTier} onValueChange={(v) => setForm((f) => ({ ...f, assignedTier: v }))}>
               <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue /></SelectTrigger>
               <SelectContent>
-                {TIERS.slice(0, 4).map((t) => (
-                  <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>
+                {TIERS.slice(0, 4).map((tier) => (
+                  <SelectItem key={tier.key} value={tier.key}>{tierLabel(t, tier.key)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Credit limit ₹">
+          <Field label={t("bill.ncCreditLimit")}>
             <Input type="number" min={0} value={form.creditLimit} onChange={set("creditLimit")} className={cn(inputCls, "font-money")} />
           </Field>
-          <Field label="Credit days">
+          <Field label={t("bill.ncCreditDays")}>
             <Input type="number" min={0} value={form.creditDays} onChange={set("creditDays")} className={cn(inputCls, "font-money")} />
           </Field>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
-            Cancel
+            {t("cmn.cancel")}
           </Button>
           <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create customer
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} {t("bill.ncCreate")}
           </Button>
         </DialogFooter>
       </DialogContent>

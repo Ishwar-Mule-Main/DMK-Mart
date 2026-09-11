@@ -192,25 +192,25 @@ export async function buildDashboard(firmId: string, fy?: string | null): Promis
   const [invoices, pos, payments, receipts] = await Promise.all([
     db.invoice.findMany({
       where: { firmId, invoiceDate: { gte: fyStart, lte: fyEnd } },
-      orderBy: { invoiceDate: "desc" },
+      orderBy: [{ invoiceDate: "desc" }, { createdAt: "desc" }],
       take: 10,
       include: { customer: { select: { partyName: true } } },
     }),
     db.purchaseOrder.findMany({
       where: { firmId, poDate: { gte: fyStart, lte: fyEnd } },
-      orderBy: { poDate: "desc" },
+      orderBy: [{ poDate: "desc" }, { createdAt: "desc" }],
       take: 10,
       include: { vendor: { select: { vendorName: true } } },
     }),
     db.vendorPayment.findMany({
       where: { firmId, paymentDate: { gte: fyStart, lte: fyEnd } },
-      orderBy: { paymentDate: "desc" },
+      orderBy: [{ paymentDate: "desc" }, { createdAt: "desc" }],
       take: 10,
       include: { vendor: { select: { vendorName: true } } },
     }),
     db.customerReceipt.findMany({
       where: { firmId, receiptDate: { gte: fyStart, lte: fyEnd } },
-      orderBy: { receiptDate: "desc" },
+      orderBy: [{ receiptDate: "desc" }, { createdAt: "desc" }],
       take: 10,
       include: { customer: { select: { partyName: true } } },
     }),

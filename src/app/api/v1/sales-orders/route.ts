@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
         ...(words.length > 0 ? { AND: words.map((w) => ({ OR: fieldContains(w) })) } : {}),
       },
       include: ORDER_INCLUDE,
-      orderBy: { orderDate: "desc" },
+      orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
       take: 300,
     });
 

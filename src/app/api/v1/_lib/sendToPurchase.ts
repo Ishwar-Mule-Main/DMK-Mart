@@ -78,7 +78,7 @@ export async function planSendToPurchase(
       items: true,
       customer: { select: { partyName: true } },
     },
-    orderBy: { returnDate: "desc" },
+    orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
   });
 
   const products = await db.product.findMany({ where: { firmId } });
@@ -87,7 +87,7 @@ export async function planSendToPurchase(
   // ── 2. Vendor per product: vendor of the latest CONFIRMED PO ──
   const confirmedPos = await db.purchaseOrder.findMany({
     where: { firmId, status: "CONFIRMED" },
-    orderBy: { poDate: "desc" },
+    orderBy: [{ poDate: "desc" }, { createdAt: "desc" }],
     select: {
       id: true,
       poNumber: true,

@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
         customer: { select: { id: true, partyName: true, customerType: true, stateCode: true } },
         salesMember: { select: { id: true, fullName: true, username: true } },
       },
-      orderBy: { invoiceDate: "desc" },
+      orderBy: [{ invoiceDate: "desc" }, { createdAt: "desc" }],
       take: 200,
     });
 

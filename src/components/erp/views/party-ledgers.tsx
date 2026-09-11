@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { apiGet } from "@/lib/api-client";
 import { amountInWords, downloadCSV, formatINR, formatDate, fyLabel, toISODate } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -127,6 +128,7 @@ function balanceParts(bal: number, partyType: "CUSTOMER" | "VENDOR"): { amount: 
 const SETTLEABLE = new Set(["SALES", "PURCHASE"]);
 
 export default function PartyLedgersView() {
+  const { t } = useT();
   // Controlled tabs so cross-view deep links (aging rows) can preset the tab + party.
   const [tab, setTab] = React.useState<"customers" | "vendors">("customers");
   const [preset, setPreset] = React.useState<{ partyType: "CUSTOMER" | "VENDOR"; partyId: string } | null>(null);
@@ -151,17 +153,17 @@ export default function PartyLedgersView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Party Ledgers"
-        subtitle="Opening → transactions → closing statements for every customer and vendor (R7)"
+        title={t("pled.title")}
+        subtitle={t("pled.subtitle")}
         icon={BookOpenText}
       />
       <Tabs value={tab} onValueChange={(v) => setTab(v as "customers" | "vendors")} className="gap-4">
         <TabsList className="bg-dmk-input-well border border-dmk-border-subtle">
           <TabsTrigger value="customers" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
-            <Building2 className="h-4 w-4" /> Customers
+            <Building2 className="h-4 w-4" /> {t("pled.tabCustomers")}
           </TabsTrigger>
           <TabsTrigger value="vendors" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
-            <Truck className="h-4 w-4" /> Vendors
+            <Truck className="h-4 w-4" /> {t("pled.tabVendors")}
           </TabsTrigger>
         </TabsList>
         <TabsContent value="customers" className="mt-0">
@@ -192,6 +194,7 @@ function PartyTab({
   const activeFirm = useErpStore((s) => s.firms.find((f) => f.id === s.activeFirmId));
   const setView = useErpStore((s) => s.setView);
   const { toast } = useToast();
+  const { t } = useT();
 
   const [query, setQuery] = React.useState("");
   const [parties, setParties] = React.useState<PartyMini[] | null>(null);
@@ -211,7 +214,7 @@ function PartyTab({
   React.useEffect(() => {
     if (!activeFirmId) return;
     let alive = true;
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       setListLoading(true);
       try {
         if (partyType === "CUSTOMER") {
@@ -223,7 +226,7 @@ function PartyTab({
               res.map((c) => ({
                 id: c.id,
                 name: c.partyName,
-                sub: c.customerType === "B2C_COUNTER" ? "Counter buyer" : (c.city || "B2B"),
+                sub: c.customerType === "B2C_COUNTER" ? t("pled.counterBuyer") : (c.city || "B2B"),
                 balance: c.closingBalance,
                 gstin: c.gstin,
                 phone: c.phone,
@@ -239,7 +242,7 @@ function PartyTab({
               res.map((v) => ({
                 id: v.id,
                 name: v.vendorName,
-                sub: v.vendorType === "MANUFACTURER" ? (v.brand || "Manufacturer") : "Distributor",
+                sub: v.vendorType === "MANUFACTURER" ? (v.brand || t("pled.manufacturer")) : t("pled.distributor"),
                 balance: v.closingBalance,
                 gstin: v.gstin,
                 phone: v.phone,
@@ -256,7 +259,7 @@ function PartyTab({
     }, 250);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [activeFirmId, partyType, query]);
 
@@ -291,7 +294,7 @@ function PartyTab({
       })
       .catch((e) => {
         if (alive) {
-          setLedgerError(e instanceof Error ? e.message : "Failed to load ledger");
+          setLedgerError(e instanceof Error ? e.message : t("pled.errLedger"));
           setLedger(null);
         }
       })
@@ -306,10 +309,10 @@ function PartyTab({
   function exportLedger() {
     if (!ledger) return;
     const out: (string | number)[][] = [
-      ["Party Statement", ledger.party.name],
-      [`Opening (${partyType === "CUSTOMER" ? "Dr" : "Cr"}-positive)`, ledger.opening],
+      [t("pled.csvPartyStatement"), ledger.party.name],
+      [t(partyType === "CUSTOMER" ? "pled.csvOpeningDr" : "pled.csvOpeningCr"), ledger.opening],
       [],
-      ["Date", "Voucher Type", "Voucher #", "Particulars", "Debit", "Credit", "Balance After"],
+      [t("cmn.date"), t("jrnl.voucherType"), t("dbook.voucherNo"), t("pled.particulars"), t("pled.csvDebit"), t("pled.csvCredit"), t("pled.csvBalanceAfter")],
     ];
     for (const r of ledger.entries) {
       out.push([
@@ -322,9 +325,9 @@ function PartyTab({
         r.balanceAfter,
       ]);
     }
-    out.push([], ["Closing", ledger.closing]);
+    out.push([], [t("pled.csvClosing"), ledger.closing]);
     downloadCSV(`ledger-${ledger.party.name.replace(/\s+/g, "-").toLowerCase()}.csv`, out);
-    toast({ title: "Exported", description: "Party statement downloaded as CSV." });
+    toast({ title: t("jrnl.toastExported"), description: t("pled.toastExportedDesc") });
   }
 
   const isCustomer = partyType === "CUSTOMER";
@@ -340,8 +343,8 @@ function PartyTab({
     else requestSettleVendor(selectedId);
     setView(isSales ? "sales/receipts" : "purchase/payments");
     toast({
-      title: isSales ? "Opening receipt dialog" : "Opening payment dialog",
-      description: `${row.voucherNo || "Document"} pre-selected — confirm the settlement there.`,
+      title: isSales ? t("pled.toastOpenReceipt") : t("pled.toastOpenPayment"),
+      description: t("pled.toastSettleDesc", { doc: row.voucherNo || t("pled.docFallback") }),
     });
   }
 
@@ -359,7 +362,7 @@ function PartyTab({
       .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))
       .slice(0, 24);
     if (withBalance.length === 0) {
-      toast({ title: "Nothing to print", description: "Every party in this book is fully settled." });
+      toast({ title: t("pled.nothingToPrint"), description: t("pled.nothingToPrintDesc") });
       return;
     }
     setBatchLoading(true);
@@ -384,14 +387,14 @@ function PartyTab({
     }
     setBatchLoading(false);
     if (sheets.length === 0) {
-      toast({ variant: "destructive", title: "Could not load statements", description: "No ledgers could be fetched for printing." });
+      toast({ variant: "destructive", title: t("pled.loadFail"), description: t("pled.loadFailDesc") });
       return;
     }
     setBatchSheets(sheets);
     setBatchOpen(true);
     toast({
-      title: `${sheets.length} statement${sheets.length === 1 ? "" : "s"} ready`,
-      description: failed > 0 ? `${failed} ledger${failed === 1 ? "" : "s"} could not be loaded and were skipped.` : "Review the list, then print the whole batch.",
+      title: t("pled.batchReady", { n: sheets.length }),
+      description: failed > 0 ? t("pled.batchSkipped", { n: failed }) : t("pled.batchReadyOk"),
     });
   }
 
@@ -402,7 +405,7 @@ function PartyTab({
         <SearchInput
           value={query}
           onChange={setQuery}
-          placeholder={isCustomer ? "Search customers…" : "Search vendors…"}
+          placeholder={isCustomer ? t("pled.searchCustomers") : t("pled.searchVendors")}
         />
         <button
           type="button"
@@ -421,11 +424,11 @@ function PartyTab({
               <Layers className="h-3.5 w-3.5 shrink-0 text-dmk-gold" />
             )}
             <span className="text-[12px] font-semibold text-dmk-text-primary truncate">
-              {batchLoading ? `Preparing ${batchProgress}…` : "Print all statements"}
+              {batchLoading ? t("pled.preparing", { n: batchProgress }) : t("pled.printAll")}
             </span>
           </span>
           <span className="dmk-badge bg-dmk-gold/15 text-dmk-gold shrink-0">
-            {parties?.filter((p) => Math.abs(p.balance) > 0.005).length ?? 0} open
+            {t("pled.openBadge", { n: parties?.filter((p) => Math.abs(p.balance) > 0.005).length ?? 0 })}
           </span>
         </button>
         <div className="max-h-[420px] lg:max-h-[calc(100vh-378px)] overflow-y-auto space-y-1.5 pr-0.5">
@@ -433,7 +436,7 @@ function PartyTab({
             <LoadingRows rows={5} />
           ) : !parties || parties.length === 0 ? (
             <p className="text-[12px] text-dmk-text-muted py-6 text-center">
-              No parties found{query ? ` for “${query}”` : ""}.
+              {query ? t("pled.noPartiesQ", { q: query }) : t("pled.noParties")}
             </p>
           ) : (
             parties.map((p) => {
@@ -465,7 +468,7 @@ function PartyTab({
                         {bal.suffix} {formatINR(bal.amount)}
                       </Badge>
                     ) : (
-                      <Badge tone="neutral">Clear</Badge>
+                      <Badge tone="neutral">{t("pled.clear")}</Badge>
                     )}
                   </span>
                   <span className="block text-[11px] text-dmk-text-muted mt-0.5 pl-5">{p.sub}</span>
@@ -481,8 +484,8 @@ function PartyTab({
         {!selectedId ? (
           <EmptyState
             icon={BookOpenText}
-            title="Select a party"
-            hint="Pick a customer or vendor from the list to view their full ledger statement."
+            title={t("pled.selectParty")}
+            hint={t("pled.selectPartyHint")}
           />
         ) : ledgerLoading && !ledger ? (
           <LoadingRows rows={7} />
@@ -503,15 +506,15 @@ function PartyTab({
                         : (ledger.party.vendorType ?? "VENDOR")}
                     </Badge>
                     <span className="text-[11.5px] text-dmk-text-muted">
-                      State code {ledger.party.stateCode || "—"}
+                      {t("pled.stateCode", { code: ledger.party.stateCode || "—" })}
                     </span>
                     {isCustomer && (ledger.party.creditLimit ?? 0) > 0 && (
                       <span className="text-[11.5px] text-dmk-text-muted">
-                        Credit limit {formatINR(ledger.party.creditLimit ?? 0)} · {ledger.party.creditDays ?? 0} days
+                        {t("pled.creditLimitDays", { amt: formatINR(ledger.party.creditLimit ?? 0), n: ledger.party.creditDays ?? 0 })}
                       </span>
                     )}
                     {!isCustomer && ledger.party.brand && (
-                      <span className="text-[11.5px] text-dmk-text-muted">Brand: {ledger.party.brand}</span>
+                      <span className="text-[11.5px] text-dmk-text-muted">{t("pled.brandLabel", { brand: ledger.party.brand })}</span>
                     )}
                     {selectedParty?.gstin && (
                       <span className="text-[11.5px] text-dmk-text-muted font-money">GSTIN {selectedParty.gstin}</span>
@@ -520,7 +523,7 @@ function PartyTab({
                       <span className="text-[11.5px] text-dmk-text-muted">☎ {selectedParty.phone}</span>
                     )}
                     {!isCustomer && selectedParty?.paymentTerms && (
-                      <span className="text-[11.5px] text-dmk-text-muted">Terms: {selectedParty.paymentTerms}</span>
+                      <span className="text-[11.5px] text-dmk-text-muted">{t("pled.termsLabel", { terms: selectedParty.paymentTerms })}</span>
                     )}
                   </div>
                 </div>
@@ -531,7 +534,7 @@ function PartyTab({
                     onClick={() => setPrintOpen(true)}
                     className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
                   >
-                    <Printer className="h-3.5 w-3.5" /> Print Statement
+                    <Printer className="h-3.5 w-3.5" /> {t("pled.printStatement")}
                   </Button>
                   <Button
                     variant="outline"
@@ -539,7 +542,7 @@ function PartyTab({
                     onClick={exportLedger}
                     className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
                   >
-                    <Download className="h-3.5 w-3.5" /> Export CSV
+                    <Download className="h-3.5 w-3.5" /> {t("jrnl.exportCsv")}
                   </Button>
                 </div>
               </div>
@@ -547,7 +550,7 @@ function PartyTab({
               {/* Balance flow: Opening → activity → Closing */}
               <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 px-3 py-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">Opening</span>
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("dbook.opening")}</span>
                   {opening.suffix ? (
                     <Badge tone={opening.suffix === "Dr" ? "dr" : "cr"}>{formatINR(opening.amount)} {opening.suffix}</Badge>
                   ) : (
@@ -557,7 +560,7 @@ function PartyTab({
                 <ArrowRight className="h-3.5 w-3.5 text-dmk-text-disabled" />
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-                    {ledger.entries.length} txn{ledger.entries.length !== 1 ? "s" : ""}
+                    {t("pled.txnCount", { n: ledger.entries.length })}
                   </span>
                   <span className="text-[11px] text-dmk-text-muted">
                     Dr {formatINR(ledger.entries.reduce((s, r) => s + r.debitAmount, 0))} · Cr {formatINR(ledger.entries.reduce((s, r) => s + r.creditAmount, 0))}
@@ -565,7 +568,7 @@ function PartyTab({
                 </div>
                 <ArrowRight className="h-3.5 w-3.5 text-dmk-text-disabled" />
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">Closing</span>
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("dbook.closing")}</span>
                   {closing.suffix ? (
                     <Badge tone={closing.suffix === "Dr" ? "dr" : "cr"}>{formatINR(closing.amount)} {closing.suffix}</Badge>
                   ) : (
@@ -581,21 +584,21 @@ function PartyTab({
                 <table className="dmk-table">
                   <thead className="sticky top-0 z-10">
                     <tr>
-                      <th>Date</th>
-                      <th>Type</th>
-                      <th>Voucher #</th>
-                      <th>Particulars</th>
-                      <th className="num text-right">Debit (₹)</th>
-                      <th className="num text-right">Credit (₹)</th>
-                      <th className="num text-right">Balance (₹)</th>
-                      <th aria-label="Actions" />
+                      <th>{t("cmn.date")}</th>
+                      <th>{t("cmn.type")}</th>
+                      <th>{t("dbook.voucherNo")}</th>
+                      <th>{t("pled.particulars")}</th>
+                      <th className="num text-right">{t("dbook.debit")}</th>
+                      <th className="num text-right">{t("dbook.credit")}</th>
+                      <th className="num text-right">{t("coa.balance")}</th>
+                      <th aria-label={t("cmn.actions")} />
                     </tr>
                   </thead>
                   <tbody>
                     {/* Opening balance row */}
                     <tr className="bg-dmk-input-well/70">
                       <td colSpan={4} className="font-semibold text-dmk-text-secondary">
-                        Opening Balance
+                        {t("pled.openingBalance")}
                       </td>
                       <td className="num text-right">
                         {opening.suffix === "Dr" ? (
@@ -663,8 +666,8 @@ function PartyTab({
                                     onClick={() => setSettlementOf(st)}
                                     title={
                                       r.voucherType === "RECEIPT"
-                                        ? `Settles ${st.lines.length} invoice${st.lines.length !== 1 ? "s" : ""} — open allocation breakdown`
-                                        : `Settles ${st.lines.length} bill${st.lines.length !== 1 ? "s" : ""} — open allocation breakdown`
+                                        ? t("pled.settlesInvoices", { n: st.lines.length })
+                                        : t("pled.settlesBills", { n: st.lines.length })
                                     }
                                     className="inline-flex items-center gap-1 rounded-md border border-dmk-border-medium bg-dmk-input-well px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-dmk-text-secondary transition-all hover:bg-dmk-hover hover:text-dmk-text-primary focus:text-dmk-text-primary"
                                   >
@@ -680,8 +683,8 @@ function PartyTab({
                                     onClick={() => settleFromRow(r)}
                                     title={
                                       r.voucherType === "SALES"
-                                        ? `Record a receipt against ${r.voucherNo || "this invoice"}`
-                                        : `Record a payment against ${r.voucherNo || "this bill"}`
+                                        ? t("pled.recordReceipt", { doc: r.voucherNo || t("pled.thisInvoice") })
+                                        : t("pled.recordPayment", { doc: r.voucherNo || t("pled.thisBill") })
                                     }
                                     className={cn(
                                       "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide",
@@ -693,7 +696,7 @@ function PartyTab({
                                     )}
                                   >
                                     <HandCoins className="h-3 w-3" />
-                                    {r.voucherType === "SALES" ? "Settle" : "Pay"}
+                                    {r.voucherType === "SALES" ? t("pled.settle") : t("pled.pay")}
                                   </button>
                                 );
                               }
@@ -706,13 +709,13 @@ function PartyTab({
                     {ledger.entries.length === 0 && (
                       <tr>
                         <td colSpan={8} className="text-center text-dmk-text-muted py-6">
-                          No transactions posted yet — only the opening balance.
+                          {t("pled.noTxns")}
                         </td>
                       </tr>
                     )}
                     {/* Closing balance row */}
                     <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
-                      <td colSpan={4} className="font-bold text-dmk-text-primary">Closing Balance</td>
+                      <td colSpan={4} className="font-bold text-dmk-text-primary">{t("pled.closingBalance")}</td>
                       <td className="num text-right">
                         {closing.suffix === "Dr" ? (
                           <span className="font-money font-bold text-dmk-yellow">{formatINR(closing.amount)}</span>
@@ -797,7 +800,8 @@ function SettlementDialog({
 }) {
   const isReceipt = partyType === "CUSTOMER";
   const open = !!settlement;
-  const docLabel = isReceipt ? "Invoice" : "PO";
+  const { t } = useT();
+  const docLabel = isReceipt ? t("pled.invoice") : "PO";
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="dmk-card max-h-[85vh] overflow-y-auto [&>*]:min-w-0">
@@ -806,10 +810,10 @@ function SettlementDialog({
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-[16px] text-dmk-text-primary">
                 <Link2 className={cn("h-4 w-4", isReceipt ? "text-dmk-yellow" : "text-dmk-info")} />
-                {isReceipt ? "Receipt" : "Payment"} allocation
+                {isReceipt ? t("pled.receiptAlloc") : t("pled.paymentAlloc")}
               </DialogTitle>
               <DialogDescription className="text-[12px] text-dmk-text-muted">
-                {isReceipt ? "Receipt from" : "Payment to"} <span className="font-medium text-dmk-text-secondary">{partyName}</span> · {formatDate(settlement.date)}
+                {isReceipt ? t("pled.receiptFrom", { party: partyName, date: formatDate(settlement.date) }) : t("pled.paymentTo", { party: partyName, date: formatDate(settlement.date) })}
               </DialogDescription>
             </DialogHeader>
 
@@ -817,15 +821,15 @@ function SettlementDialog({
               {/* header wells */}
               <div className="grid grid-cols-3 gap-2">
                 <div className="dmk-well px-3 py-2">
-                  <p className="text-[9.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">Total</p>
+                  <p className="text-[9.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("cmn.total")}</p>
                   <p className="mt-0.5 font-money text-[13px] font-semibold text-dmk-text-primary">{formatINR(settlement.amount)}</p>
                 </div>
                 <div className="dmk-well px-3 py-2">
-                  <p className="text-[9.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">Allocated</p>
+                  <p className="text-[9.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("pled.allocated")}</p>
                   <p className="mt-0.5 font-money text-[13px] font-semibold text-dmk-gold">{formatINR(settlement.allocatedTotal)}</p>
                 </div>
                 <div className="dmk-well px-3 py-2">
-                  <p className="text-[9.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">Unapplied</p>
+                  <p className="text-[9.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("pled.unapplied")}</p>
                   <p className={cn("mt-0.5 font-money text-[13px] font-semibold", settlement.unapplied > 0 ? "text-dmk-info" : "text-dmk-text-muted")}>
                     {formatINR(settlement.unapplied)}
                   </p>
@@ -842,7 +846,7 @@ function SettlementDialog({
                 )}
                 {settlement.unapplied > 0 && (
                   <span className="rounded-md bg-dmk-info/10 px-2 py-1 text-[10.5px] font-semibold text-dmk-info">
-                    on-account — awaiting allocation
+                    {t("pled.onAccount")}
                   </span>
                 )}
               </div>
@@ -853,9 +857,9 @@ function SettlementDialog({
                   <thead>
                     <tr>
                       <th>{docLabel}</th>
-                      <th>Date</th>
-                      <th className="text-right">Doc total</th>
-                      <th className="text-right">Applied</th>
+                      <th>{t("cmn.date")}</th>
+                      <th className="text-right">{t("pled.docTotal")}</th>
+                      <th className="text-right">{t("pled.applied")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -871,7 +875,7 @@ function SettlementDialog({
                   <tfoot>
                     <tr className="border-t border-dmk-border-medium bg-dmk-hover/40">
                       <td colSpan={3} className="text-right text-[11px] font-semibold uppercase tracking-wide text-dmk-text-muted">
-                        Settled
+                        {t("pled.settled")}
                       </td>
                       <td className="num text-right font-money font-semibold text-dmk-gold">
                         {formatINR(settlement.allocatedTotal)}
@@ -912,6 +916,7 @@ function StatementSheet({
   closingWords: string | null;
 }) {
   const isCustomer = partyType === "CUSTOMER";
+  const { t } = useT();
   const opening = balanceParts(ledger.opening, partyType);
   const closing = balanceParts(ledger.closing, partyType);
   const totalDr = ledger.entries.reduce((s, r) => s + r.debitAmount, 0);
@@ -943,18 +948,18 @@ function StatementSheet({
                   {firm?.gstin ?? "—"}
                 </span>
               </span>
-              {firm?.phone && <span>Ph: {firm.phone}</span>}
+              {firm?.phone && <span>{t("pled.ph")} {firm.phone}</span>}
               {firm?.email && <span>{firm.email}</span>}
             </div>
           </div>
         </div>
         <div className="text-right shrink-0">
-          <p className="text-[18px] font-extrabold tracking-wide text-gray-900 uppercase">Statement of Account</p>
+          <p className="text-[18px] font-extrabold tracking-wide text-gray-900 uppercase">{t("pled.statementOfAccount")}</p>
           <p className="text-[10.5px] text-gray-500 mt-1">
-            Financial Year {firm?.financialYear ?? fyLabel(new Date())} · as of {formatDate(new Date())}
+            {t("pled.fyAsOf", { fy: firm?.financialYear ?? fyLabel(new Date()), date: formatDate(new Date()) })}
           </p>
           <span className="inline-block mt-2 text-[9.5px] font-bold uppercase tracking-wider text-gray-700 border border-gray-400 rounded px-2 py-0.5">
-            {isCustomer ? "Receivable Statement" : "Payable Statement"}
+            {isCustomer ? t("pled.receivableStatement") : t("pled.payableStatement")}
           </span>
         </div>
       </div>
@@ -963,38 +968,39 @@ function StatementSheet({
       <div className="grid grid-cols-2 gap-6 border-b border-gray-300 py-3">
         <div>
           <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-500 mb-1">
-            {isCustomer ? "Bill To" : "Supplier"}
+            {isCustomer ? t("pled.billTo") : t("pled.supplier")}
           </p>
           <p className="text-[13.5px] font-bold text-gray-900 leading-snug">{ledger.party.name}</p>
           <p className="text-[10.5px] text-gray-700 mt-1">
             GSTIN:{" "}
             <span className="font-semibold" style={mono}>
-              {ledger.party.gstin || "URP / Unregistered"}
+              {ledger.party.gstin || t("pled.urpUnregistered")}
             </span>
           </p>
           <p className="text-[10.5px] text-gray-600 mt-0.5">
-            State code {ledger.party.stateCode || "—"}
-            {ledger.party.phone ? ` · ☎ ${ledger.party.phone}` : ""}
+            {ledger.party.phone
+              ? t("pled.stateCodePhone", { code: ledger.party.stateCode || "—", phone: ledger.party.phone })
+              : t("pled.stateCode", { code: ledger.party.stateCode || "—" })}
           </p>
           {isCustomer && (ledger.party.creditLimit ?? 0) > 0 && (
             <p className="text-[10.5px] text-gray-600">
-              Credit limit ₹{Number(ledger.party.creditLimit).toFixed(2)} · {ledger.party.creditDays ?? 0} days
+              {t("pled.creditLimitDays", { amt: `₹${Number(ledger.party.creditLimit).toFixed(2)}`, n: ledger.party.creditDays ?? 0 })}
             </p>
           )}
           {!isCustomer && ledger.party.paymentTerms && (
-            <p className="text-[10.5px] text-gray-600">Payment terms: {ledger.party.paymentTerms}</p>
+            <p className="text-[10.5px] text-gray-600">{t("pled.paymentTermsLabel", { terms: ledger.party.paymentTerms })}</p>
           )}
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] content-start" style={mono}>
-          <span className="text-gray-500">Opening balance:</span>
+          <span className="text-gray-500">{t("pled.openingBalanceLabel")}</span>
           <span className="font-semibold text-right">
             {opening.suffix ? `${opening.suffix} ₹${opening.amount.toFixed(2)}` : "NIL"}
           </span>
-          <span className="text-gray-500">Transactions:</span>
+          <span className="text-gray-500">{t("pled.transactions")}</span>
           <span className="font-semibold text-right">{ledger.entries.length}</span>
-          <span className="text-gray-500">Total debits:</span>
+          <span className="text-gray-500">{t("pled.totalDebits")}</span>
           <span className="font-semibold text-right">₹{totalDr.toFixed(2)}</span>
-          <span className="text-gray-500">Total credits:</span>
+          <span className="text-gray-500">{t("pled.totalCredits")}</span>
           <span className="font-semibold text-right">₹{totalCr.toFixed(2)}</span>
         </div>
       </div>
@@ -1003,19 +1009,19 @@ function StatementSheet({
       <table className="w-full border-collapse mt-3 text-[10.5px]" style={mono}>
         <thead>
           <tr className="bg-gray-100">
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[72px]">Date</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[64px]">Voucher</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[92px]">Number</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left">Particulars</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[72px]">Debit ₹</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[72px]">Credit ₹</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[88px]">Balance</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[72px]">{t("cmn.date")}</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[64px]">{t("pled.hVoucher")}</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[92px]">{t("pled.hNumber")}</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left">{t("pled.particulars")}</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[72px]">{t("pled.hDebitRs")}</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[72px]">{t("pled.hCreditRs")}</th>
+            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[88px]">{t("pled.hBalance")}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td className="border border-gray-300 px-1.5 py-1 font-semibold" colSpan={6}>
-              Opening Balance
+              {t("pled.openingBalance")}
             </td>
             <td className="border border-gray-300 px-1.5 py-1 text-right font-semibold">
               {opening.suffix ? `${opening.suffix} ${opening.amount.toFixed(2)}` : "0.00"}
@@ -1039,7 +1045,7 @@ function StatementSheet({
           })}
           <tr className="bg-gray-100 font-bold">
             <td className="border border-gray-300 px-1.5 py-1.5" colSpan={4}>
-              Totals
+              {t("pled.totals")}
             </td>
             <td className="border border-gray-300 px-1.5 py-1.5 text-right">{totalDr.toFixed(2)}</td>
             <td className="border border-gray-300 px-1.5 py-1.5 text-right">{totalCr.toFixed(2)}</td>
@@ -1054,34 +1060,34 @@ function StatementSheet({
       <div className="mt-3 border border-gray-300 rounded p-3 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-500">
-            Closing balance {closing.suffix ? `(${closing.suffix})` : "(Settled)"}
+            {closing.suffix ? t("pled.closingBalanceTag", { suffix: closing.suffix }) : t("pled.closingBalanceSettled")}
           </p>
           <p className="text-[15px] font-extrabold text-gray-900 mt-0.5" style={mono}>
             ₹{(closing.suffix ? closing.amount : 0).toFixed(2)} {closing.suffix ?? ""}
           </p>
           {closingWords && (
             <p className="text-[10.5px] text-gray-600 mt-1 leading-snug">
-              <span className="font-semibold text-gray-700">In words:</span> {closingWords}
+              <span className="font-semibold text-gray-700">{t("pled.inWords")}</span> {closingWords}
             </p>
           )}
           {openingWords && (
             <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">
-              Opening was {openingWords} {opening.suffix ?? ""}
+              {t("pled.openingWas", { words: openingWords, suffix: opening.suffix ?? "" })}
             </p>
           )}
         </div>
         <div className="text-center shrink-0 pt-2">
           <div className="w-40 border-t border-gray-400 pt-1 text-[9.5px] text-gray-500">
-            For {firm?.firmName ?? "DMK Mart"} — Authorised Signatory
+            {t("pled.authorisedSignatory", { firm: firm?.firmName ?? "DMK Mart" })}
           </div>
         </div>
       </div>
 
       <div className="mt-auto pt-4 border-t border-gray-200 text-[9px] text-gray-400 flex items-center justify-between">
         <span>
-          System-generated statement · DMK Mart ERP · {isCustomer ? "subject to credit policy" : "subject to agreed vendor terms"}
+          {t("pled.sysGenerated", { note: isCustomer ? t("pled.creditPolicyNote") : t("pled.vendorTermsNote") })}
         </span>
-        <span style={mono}>Page 1 · {new Date().toLocaleDateString("en-IN")}</span>
+        <span style={mono}>{t("pled.page1")} · {new Date().toLocaleDateString("en-IN")}</span>
       </div>
     </div>
   );
@@ -1105,14 +1111,15 @@ function StatementPrintDialog({
   closingWords: string | null;
 }) {
   const SCALE = 0.66;
+  const { t } = useT();
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="no-print max-h-[92vh] overflow-hidden flex flex-col border-dmk-border-medium dmk-elevated">
           <DialogHeader>
-            <DialogTitle className="text-dmk-text-primary">Statement of account — A4 preview</DialogTitle>
+            <DialogTitle className="text-dmk-text-primary">{t("pled.statementPreview")}</DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
-              Letterhead statement for {ledger.party.name} — print via the system dialog (chrome-free output).
+              {t("pled.statementPreviewDesc", { party: ledger.party.name })}
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 min-h-0 overflow-auto dmk-well rounded-lg p-3 flex justify-center">
@@ -1137,10 +1144,10 @@ function StatementPrintDialog({
               onClick={() => onOpenChange(false)}
               className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover"
             >
-              <X className="h-4 w-4" /> Close
+              <X className="h-4 w-4" /> {t("cmn.close")}
             </Button>
             <Button onClick={printA4} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
-              <Printer className="h-4 w-4" /> Print statement
+              <Printer className="h-4 w-4" /> {t("pled.printStatementBtn")}
             </Button>
           </div>
         </DialogContent>
@@ -1182,6 +1189,7 @@ function BatchPrintDialog({
     const parts = balanceParts(sh.ledger.closing, partyType);
     return s + (parts.suffix === (partyType === "CUSTOMER" ? "Dr" : "Cr") ? parts.amount : 0);
   }, 0);
+  const { t } = useT();
 
   return (
     <>
@@ -1190,10 +1198,10 @@ function BatchPrintDialog({
           <DialogHeader>
             <DialogTitle className="text-dmk-text-primary flex items-center gap-2">
               <Layers className="h-4 w-4 text-dmk-gold" />
-              Batch statement print — {sheets.length} page{sheets.length === 1 ? "" : "s"}
+              {t("pled.batchPrintTitle", { n: sheets.length })}
             </DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
-              One A4 statement per party with an open balance, largest first. Print runs chrome-free.
+              {t("pled.batchPrintDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 min-h-0 overflow-y-auto dmk-well rounded-lg p-2 space-y-1">
@@ -1207,7 +1215,7 @@ function BatchPrintDialog({
                   <span className="min-w-0">
                     <span className="block text-[12.5px] font-medium text-dmk-text-primary truncate">{ledger.party.name}</span>
                     <span className="block text-[10.5px] text-dmk-text-muted">
-                      {ledger.entries.length} entr{ledger.entries.length === 1 ? "y" : "ies"}
+                      {t("pled.entryCount", { n: ledger.entries.length })}
                     </span>
                   </span>
                   {bal.suffix ? (
@@ -1215,7 +1223,7 @@ function BatchPrintDialog({
                       {bal.suffix} {formatINR(bal.amount)}
                     </Badge>
                   ) : (
-                    <Badge tone="neutral">Clear</Badge>
+                    <Badge tone="neutral">{t("pled.clear")}</Badge>
                   )}
                 </div>
               );
@@ -1223,7 +1231,7 @@ function BatchPrintDialog({
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
             <span className="text-[11.5px] text-dmk-text-muted font-money">
-              {partyType === "CUSTOMER" ? "Receivables" : "Payables"} in batch: {formatINR(totalDue)}
+              {partyType === "CUSTOMER" ? t("pled.batchReceivables", { amt: formatINR(totalDue) }) : t("pled.batchPayables", { amt: formatINR(totalDue) })}
             </span>
             <span className="flex items-center gap-2">
               <Button
@@ -1231,10 +1239,10 @@ function BatchPrintDialog({
                 onClick={() => onOpenChange(false)}
                 className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover"
               >
-                <X className="h-4 w-4" /> Close
+                <X className="h-4 w-4" /> {t("cmn.close")}
               </Button>
               <Button onClick={printA4} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
-                <Printer className="h-4 w-4" /> Print {sheets.length} pages
+                <Printer className="h-4 w-4" /> {t("pled.printNPages", { n: sheets.length })}
               </Button>
             </span>
           </div>

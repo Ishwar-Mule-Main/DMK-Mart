@@ -40,6 +40,7 @@ import { useErpStore } from "@/store/erp-store";
 import { apiGet, apiPost, apiPatch } from "@/lib/api-client";
 import { ApiError } from "@/lib/api-client";
 import { useToast } from "@/hooks/use-toast";
+import { useT, type TFn } from "@/lib/i18n";
 import { formatINR, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -202,6 +203,18 @@ const TIER_LABELS: Record<string, string> = {
   tier5Mrp: "MRP",
 };
 
+/** Translated tier label (falls back to the raw English label). */
+function tierLabelOf(t: TFn, key: string): string {
+  switch (key) {
+    case "tier1Distributor": return t("sale.tierDistributor");
+    case "tier2Wholesale": return t("sale.tierWholesale");
+    case "tier3SemiWholesale": return t("sale.tierSemiWholesale");
+    case "tier4Retailer": return t("sale.tierRetailer");
+    case "tier5Mrp": return t("sale.tierMrp");
+    default: return TIER_LABELS[key] ?? key;
+  }
+}
+
 function statusBadge(status: string) {
   const map: Record<string, "warning" | "success" | "info" | "danger" | "neutral"> = {
     NEEDS_REVIEW: "warning",
@@ -226,6 +239,7 @@ const SOURCE_LABEL: Record<string, string> = {
 
 export default function SalesOrdersView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const setView = useErpStore((s) => s.setView);
 
@@ -269,10 +283,10 @@ export default function SalesOrdersView() {
       .catch((e) => {
         setStagedRows([]);
         if (e instanceof ApiError)
-          toast({ variant: "destructive", title: "Could not load the staging queue", description: e.message });
+          toast({ variant: "destructive", title: t("so.errLoadQueue"), description: e.message });
       })
       .finally(() => setLoading(false));
-  }, [activeFirmId, statusFilter, toast]);
+  }, [activeFirmId, statusFilter, toast, t]);
 
   const loadOrders = React.useCallback(() => {
     if (!activeFirmId) return;
@@ -318,16 +332,16 @@ export default function SalesOrdersView() {
       if (!res.ok || json.ok === false) throw new ApiError(json.error || "Scan failed", json.code || "ERR_UNKNOWN", res.status);
       const staged = json.data.staged as StagedDetail;
       toast({
-        title: "Deep scan complete",
-        description: `${staged.itemCount} line${staged.itemCount === 1 ? "" : "s"} extracted · ${staged.unlistedCount} unmatched · ${staged.customer ? "customer matched" : "customer needs review"}`,
+        title: t("so.toastScanDone"),
+        description: `${t("so.scanLines", { n: staged.itemCount })} · ${t("so.scanUnmatched", { n: staged.unlistedCount })} · ${staged.customer ? t("so.scanCustMatched") : t("so.scanCustReview")}`,
       });
       setRefresh((r) => r + 1);
       setOpenStagedId(staged.id);
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Deep scan failed",
-        description: e instanceof Error ? e.message : "Could not scan this document",
+        title: t("so.toastScanFailed"),
+        description: e instanceof Error ? e.message : t("so.errScanDoc"),
       });
     } finally {
       setScanning(false);
@@ -342,7 +356,7 @@ export default function SalesOrdersView() {
         firmId: activeFirmId,
         text: pasteText.trim(),
       }).then((r) => r.staged);
-      toast({ title: "Deep scan complete", description: `${staged.itemCount} lines extracted from the order text.` });
+      toast({ title: t("so.toastScanDone"), description: t("so.toastScanTextDesc", { n: staged.itemCount }) });
       setPasteOpen(false);
       setPasteText("");
       setRefresh((r) => r + 1);
@@ -350,8 +364,8 @@ export default function SalesOrdersView() {
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Deep scan failed",
-        description: e instanceof Error ? e.message : "Could not scan this text",
+        title: t("so.toastScanFailed"),
+        description: e instanceof Error ? e.message : t("so.errScanText"),
       });
     } finally {
       setScanning(false);
@@ -379,8 +393,8 @@ export default function SalesOrdersView() {
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Could not confirm the order",
-        description: e instanceof Error ? e.message : "Try again",
+        title: t("so.toastConfirmFail"),
+        description: e instanceof Error ? e.message : t("sale.tryAgain"),
       });
     } finally {
       setBusyOrderId("");
@@ -393,13 +407,13 @@ export default function SalesOrdersView() {
     setBusyOrderId(order.id);
     try {
       await apiPatch(`/api/v1/sales-orders/${order.id}`, { status: "CANCELLED" });
-      toast({ title: `Order ${order.orderNumber} cancelled`, description: "Any reserved stock returned to the sellable pool." });
+      toast({ title: t("so.toastCancelOk", { no: order.orderNumber }), description: t("so.toastCancelOkDesc") });
       setRefresh((r) => r + 1);
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Could not cancel",
-        description: e instanceof Error ? e.message : "Try again",
+        title: t("so.toastCancelFail"),
+        description: e instanceof Error ? e.message : t("sale.tryAgain"),
       });
     } finally {
       setBusyOrderId("");
@@ -410,8 +424,8 @@ export default function SalesOrdersView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Sales Orders (SO)"
-        subtitle="Deep-scan order PDFs & WhatsApp orders → review side-by-side → book with stock reservation + Delivery OTP"
+        title={t("nav.salesOrders")}
+        subtitle={t("so.subtitle")}
         icon={ClipboardList}
         actions={
           <>
@@ -421,14 +435,14 @@ export default function SalesOrdersView() {
               className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
               onClick={() => setRefresh((r) => r + 1)}
             >
-              <RefreshCw className="h-4 w-4" /> Refresh
+              <RefreshCw className="h-4 w-4" /> {t("cmn.refresh")}
             </Button>
             <Button
               size="sm"
               className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
               onClick={() => setPasteOpen(true)}
             >
-              <MessageSquareText className="h-4 w-4" /> Paste WhatsApp order
+              <MessageSquareText className="h-4 w-4" /> {t("so.pasteWhatsapp")}
             </Button>
           </>
         }
@@ -437,30 +451,30 @@ export default function SalesOrdersView() {
       {/* KPI strip */}
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         <KpiCard
-          label="Needs review"
+          label={t("so.kpiNeedsReview")}
           value={String(stagedTotals.needsReview)}
-          sub={stagedTotals.unlistedLines > 0 ? `${stagedTotals.unlistedLines} unmatched line(s)` : "scan queue clear"}
+          sub={stagedTotals.unlistedLines > 0 ? t("so.kpiUnmatched", { n: stagedTotals.unlistedLines }) : t("so.kpiQueueClear")}
           icon={ScanSearch}
           tone={stagedTotals.needsReview > 0 ? "yellow" : "default"}
         />
         <KpiCard
-          label="Confirmed (in pool)"
+          label={t("so.kpiConfirmed")}
           value={String(confirmedOrders.length)}
-          sub="waiting for a delivery trip"
+          sub={t("so.kpiWaitingTrip")}
           icon={Truck}
           tone="info"
         />
         <KpiCard
-          label="Order book value"
+          label={t("so.kpiBookValue")}
           value={formatINR(orderTotals.estimatedAmount)}
-          sub={`${orderTotals.count} order(s) total`}
+          sub={t("so.kpiOrdersTotal", { n: orderTotals.count })}
           icon={ClipboardList}
           tone="gold"
         />
         <KpiCard
-          label="Drafts to confirm"
+          label={t("so.kpiDrafts")}
           value={String((orders ?? []).filter((o) => o.status === "BOOKED").length)}
-          sub="no reservation yet"
+          sub={t("so.kpiNoReservation")}
           icon={AlertTriangle}
           tone={(orders ?? []).some((o) => o.status === "BOOKED") ? "orange" : "default"}
         />
@@ -470,18 +484,18 @@ export default function SalesOrdersView() {
         {/* LEFT — staging queue + order book */}
         <div className="min-w-0 flex flex-col gap-4">
           <RegisterCard
-            title="Deep-scan staging queue"
+            title={t("so.stagingTitle")}
             icon={ScanSearch}
             count={filteredStaged.length}
-            countLabel="uploads"
+            countLabel={t("so.uploads")}
             filters={
               <>
                 <div className="flex flex-wrap gap-1.5">
                   {[
-                    ["", "All"],
-                    ["NEEDS_REVIEW", "Needs review"],
-                    ["BOOKED", "Booked"],
-                    ["DISCARDED", "Discarded"],
+                    ["", t("cmn.all")],
+                    ["NEEDS_REVIEW", t("so.fNeedsReview")],
+                    ["BOOKED", t("so.fBooked")],
+                    ["DISCARDED", t("so.fDiscarded")],
                   ].map(([value, label]) => (
                     <button
                       key={value}
@@ -497,12 +511,12 @@ export default function SalesOrdersView() {
                     </button>
                   ))}
                 </div>
-                <SearchInput value={query} onChange={setQuery} placeholder="Search shop, phone, city…" />
+                <SearchInput value={query} onChange={setQuery} placeholder={t("so.searchPh")} />
               </>
             }
             footer={
               <>
-                <span>Everything scans through the AI engine — nothing books without your review.</span>
+                <span>{t("so.footerScan")}</span>
               </>
             }
           >
@@ -511,8 +525,8 @@ export default function SalesOrdersView() {
             ) : filteredStaged.length === 0 ? (
               <EmptyState
                 icon={FileUp}
-                title="No uploads in this view"
-                hint="Drop an order PDF or photo into the scanner on the right — or paste a WhatsApp order."
+                title={t("so.emptyUploads")}
+                hint={t("so.emptyUploadsHint")}
               />
             ) : (
               filteredStaged.map((o) => (
@@ -524,28 +538,28 @@ export default function SalesOrdersView() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-[13px] font-semibold text-dmk-text-primary truncate">
-                          {o.customer?.partyName || o.extracted.businessName || "Unknown buyer"}
+                          {o.customer?.partyName || o.extracted.businessName || t("so.unknownBuyer")}
                         </p>
                         <Badge tone="neutral">{SOURCE_LABEL[o.source] ?? o.source}</Badge>
                         {statusBadge(o.status)}
                         {o.unlistedCount > 0 && o.status === "NEEDS_REVIEW" && (
-                          <Badge tone="warning">{o.unlistedCount} unmatched</Badge>
+                          <Badge tone="warning">{t("so.unmatchedBadge", { n: o.unlistedCount })}</Badge>
                         )}
                       </div>
                       <p className="text-[11.5px] text-dmk-text-muted truncate mt-0.5">
-                        {o.originalFileName} · {o.itemCount} line{o.itemCount === 1 ? "" : "s"} ·{" "}
+                        {o.originalFileName} · {t("so.lineCount", { n: o.itemCount })} ·{" "}
                         {formatDate(o.createdAt)}
-                        {o.customerMatchMethod ? ` · matched by ${o.customerMatchMethod.toLowerCase()}` : ""}
+                        {o.customerMatchMethod ? ` · ${t("so.matchedBy", { method: o.customerMatchMethod.toLowerCase() })}` : ""}
                       </p>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="font-money text-[13px] font-semibold text-dmk-yellow">{formatINR(o.subtotal)}</p>
                       {o.status === "NEEDS_REVIEW" ? (
                         <span className="text-[10.5px] font-semibold uppercase tracking-wider text-dmk-blue">
-                          Open staging →
+                          {t("so.openStaging")}
                         </span>
                       ) : o.confirmedSalesOrderId ? (
-                        <span className="text-[10.5px] text-dmk-text-muted">SO booked</span>
+                        <span className="text-[10.5px] text-dmk-text-muted">{t("so.soBooked")}</span>
                       ) : null}
                     </div>
                   </div>
@@ -555,20 +569,20 @@ export default function SalesOrdersView() {
           </RegisterCard>
 
           <RegisterCard
-            title="Order book"
+            title={t("so.orderBook")}
             icon={ClipboardList}
             count={(orders ?? []).length}
-            countLabel="orders"
+            countLabel={t("so.orders")}
             footer={
               <>
-                <span>CONFIRMED orders sit in the Trip Planner pool — billed automatically when placed on a truck.</span>
+                <span>{t("so.footerConfirmed")}</span>
               </>
             }
           >
             {ordersLoading ? (
               <LoadingRows rows={5} />
             ) : (orders ?? []).length === 0 ? (
-              <EmptyState icon={ClipboardList} title="No sales orders yet" hint="Scan an order document or use B2B billing to get started." />
+              <EmptyState icon={ClipboardList} title={t("so.emptyOrders")} hint={t("so.emptyOrdersHint")} />
             ) : (
               (orders ?? []).slice(0, 30).map((o) => (
                 <RegisterRow key={o.id}>
@@ -580,12 +594,12 @@ export default function SalesOrdersView() {
                         {o.deliveryOtp && (
                           <Badge tone="gold">OTP {o.deliveryOtp}</Badge>
                         )}
-                        {o.stockReserved && <Badge tone="info">STOCK HELD</Badge>}
+                        {o.stockReserved && <Badge tone="info">{t("so.stockHeld")}</Badge>}
                       </div>
                       <p className="text-[11.5px] text-dmk-text-muted truncate mt-0.5">
                         {o.customer?.partyName ?? "—"}
                         {o.customer?.city ? ` · ${o.customer.city}` : ""} · {formatDate(o.orderDate)}
-                        {o.salesMember ? ` · by ${o.salesMember.fullName}` : ""}
+                        {o.salesMember ? ` · ${t("so.bookedBy", { name: o.salesMember.fullName })}` : ""}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -599,7 +613,7 @@ export default function SalesOrdersView() {
                           disabled={busyOrderId === o.id}
                           onClick={() => setConfirmOf(o)}
                         >
-                          {busyOrderId === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirm"}
+                          {busyOrderId === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : t("cmn.confirm")}
                         </Button>
                       )}
                       {(o.status === "BOOKED" || o.status === "CONFIRMED") && (
@@ -626,49 +640,36 @@ export default function SalesOrdersView() {
           <UploadCard scanning={scanning} onFile={scanFile} onPaste={() => setPasteOpen(true)} />
 
           <AsideCard
-            title="What happens on Confirm"
+            title={t("so.playbookTitle")}
             icon={ShieldCheck}
             iconClass="text-dmk-success"
-            footnote="Drafts can be confirmed later from the Order book below — reservations release automatically on cancellation."
+            footnote={t("so.playbookFoot")}
           >
             <ul className="space-y-2 text-[12px] text-dmk-text-secondary">
               <li className="flex gap-2">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-dmk-success" strokeWidth={1.75} />
-                <span>
-                  Sellable stock is <span className="font-semibold text-dmk-text-primary">reserved</span> — counters
-                  cannot oversell it
-                </span>
+                <span>{t("so.pbReserve")}</span>
               </li>
               <li className="flex gap-2">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-dmk-success" strokeWidth={1.75} />
-                <span>
-                  A <span className="font-semibold text-dmk-text-primary">4-digit Delivery OTP</span> is stamped and
-                  prints on the bill
-                </span>
+                <span>{t("so.pbOtp")}</span>
               </li>
               <li className="flex gap-2">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-dmk-success" strokeWidth={1.75} />
-                <span>
-                  The order lands in <span className="font-semibold text-dmk-text-primary">Trip Planner</span> tagged
-                  with the buyer&apos;s route
-                </span>
+                <span>{t("so.pbTrip")}</span>
               </li>
               <li className="flex gap-2">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-dmk-success" strokeWidth={1.75} />
-                <span>
-                  Placing it on a trip <span className="font-semibold text-dmk-text-primary">raises the tax invoice</span>{" "}
-                  automatically
-                </span>
+                <span>{t("so.pbInvoice")}</span>
               </li>
             </ul>
           </AsideCard>
 
-          <AsideCard title="Engine" icon={Sparkles} footnote="Configure the AI key in Settings → DMK AI Copilot. PDFs without a text layer are read by the vision engine.">
+          <AsideCard title={t("so.engineTitle")} icon={Sparkles} footnote={t("so.engineFoot")}>
             <div className="space-y-1.5 text-[12px] text-dmk-text-secondary">
-              <p>Scans run through OCR + table-structure parsing, then the dual matcher:</p>
+              <p>{t("so.engineLine1")}</p>
               <p className="text-dmk-text-muted">
-                Buyer: phone → GSTIN → fuzzy name · Lines: SKU + model-number aware catalog match. Low-confidence hits
-                open pre-filled quick-add modals — nothing is guessed silently.
+                {t("so.engineLine2")}
               </p>
             </div>
           </AsideCard>
@@ -696,10 +697,10 @@ export default function SalesOrdersView() {
         <DialogContent className="dmk-card border-dmk-border-subtle bg-[#0D1527] max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-dmk-text-primary flex items-center gap-2">
-              <MessageSquareText className="h-4 w-4 text-dmk-yellow" /> Paste a WhatsApp / typed order
+              <MessageSquareText className="h-4 w-4 text-dmk-yellow" /> {t("so.pasteTitle")}
             </DialogTitle>
             <DialogDescription className="text-dmk-text-muted text-[12px]">
-              Paste the buyer&apos;s message exactly as received — the engine extracts the shop and every item line.
+              {t("so.pasteDesc")}
             </DialogDescription>
           </DialogHeader>
           <textarea
@@ -711,7 +712,7 @@ export default function SalesOrdersView() {
           />
           <DialogFooter>
             <Button variant="outline" className="h-9 border-dmk-border-subtle text-dmk-text-secondary" onClick={() => setPasteOpen(false)}>
-              Cancel
+              {t("cmn.cancel")}
             </Button>
             <Button
               className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90"
@@ -719,7 +720,7 @@ export default function SalesOrdersView() {
               onClick={scanPastedText}
             >
               {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanSearch className="h-4 w-4" />}
-              {scanning ? "Scanning…" : "Deep scan text"}
+              {scanning ? t("so.scanningBtn") : t("so.scanBtn")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -729,21 +730,21 @@ export default function SalesOrdersView() {
       <Dialog open={!!confirmOf} onOpenChange={(v) => !v && setConfirmOf(null)}>
         <DialogContent className="dmk-card border-dmk-border-subtle bg-[#0D1527] max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-dmk-text-primary">Confirm order {confirmOf?.orderNumber}?</DialogTitle>
+            <DialogTitle className="text-dmk-text-primary">{t("so.confirmTitle", { no: confirmOf?.orderNumber ?? "" })}</DialogTitle>
             <DialogDescription className="text-dmk-text-muted text-[12px]">
-              Stock will be reserved, a Delivery OTP stamped and the order pushed to the Trip Planner pool.
+              {t("so.confirmDesc")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" className="h-9 border-dmk-border-subtle text-dmk-text-secondary" onClick={() => setConfirmOf(null)}>
-              Not yet
+              {t("so.notYet")}
             </Button>
             <Button
               className="h-9 bg-dmk-success text-[#0A0F1D] hover:brightness-110"
               disabled={!!busyOrderId}
               onClick={() => confirmOf && confirmOrder(confirmOf)}
             >
-              Confirm &amp; push to logistics
+              {t("so.confirmPush")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -753,16 +754,16 @@ export default function SalesOrdersView() {
       <Dialog open={!!cancelOf} onOpenChange={(v) => !v && setCancelOf(null)}>
         <DialogContent className="dmk-card border-dmk-border-subtle bg-[#0D1527] max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-dmk-text-primary">Cancel order {cancelOf?.orderNumber}?</DialogTitle>
+            <DialogTitle className="text-dmk-text-primary">{t("so.cancelTitle", { no: cancelOf?.orderNumber ?? "" })}</DialogTitle>
             <DialogDescription className="text-dmk-text-muted text-[12px]">
               {cancelOf?.status === "CONFIRMED"
-                ? "Reserved stock returns to the sellable pool. This cannot be undone."
-                : "The draft order is discarded. This cannot be undone."}
+                ? t("so.cancelDescConfirmed")
+                : t("so.cancelDescDraft")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" className="h-9 border-dmk-border-subtle text-dmk-text-secondary" onClick={() => setCancelOf(null)}>
-              Keep order
+              {t("so.keepOrder")}
             </Button>
             <Button
               variant="destructive"
@@ -770,7 +771,7 @@ export default function SalesOrdersView() {
               disabled={!!busyOrderId}
               onClick={() => cancelOf && cancelOrder(cancelOf)}
             >
-              Cancel order
+              {t("so.cancelOrderBtn")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -782,7 +783,7 @@ export default function SalesOrdersView() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-dmk-text-primary">
               <CheckCircle2 className="h-5 w-5 text-dmk-success" />
-              {bookingResult?.mode === "CONFIRMED" ? "Order booked & pushed to logistics" : "Draft order saved"}
+              {bookingResult?.mode === "CONFIRMED" ? t("so.bookedTitle") : t("so.draftSaved")}
             </DialogTitle>
             <DialogDescription className="text-dmk-text-muted text-[12px]">
               {bookingResult?.orderNumber} · {bookingResult ? formatINR(bookingResult.estimatedTotal) : ""}
@@ -790,7 +791,7 @@ export default function SalesOrdersView() {
           </DialogHeader>
           {bookingResult?.deliveryOtp ? (
             <div className="rounded-xl border border-dmk-border-subtle bg-dmk-input-well p-4 text-center">
-              <p className="text-[10.5px] font-bold uppercase tracking-widest text-dmk-text-muted">Delivery OTP — prints on the bill</p>
+              <p className="text-[10.5px] font-bold uppercase tracking-widest text-dmk-text-muted">{t("so.otpPrints")}</p>
               <p className="font-money text-[38px] font-bold tracking-[0.35em] text-dmk-yellow mt-1">{bookingResult.deliveryOtp}</p>
             </div>
           ) : null}
@@ -812,11 +813,11 @@ export default function SalesOrdersView() {
                   setView("logistics/planner");
                 }}
               >
-                <Truck className="h-4 w-4" /> Open Trip Planner
+                <Truck className="h-4 w-4" /> {t("so.openPlanner")}
               </Button>
             )}
             <Button variant="outline" className="h-9 border-dmk-border-subtle text-dmk-text-secondary" onClick={() => setBookingResult(null)}>
-              Close
+              {t("cmn.close")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -840,13 +841,14 @@ function UploadCard({
 }) {
   const [dragOver, setDragOver] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const { t } = useT();
 
   return (
-    <AsideCard title="Deep scan — upload order" icon={FileUp} iconClass="text-dmk-yellow">
+    <AsideCard title={t("so.uploadTitle")} icon={FileUp} iconClass="text-dmk-yellow">
       <div
         role="button"
         tabIndex={0}
-        aria-label="Upload an order PDF or photo"
+        aria-label={t("so.uploadAria")}
         onClick={() => inputRef.current?.click()}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -875,14 +877,14 @@ function UploadCard({
         {scanning ? (
           <>
             <Loader2 className="h-7 w-7 animate-spin text-dmk-yellow" strokeWidth={1.5} />
-            <p className="text-[13px] font-semibold text-dmk-text-primary">Deep scanning…</p>
-            <p className="text-[11px] text-dmk-text-muted">OCR + table parse + matching — a few seconds</p>
+            <p className="text-[13px] font-semibold text-dmk-text-primary">{t("so.scanningTitle")}</p>
+            <p className="text-[11px] text-dmk-text-muted">{t("so.scanningSub")}</p>
           </>
         ) : (
           <>
             <ScanSearch className="h-7 w-7 text-dmk-text-muted" strokeWidth={1.5} />
-            <p className="text-[13px] font-semibold text-dmk-text-primary">Drop order PDF / photo here</p>
-            <p className="text-[11px] text-dmk-text-muted">or click to browse — PDF, PNG, JPG, WebP up to 8 MB</p>
+            <p className="text-[13px] font-semibold text-dmk-text-primary">{t("so.dropHere")}</p>
+            <p className="text-[11px] text-dmk-text-muted">{t("so.browse")}</p>
           </>
         )}
         <input
@@ -902,7 +904,7 @@ function UploadCard({
         className="mt-3 h-8 w-full border-dmk-border-subtle text-[12px] text-dmk-text-secondary hover:bg-dmk-hover"
         onClick={onPaste}
       >
-        <MessageSquareText className="h-3.5 w-3.5" /> Or paste a WhatsApp order
+        <MessageSquareText className="h-3.5 w-3.5" /> {t("so.orPaste")}
       </Button>
     </AsideCard>
   );
@@ -935,6 +937,7 @@ function StagingTerminal({
   onBooked: (result: { orderNumber: string; deliveryOtp: string; estimatedTotal: number; warnings: string[]; mode: string }) => void;
 }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
 
   const [detail, setDetail] = React.useState<StagedDetail | null>(null);
@@ -975,10 +978,10 @@ function StagingTerminal({
         );
       })
       .catch((e) => {
-        setError(e instanceof Error ? e.message : "Could not load this upload");
+        setError(e instanceof Error ? e.message : t("so.errLoadUpload"));
       })
       .finally(() => setLoading(false));
-  }, [stagedId]);
+  }, [stagedId, t]);
 
   React.useEffect(() => {
     loadDetail();
@@ -1089,10 +1092,10 @@ function StagingTerminal({
           isUnlisted: i.isUnlisted,
         }))
       );
-      toast({ title: "Draft lines saved" });
+      toast({ title: t("so.toastLinesSaved") });
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save the draft");
+      setError(e instanceof Error ? e.message : t("so.errSaveDraft"));
       return false;
     } finally {
       setSaving(false);
@@ -1102,16 +1105,16 @@ function StagingTerminal({
   async function discard() {
     try {
       await apiPatch(`/api/v1/sales-orders/staged/${stagedId}`, { status: "DISCARDED" });
-      toast({ title: "Upload discarded", description: "It stays in the archive view, out of the working queue." });
+      toast({ title: t("so.toastDiscarded"), description: t("so.toastDiscardedDesc") });
       onClose(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not discard");
+      setError(e instanceof Error ? e.message : t("so.errDiscard"));
     }
   }
 
   async function book(mode: "DRAFT" | "CONFIRMED") {
     if (lines.length === 0) {
-      setError("Keep at least one line item");
+      setError(t("so.errKeepOne"));
       return;
     }
     setBooking(true);
@@ -1134,7 +1137,7 @@ function StagingTerminal({
         mode,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not book this order");
+      setError(e instanceof Error ? e.message : t("so.errBook"));
     } finally {
       setBooking(false);
     }
@@ -1175,7 +1178,7 @@ function StagingTerminal({
             <div className="min-w-0 border-b lg:border-b-0 lg:border-r border-dmk-border-subtle flex flex-col bg-[#090E1A]">
               <div className="px-4 py-2 border-b border-dmk-border-subtle flex items-center gap-2">
                 <Eye className="h-3.5 w-3.5 text-dmk-text-muted" />
-                <p className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">Original document</p>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">{t("so.origDocument")}</p>
               </div>
               <div className="flex-1 overflow-auto p-3">
                 {isImage && (
@@ -1365,7 +1368,7 @@ function StagingTerminal({
                               />
                             </label>
                             <div className="flex flex-col justify-end">
-                              <span className="text-[9.5px] font-bold uppercase tracking-wider text-dmk-text-muted">Line total</span>
+                              <span className="text-[9.5px] font-bold uppercase tracking-wider text-dmk-text-muted">{t("so.lineTotal")}</span>
                               <span className="font-money text-[13px] font-semibold text-dmk-text-primary mt-1">{formatINR(lineTotal)}</span>
                             </div>
                           </div>
@@ -1413,7 +1416,7 @@ function StagingTerminal({
                 {/* Totals */}
                 <div className="rounded-xl border border-dmk-border-subtle bg-dmk-input-well/40 p-3.5 space-y-1.5 text-[12.5px]">
                   <div className="flex justify-between text-dmk-text-secondary">
-                    <span>Items subtotal</span>
+                    <span>{t("so.itemsSubtotal")}</span>
                     <span className="font-money">{formatINR(totals.subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-dmk-text-secondary">

@@ -44,6 +44,7 @@ import { apiGet } from "@/lib/api-client";
 import { formatINR, formatDate } from "@/lib/format";
 import { useErpStore } from "@/store/erp-store";
 import { requestAgingTab } from "@/lib/settle-bus";
+import { useT, type TFn } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { DashboardAiChat } from "./dashboard-ai-chat";
 
@@ -164,19 +165,20 @@ const TXN_TONE: Record<string, BadgeTone> = {
   DEBIT_NOTE: "warning",
 };
 
-const TXN_LABEL: Record<string, string> = {
-  INVOICE: "SALES",
-  PURCHASE_ORDER: "PURCHASE",
-  CUSTOMER_RECEIPT: "RECEIPT",
-  VENDOR_PAYMENT: "PAYMENT",
-  CREDIT_NOTE: "CR NOTE",
-  DEBIT_NOTE: "DR NOTE",
+const TXN_LABEL_KEY: Record<string, string> = {
+  INVOICE: "dash.txnSales",
+  PURCHASE_ORDER: "dash.txnPurchase",
+  CUSTOMER_RECEIPT: "dash.txnReceipt",
+  VENDOR_PAYMENT: "dash.txnPayment",
+  CREDIT_NOTE: "dash.txnCrNote",
+  DEBIT_NOTE: "dash.txnDrNote",
 };
 
 export default function DashboardView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const activeFirm = useErpStore((s) => s.firms.find((f) => f.id === s.activeFirmId));
   const setView = useErpStore((s) => s.setView);
+  const { t } = useT();
 
   const [data, setData] = React.useState<DashboardResponse | null>(null);
   const [lowStock, setLowStock] = React.useState<LowStockMini[]>([]);
@@ -260,11 +262,11 @@ export default function DashboardView() {
         setApPulse(null);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load dashboard");
+      setError(e instanceof Error ? e.message : t("dash.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [activeFirmId]);
+  }, [activeFirmId, t]);
 
   React.useEffect(() => {
     void load();
@@ -308,8 +310,8 @@ export default function DashboardView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Dashboard"
-        subtitle={`${activeFirm?.firmName ?? data?.firmName ?? "—"} · Executive cockpit`}
+        title={t("nav.dashboard")}
+        subtitle={t("dash.subtitle", { firm: activeFirm?.firmName ?? data?.firmName ?? "—" })}
         actions={
           <Button
             variant="outline"
@@ -319,7 +321,7 @@ export default function DashboardView() {
             className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
           >
             <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-            Refresh
+            {t("cmn.refresh")}
           </Button>
         }
       />
@@ -342,55 +344,56 @@ export default function DashboardView() {
         <>
           {/* ── KPI row (click to drill down) ───────────── */}
           <div className="dmk-enter-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <KpiCard label="Today's Sales" value={formatINR(data.todaySales)} tone="orange" icon={IndianRupee}
+            <KpiCard label={t("dash.kpiTodaySales")} value={formatINR(data.todaySales)} tone="orange" icon={IndianRupee}
               spark={trendSpark} sparkColor="#FF6B00"
-              onClick={() => setView("sales/invoices")} drillHint="Invoice Register" />
-            <KpiCard label="Month Sales" value={formatINR(data.monthSales)} tone="blue" icon={CalendarDays}
+              onClick={() => setView("sales/invoices")} drillHint={t("nav.invoices")} />
+            <KpiCard label={t("dash.kpiMonthSales")} value={formatINR(data.monthSales)} tone="blue" icon={CalendarDays}
               spark={monthSpark} sparkColor="#2563EB"
-              onClick={() => setView("reports")} drillHint="Sales Report" />
+              onClick={() => setView("reports")} drillHint={t("dash.drillSalesReport")} />
             <KpiCard
-              label="Receivables"
+              label={t("dash.kpiReceivables")}
               value={formatINR(data.receivables)}
               tone="orange"
-              sub={data.receivablesAdvances > 0.009 ? `Net · incl. ${formatINR(data.receivablesAdvances)} advances` : "Dr — owed by customers"}
+              sub={data.receivablesAdvances > 0.009 ? t("dash.subNetAdvances", { amt: formatINR(data.receivablesAdvances) }) : t("dash.subDrOwed")}
               icon={HandCoins}
               onClick={() => setView("finance/aging")}
-              drillHint="AR Aging"
+              drillHint={t("dash.drillArAging")}
             />
             <KpiCard
-              label="Payables"
+              label={t("dash.kpiPayables")}
               value={formatINR(data.payables)}
               tone="info"
-              sub={data.payablesCredits > 0.009 ? `Net · incl. ${formatINR(data.payablesCredits)} credits` : "Cr — owed to vendors"}
+              sub={data.payablesCredits > 0.009 ? t("dash.subNetCredits", { amt: formatINR(data.payablesCredits) }) : t("dash.subCrOwed")}
               icon={Banknote}
               onClick={() => setView("finance/aging")}
-              drillHint="AP Aging"
+              drillHint={t("dash.drillApAging")}
             />
             <KpiCard
-              label="Cash + Bank"
+              label={t("dash.kpiCashBank")}
               value={formatINR(data.cash + data.bank)}
               tone="success"
-              sub={`Cash ${formatINR(data.cash)} · Bank ${formatINR(data.bank)}`}
+              sub={t("dash.subCashBank", { cash: formatINR(data.cash), bank: formatINR(data.bank) })}
               icon={Wallet}
               onClick={() => setView("finance/daybook")}
-              drillHint="Day Book"
+              drillHint={t("nav.daybook")}
             />
             <KpiCard
-              label="Inventory Value"
+              label={t("dash.kpiInventory")}
               value={formatINR(data.inventoryValue)}
               tone="default"
-              sub={`Damaged: ${formatINR(data.damagedValue)}`}
+              sub={t("dash.subDamaged", { amt: formatINR(data.damagedValue) })}
               icon={Boxes}
               onClick={() => setView("inventory/stock")}
-              drillHint="Stock Levels"
+              drillHint={t("nav.stock")}
             />
           </div>
 
           {/* ── Compliance + collections pulses (GSTR-2B · overdue AR) ── */}
-          {gstPulse && <GstPulseCard pulse={gstPulse} onDrill={() => setView("finance/gstr2b")} />}
+          {gstPulse && <GstPulseCard pulse={gstPulse} onDrill={() => setView("finance/gstr2b")} t={t} />}
           {overduePulse && (
             <OverduePulseCard
               pulse={overduePulse}
+              t={t}
               onDrill={() => {
                 requestAgingTab("inv");
                 setView("finance/aging");
@@ -400,6 +403,7 @@ export default function DashboardView() {
           {apPulse && (
             <ApOverduePulseCard
               pulse={apPulse}
+              t={t}
               onDrill={() => {
                 requestAgingTab("po");
                 setView("finance/aging");
@@ -412,10 +416,10 @@ export default function DashboardView() {
             <div className="dmk-card p-4 lg:col-span-2">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h2 className="text-[15px] font-semibold text-dmk-text-primary">Sales Trend</h2>
-                  <p className="text-[11px] text-dmk-text-muted">Last 7 days · posted invoices</p>
+                  <h2 className="text-[15px] font-semibold text-dmk-text-primary">{t("dash.trendTitle")}</h2>
+                  <p className="text-[11px] text-dmk-text-muted">{t("dash.trendSub")}</p>
                 </div>
-                <Badge tone="info">7 DAYS</Badge>
+                <Badge tone="info">{t("dash.badge7d")}</Badge>
               </div>
               <div className="h-[260px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -451,7 +455,7 @@ export default function DashboardView() {
                     <Area
                       type="monotone"
                       dataKey="total"
-                      name="Sales"
+                      name={t("dash.seriesSales")}
                       stroke="#2563EB"
                       strokeWidth={2}
                       fill="url(#dmkSalesGradient)"
@@ -465,9 +469,9 @@ export default function DashboardView() {
             <div className="dmk-card p-4">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h2 className="text-[15px] font-semibold text-dmk-text-primary">AR Aging</h2>
+                  <h2 className="text-[15px] font-semibold text-dmk-text-primary">{t("dash.drillArAging")}</h2>
                   <p className="text-[11px] text-dmk-text-muted">
-                    Total outstanding {formatINR(data.arAging.total)}
+                    {t("dash.arTotalOutstanding", { amt: formatINR(data.arAging.total) })}
                   </p>
                 </div>
                 <Badge tone="dr">Dr</Badge>
@@ -498,7 +502,7 @@ export default function DashboardView() {
                       formatter={(value) => formatINR(Number(value))}
                       cursor={{ fill: "rgba(37,99,235,0.08)" }}
                     />
-                    <Bar dataKey="amount" name="Receivable" radius={[0, 4, 4, 0]} barSize={20}>
+                    <Bar dataKey="amount" name={t("dash.seriesReceivable")} radius={[0, 4, 4, 0]} barSize={20}>
                       {agingRows.map((row, i) => (
                         <Cell key={row.bucket} fill={AGING_COLORS[i]} />
                       ))}
@@ -514,14 +518,14 @@ export default function DashboardView() {
             <div className="dmk-card p-4">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h2 className="text-[15px] font-semibold text-dmk-text-primary">Top Products</h2>
-                  <p className="text-[11px] text-dmk-text-muted">Last 30 days · by quantity sold</p>
+                  <h2 className="text-[15px] font-semibold text-dmk-text-primary">{t("dash.topProducts")}</h2>
+                  <p className="text-[11px] text-dmk-text-muted">{t("dash.topProductsSub")}</p>
                 </div>
                 <ShoppingBag className="h-4 w-4 text-dmk-text-muted" />
               </div>
               {data.topProducts.length === 0 ? (
                 <p className="py-10 text-center text-[12.5px] text-dmk-text-muted">
-                  No sales recorded in the last 30 days.
+                  {t("dash.topProductsEmpty")}
                 </p>
               ) : (
                 <ul className="max-h-[300px] overflow-y-auto space-y-1 pr-1">
@@ -551,10 +555,10 @@ export default function DashboardView() {
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <h2 className="text-[15px] font-semibold text-dmk-text-primary flex items-center gap-2">
-                    Low Stock Alerts
+                    {t("nav.lowStock")}
                     {data.lowStockCount > 0 && <Badge tone="danger">{data.lowStockCount}</Badge>}
                   </h2>
-                  <p className="text-[11px] text-dmk-text-muted">Products at or below reorder threshold</p>
+                  <p className="text-[11px] text-dmk-text-muted">{t("dash.lowStockSub")}</p>
                 </div>
                 <AlertTriangle
                   className={cn("h-4 w-4", data.lowStockCount > 0 ? "text-dmk-warning" : "text-dmk-text-muted")}
@@ -562,7 +566,7 @@ export default function DashboardView() {
               </div>
               {lowStockRail.length === 0 ? (
                 <p className="py-10 text-center text-[12.5px] text-dmk-text-muted">
-                  All stock levels healthy.
+                  {t("dash.lowStockHealthy")}
                 </p>
               ) : (
                 <ul className="space-y-1 flex-1">
@@ -574,7 +578,7 @@ export default function DashboardView() {
                       <div className="min-w-0 flex-1">
                         <p className="text-[13px] font-medium text-dmk-text-primary truncate">{item.name}</p>
                         <p className="text-[10.5px] text-dmk-text-muted font-money">
-                          {item.sku} · stock {item.stockQuantity}/{item.lowStockThreshold}
+                          {t("dash.stockOf", { sku: item.sku, qty: item.stockQuantity, thr: item.lowStockThreshold })}
                         </p>
                       </div>
                       <Badge tone="warning">−{item.shortfall}</Badge>
@@ -584,7 +588,7 @@ export default function DashboardView() {
                         className="h-7 px-2.5 text-[11.5px] border-dmk-border-subtle bg-dmk-input-well hover:bg-dmk-hover"
                         onClick={() => setView("inventory/low-stock")}
                       >
-                        Reorder
+                        {t("dash.reorder")}
                       </Button>
                     </li>
                   ))}
@@ -595,7 +599,7 @@ export default function DashboardView() {
                   onClick={() => setView("inventory/low-stock")}
                   className="mt-3 self-start text-[12px] font-medium text-dmk-blue hover:underline"
                 >
-                  View all {lowStock.length} alerts →
+                  {t("dash.viewAllAlerts", { n: lowStock.length })}
                 </button>
               )}
             </div>
@@ -605,30 +609,32 @@ export default function DashboardView() {
           <div className="dmk-card">
             <div className="flex items-center justify-between p-4 pb-3">
               <div>
-                <h2 className="text-[15px] font-semibold text-dmk-text-primary">Recent Transactions</h2>
-                <p className="text-[11px] text-dmk-text-muted">Latest 10 documents across the ledger</p>
+                <h2 className="text-[15px] font-semibold text-dmk-text-primary">{t("dash.recentTxns")}</h2>
+                <p className="text-[11px] text-dmk-text-muted">{t("dash.recentTxnsSub")}</p>
               </div>
               <TrendingUp className="h-4 w-4 text-dmk-text-muted" />
             </div>
             {data.recentTransactions.length === 0 ? (
-              <p className="pb-8 text-center text-[12.5px] text-dmk-text-muted">No transactions yet.</p>
+              <p className="pb-8 text-center text-[12.5px] text-dmk-text-muted">{t("dash.noTxns")}</p>
             ) : (
               <ul className="max-h-[360px] overflow-y-auto border-t border-dmk-border-subtle">
-                {data.recentTransactions.map((t, i) => (
+                {data.recentTransactions.map((txn, i) => (
                   <li
-                    key={`${t.type}-${t.number}-${i}`}
+                    key={`${txn.type}-${txn.number}-${i}`}
                     className="flex items-center gap-3 px-4 py-2.5 border-b border-dmk-border-subtle last:border-0 hover:bg-dmk-hover transition-colors"
                   >
-                    <Badge tone={TXN_TONE[t.type] ?? "neutral"}>{TXN_LABEL[t.type] ?? t.type}</Badge>
+                    <Badge tone={TXN_TONE[txn.type] ?? "neutral"}>
+                      {TXN_LABEL_KEY[txn.type] ? t(TXN_LABEL_KEY[txn.type]) : txn.type}
+                    </Badge>
                     <div className="min-w-0 flex-1">
                       <p className="text-[13px] font-medium text-dmk-text-primary truncate font-money">
-                        {t.number}
+                        {txn.number}
                       </p>
-                      <p className="text-[11px] text-dmk-text-muted truncate">{t.party}</p>
+                      <p className="text-[11px] text-dmk-text-muted truncate">{txn.party}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <Money value={t.amount} className="text-[13px] text-dmk-text-primary" />
-                      <p className="text-[10.5px] text-dmk-text-muted">{formatDate(t.date)}</p>
+                      <Money value={txn.amount} className="text-[13px] text-dmk-text-primary" />
+                      <p className="text-[10.5px] text-dmk-text-muted">{formatDate(txn.date)}</p>
                     </div>
                   </li>
                 ))}
@@ -647,28 +653,28 @@ export default function DashboardView() {
 // neutral import prompt. Whole card drills into the recon view.
 // ═══════════════════════════════════════════════════════════════
 
-function GstPulseCard({ pulse, onDrill }: { pulse: Gstr2bPulse; onDrill: () => void }) {
+function GstPulseCard({ pulse, onDrill, t }: { pulse: Gstr2bPulse; onDrill: () => void; t: TFn }) {
   const noData = pulse.records2b === 0 && pulse.missingIn2b === 0;
   const clean = !noData && pulse.netItcRisk <= 0.009 && pulse.missingInBooks === 0 && pulse.mismatches === 0;
   const atRisk = pulse.missingInBooks > 0 || pulse.netItcRisk > 0.009;
   const warn = !noData && !clean && !atRisk; // mismatches / books-only extras
 
   const status = noData
-    ? { label: "NO 2B DATA", tone: "neutral" as const, dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
+    ? { label: t("dash.gstStatusNoData"), tone: "neutral" as const, dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
     : clean
-      ? { label: "CLEAN PERIOD", tone: "success" as const, dot: "bg-dmk-success", ring: "border-dmk-success/30" }
+      ? { label: t("dash.gstStatusClean"), tone: "success" as const, dot: "bg-dmk-success", ring: "border-dmk-success/30" }
       : atRisk
-        ? { label: "ITC AT RISK", tone: "danger" as const, dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
-        : { label: "REVIEW EXCEPTIONS", tone: "warning" as const, dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
+        ? { label: t("dash.gstStatusRisk"), tone: "danger" as const, dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
+        : { label: t("dash.gstStatusReview"), tone: "warning" as const, dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
 
   const matchRate = pulse.records2b > 0 ? Math.round((pulse.matched / pulse.records2b) * 100) : 0;
 
   const stats = [
-    { label: "ITC · Books", value: formatINR(pulse.itcBooks), cls: "text-dmk-text-primary" },
-    { label: "ITC · 2B", value: formatINR(pulse.itc2b), cls: "text-dmk-text-primary" },
-    { label: "Matched", value: `${pulse.matched}/${pulse.records2b} bills`, cls: "text-dmk-success" },
+    { label: t("dash.gstItcBooks"), value: formatINR(pulse.itcBooks), cls: "text-dmk-text-primary" },
+    { label: t("dash.gstItc2b"), value: formatINR(pulse.itc2b), cls: "text-dmk-text-primary" },
+    { label: t("dash.gstMatched"), value: t("dash.gstMatchedVal", { m: pulse.matched, n: pulse.records2b }), cls: "text-dmk-success" },
     {
-      label: "At risk",
+      label: t("dash.gstAtRisk"),
       value: formatINR(Math.max(0, pulse.netItcRisk)),
       cls: atRisk ? "text-dmk-danger" : "text-dmk-text-secondary",
     },
@@ -678,7 +684,7 @@ function GstPulseCard({ pulse, onDrill }: { pulse: Gstr2bPulse; onDrill: () => v
     <div
       role="button"
       tabIndex={0}
-      aria-label={`GST compliance ${status.label} — open GSTR-2B reconciliation`}
+      aria-label={t("dash.gstAria", { label: status.label })}
       onClick={onDrill}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -715,13 +721,13 @@ function GstPulseCard({ pulse, onDrill }: { pulse: Gstr2bPulse; onDrill: () => v
           </div>
           <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-              GST Compliance · GSTR-2B
+              {t("dash.gstHeader")}
             </p>
             <p className="text-[14.5px] font-bold text-dmk-text-primary flex items-center gap-2">
               <span className={cn("h-1.5 w-1.5 rounded-full animate-pulse", status.dot)} />
               {status.label}
             </p>
-            <p className="text-[10.5px] text-dmk-text-muted font-money">Period {pulse.period}</p>
+            <p className="text-[10.5px] text-dmk-text-muted font-money">{t("dash.gstPeriod", { p: pulse.period })}</p>
           </div>
         </div>
 
@@ -738,7 +744,7 @@ function GstPulseCard({ pulse, onDrill }: { pulse: Gstr2bPulse; onDrill: () => v
         {/* Match-rate meter + drill */}
         <div className="lg:w-[190px] shrink-0 flex flex-col gap-1.5">
           <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-            <span>Match rate</span>
+            <span>{t("dash.gstMatchRate")}</span>
             <span className="font-money text-dmk-text-secondary">{matchRate}%</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-dmk-input-well overflow-hidden">
@@ -751,14 +757,14 @@ function GstPulseCard({ pulse, onDrill }: { pulse: Gstr2bPulse; onDrill: () => v
             />
           </div>
           <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-dmk-blue/80 mt-0.5">
-            GSTR-2B Recon <ArrowRight className="h-3 w-3" />
+            {t("nav.gstr2b")} <ArrowRight className="h-3 w-3" />
           </span>
         </div>
       </div>
 
       {noData && (
         <p className="mt-3 text-[11.5px] text-dmk-text-muted border-t border-dmk-border-subtle pt-2.5">
-          No 2B records imported for the current period — import the portal CSV to verify input tax credit before filing.
+          {t("dash.gstNoDataNote")}
         </p>
       )}
     </div>
@@ -771,7 +777,7 @@ function GstPulseCard({ pulse, onDrill }: { pulse: Gstr2bPulse; onDrill: () => v
 // late?" at a glance. Drills into the invoice-wise AR aging tab.
 // ═══════════════════════════════════════════════════════════════
 
-function OverduePulseCard({ pulse, onDrill }: { pulse: OverduePulse; onDrill: () => void }) {
+function OverduePulseCard({ pulse, onDrill, t }: { pulse: OverduePulse; onDrill: () => void; t: TFn }) {
   const noOpen = pulse.openInvoices === 0;
   const allClean = !noOpen && pulse.overdueInvoices === 0;
   // ≥40% of the open book overdue → red, otherwise amber
@@ -779,23 +785,23 @@ function OverduePulseCard({ pulse, onDrill }: { pulse: OverduePulse; onDrill: ()
   const severe = overdueShare >= 0.4;
 
   const status = noOpen
-    ? { label: "NO OPEN INVOICES", tone: "neutral" as const, dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
+    ? { label: t("dash.arNoOpen"), tone: "neutral" as const, dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
     : allClean
-      ? { label: "ALL WITHIN TERMS", tone: "success" as const, dot: "bg-dmk-success", ring: "border-dmk-success/30" }
+      ? { label: t("dash.allWithinTerms"), tone: "success" as const, dot: "bg-dmk-success", ring: "border-dmk-success/30" }
       : severe
-        ? { label: `${pulse.overdueInvoices} OVERDUE`, tone: "danger" as const, dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
-        : { label: `${pulse.overdueInvoices} OVERDUE`, tone: "warning" as const, dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
+        ? { label: t("dash.overdueCount", { n: pulse.overdueInvoices }), tone: "danger" as const, dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
+        : { label: t("dash.overdueCount", { n: pulse.overdueInvoices }), tone: "warning" as const, dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
 
   const stats = [
-    { label: "Open book", value: formatINR(pulse.outstanding), cls: "text-dmk-text-primary" },
+    { label: t("dash.arOpenBook"), value: formatINR(pulse.outstanding), cls: "text-dmk-text-primary" },
     {
-      label: "Overdue",
+      label: t("dash.arOverdueLabel"),
       value: formatINR(pulse.overdue),
       cls: pulse.overdueInvoices > 0 ? "text-dmk-danger" : "text-dmk-success",
     },
-    { label: "Open invoices", value: String(pulse.openInvoices), cls: "text-dmk-text-primary" },
+    { label: t("dash.arOpenInvoices"), value: String(pulse.openInvoices), cls: "text-dmk-text-primary" },
     {
-      label: pulse.overdueInvoices > 0 ? "Worst past due" : "Next due",
+      label: pulse.overdueInvoices > 0 ? t("dash.worstPastDue") : t("dash.nextDue"),
       value:
         pulse.overdueInvoices > 0
           ? `${pulse.worstOverdueDays}d${pulse.topOverdueParty ? ` · ${pulse.topOverdueParty.split(" ")[0]}` : ""}`
@@ -812,7 +818,7 @@ function OverduePulseCard({ pulse, onDrill }: { pulse: OverduePulse; onDrill: ()
     <div
       role="button"
       tabIndex={0}
-      aria-label={`Collections ${status.label} — open invoice-wise receivables aging`}
+      aria-label={t("dash.arAria", { label: status.label })}
       onClick={onDrill}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -849,7 +855,7 @@ function OverduePulseCard({ pulse, onDrill }: { pulse: OverduePulse; onDrill: ()
           </div>
           <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-              Collections · Receivables
+              {t("dash.arHeader")}
             </p>
             <p className="text-[14.5px] font-bold text-dmk-text-primary flex items-center gap-2">
               <span className={cn("h-1.5 w-1.5 rounded-full animate-pulse", status.dot)} />
@@ -857,8 +863,8 @@ function OverduePulseCard({ pulse, onDrill }: { pulse: OverduePulse; onDrill: ()
             </p>
             <p className="text-[10.5px] text-dmk-text-muted truncate">
               {allClean && pulse.nextDueDate
-                ? `Next payment due ${formatDate(pulse.nextDueDate)}`
-                : "Aged against posted credit invoices & credit terms"}
+                ? t("dash.arNextPaymentDue", { date: formatDate(pulse.nextDueDate) })
+                : t("dash.arAgedNote")}
             </p>
           </div>
         </div>
@@ -876,7 +882,7 @@ function OverduePulseCard({ pulse, onDrill }: { pulse: OverduePulse; onDrill: ()
         {/* Overdue-share meter + drill */}
         <div className="lg:w-[190px] shrink-0 flex flex-col gap-1.5">
           <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-            <span>Overdue share</span>
+            <span>{t("dash.arOverdueShare")}</span>
             <span className="font-money text-dmk-text-secondary">{meterPct}%</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-dmk-input-well overflow-hidden">
@@ -889,23 +895,25 @@ function OverduePulseCard({ pulse, onDrill }: { pulse: OverduePulse; onDrill: ()
             />
           </div>
           <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-dmk-blue/80 mt-0.5">
-            Invoice-wise Aging <ArrowRight className="h-3 w-3" />
+            {t("dash.arAgingLink")} <ArrowRight className="h-3 w-3" />
           </span>
         </div>
       </div>
 
       {allClean && (
         <p className="mt-3 text-[11.5px] text-dmk-text-muted border-t border-dmk-border-subtle pt-2.5">
-          Every open credit invoice is inside its customer's credit terms — collections healthy.
+          {t("dash.arCleanNote")}
           {pulse.unappliedReceipts > 0.009 && (
-            <> of which <span className="font-money text-dmk-info">{formatINR(pulse.unappliedReceipts)}</span> sits as on-account receipts awaiting allocation.</>
+            <> {t("dash.arCleanNoteUnapplied", { amt: formatINR(pulse.unappliedReceipts) })}</>
           )}
         </p>
       )}
       {severe && (
         <p className="mt-3 text-[11.5px] text-dmk-warning border-t border-dmk-border-subtle pt-2.5">
-          {Math.round(overdueShare * 100)}% of the open receivables book is past credit terms — chase{" "}
-          {pulse.topOverdueParty ?? "the oldest invoices"} first.
+          {t("dash.arSevereNote", {
+            pct: Math.round(overdueShare * 100),
+            party: pulse.topOverdueParty ?? t("dash.arSevereFallback"),
+          })}
         </p>
       )}
     </div>
@@ -918,30 +926,30 @@ function OverduePulseCard({ pulse, onDrill }: { pulse: OverduePulse; onDrill: ()
 // from the precise PO-wise AP aging. Drills into the PO aging tab.
 // ═══════════════════════════════════════════════════════════════
 
-function ApOverduePulseCard({ pulse, onDrill }: { pulse: ApOverduePulse; onDrill: () => void }) {
+function ApOverduePulseCard({ pulse, onDrill, t }: { pulse: ApOverduePulse; onDrill: () => void; t: TFn }) {
   const noOpen = pulse.openPOs === 0;
   const allClean = !noOpen && pulse.overduePOs === 0;
   const overdueShare = pulse.outstanding > 0 ? pulse.overdue / pulse.outstanding : 0;
   const severe = overdueShare >= 0.4;
 
   const status = noOpen
-    ? { label: "NO OPEN BILLS", dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
+    ? { label: t("dash.apNoOpen"), dot: "bg-dmk-text-muted", ring: "border-dmk-border-subtle" }
     : allClean
-      ? { label: "ALL WITHIN TERMS", dot: "bg-dmk-success", ring: "border-dmk-success/30" }
+      ? { label: t("dash.allWithinTerms"), dot: "bg-dmk-success", ring: "border-dmk-success/30" }
       : severe
-        ? { label: `${pulse.overduePOs} OVERDUE`, dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
-        : { label: `${pulse.overduePOs} OVERDUE`, dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
+        ? { label: t("dash.overdueCount", { n: pulse.overduePOs }), dot: "bg-dmk-danger", ring: "border-dmk-danger/35" }
+        : { label: t("dash.overdueCount", { n: pulse.overduePOs }), dot: "bg-dmk-warning", ring: "border-dmk-warning/35" };
 
   const stats = [
-    { label: "Open payables", value: formatINR(pulse.outstanding), cls: "text-dmk-text-primary" },
+    { label: t("dash.apOpenPayables"), value: formatINR(pulse.outstanding), cls: "text-dmk-text-primary" },
     {
-      label: "Past terms",
+      label: t("dash.apPastTerms"),
       value: formatINR(pulse.overdue),
       cls: pulse.overduePOs > 0 ? "text-dmk-danger" : "text-dmk-success",
     },
-    { label: "Open POs", value: String(pulse.openPOs), cls: "text-dmk-text-primary" },
+    { label: t("dash.apOpenPOs"), value: String(pulse.openPOs), cls: "text-dmk-text-primary" },
     {
-      label: pulse.overduePOs > 0 ? "Worst past due" : "Next payment due",
+      label: pulse.overduePOs > 0 ? t("dash.worstPastDue") : t("dash.apNextDueLabel"),
       value:
         pulse.overduePOs > 0
           ? `${pulse.worstOverdueDays}d${pulse.topOverdueVendor ? ` · ${pulse.topOverdueVendor.split(" ")[0]}` : ""}`
@@ -958,7 +966,7 @@ function ApOverduePulseCard({ pulse, onDrill }: { pulse: ApOverduePulse; onDrill
     <div
       role="button"
       tabIndex={0}
-      aria-label={`Payables ${status.label} — open PO-wise payables aging`}
+      aria-label={t("dash.apAria", { label: status.label })}
       onClick={onDrill}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -995,7 +1003,7 @@ function ApOverduePulseCard({ pulse, onDrill }: { pulse: ApOverduePulse; onDrill
           </div>
           <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-              Payments · Payables
+              {t("dash.apHeader")}
             </p>
             <p className="text-[14.5px] font-bold text-dmk-text-primary flex items-center gap-2">
               <span className={cn("h-1.5 w-1.5 rounded-full animate-pulse", status.dot)} />
@@ -1003,8 +1011,8 @@ function ApOverduePulseCard({ pulse, onDrill }: { pulse: ApOverduePulse; onDrill
             </p>
             <p className="text-[10.5px] text-dmk-text-muted truncate">
               {allClean && pulse.nextDueDate
-                ? `Next vendor payment due ${formatDate(pulse.nextDueDate)}`
-                : "Aged against confirmed POs & vendor payment terms"}
+                ? t("dash.apVendorNextDue", { date: formatDate(pulse.nextDueDate) })
+                : t("dash.apAgedNote")}
             </p>
           </div>
         </div>
@@ -1022,7 +1030,7 @@ function ApOverduePulseCard({ pulse, onDrill }: { pulse: ApOverduePulse; onDrill
         {/* Overdue-share meter + drill */}
         <div className="lg:w-[190px] shrink-0 flex flex-col gap-1.5">
           <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-            <span>Past-terms share</span>
+            <span>{t("dash.apPastTermsShare")}</span>
             <span className="font-money text-dmk-text-secondary">{meterPct}%</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-dmk-input-well overflow-hidden">
@@ -1035,20 +1043,22 @@ function ApOverduePulseCard({ pulse, onDrill }: { pulse: ApOverduePulse; onDrill
             />
           </div>
           <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-dmk-blue/80 mt-0.5">
-            PO-wise Aging <ArrowRight className="h-3 w-3" />
+            {t("dash.apAgingLink")} <ArrowRight className="h-3 w-3" />
           </span>
         </div>
       </div>
 
       {allClean && (
         <p className="mt-3 text-[11.5px] text-dmk-text-muted border-t border-dmk-border-subtle pt-2.5">
-          Every confirmed PO is inside its vendor's payment terms — payables healthy.
+          {t("dash.apCleanNote")}
         </p>
       )}
       {severe && (
         <p className="mt-3 text-[11.5px] text-dmk-warning border-t border-dmk-border-subtle pt-2.5">
-          {Math.round(overdueShare * 100)}% of the open payables book is past vendor terms — settle{" "}
-          {pulse.topOverdueVendor ?? "the oldest bills"} first to protect credit supply.
+          {t("dash.apSevereNote", {
+            pct: Math.round(overdueShare * 100),
+            vendor: pulse.topOverdueVendor ?? t("dash.apSevereFallback"),
+          })}
         </p>
       )}
     </div>

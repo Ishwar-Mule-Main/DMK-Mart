@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/tooltip";
 import { apiGet } from "@/lib/api-client";
 import { downloadCSV, formatINR, formatDate } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { useErpStore } from "@/store/erp-store";
 import { requestLedgerParty } from "@/lib/settle-bus";
 import { useToast } from "@/hooks/use-toast";
@@ -114,6 +115,7 @@ const BUCKET_CHIPS: Array<{ key: keyof BucketSet; label: string; cls: string }> 
 ];
 
 function BucketChips({ buckets }: { buckets: BucketSet }) {
+  const { t } = useT();
   const total = buckets.d0_30 + buckets.d31_60 + buckets.d61_90 + buckets.d90plus;
   if (total <= 0.009) return <span className="text-[11px] text-dmk-text-muted">—</span>;
   return (
@@ -121,7 +123,7 @@ function BucketChips({ buckets }: { buckets: BucketSet }) {
       {BUCKET_CHIPS.filter((b) => buckets[b.key] > 0.009).map((b) => (
         <span
           key={b.key}
-          title={`${b.label} days: ${formatINR(buckets[b.key])}`}
+          title={t("sund.bucketTitle", { label: b.label, amt: formatINR(buckets[b.key]) })}
           className={cn("dmk-badge text-[9.5px] px-1.5 py-0.5 font-money bg-dmk-input-well", b.cls)}
         >
           {b.label} · {formatINR(buckets[b.key])}
@@ -150,6 +152,7 @@ function PartyLink({
   partyId: string;
   name: string;
 }) {
+  const { t } = useT();
   const setView = useErpStore((s) => s.setView);
   return (
     <button
@@ -159,7 +162,7 @@ function PartyLink({
         requestLedgerParty(partyType, partyId);
         setView("finance/ledgers");
       }}
-      title={`Open ${name}'s ledger statement`}
+      title={t("aging.openLedger", { party: name })}
       className="group/party inline-flex items-center gap-0.5 rounded text-left text-[13px] font-semibold text-dmk-text-primary hover:text-dmk-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dmk-blue/60"
     >
       <span className="truncate max-w-[220px]">{name}</span>
@@ -169,6 +172,7 @@ function PartyLink({
 }
 
 function ReconStrip({ recon, glName, glCode }: { recon: SundryResponse["reconciliation"]; glName: string; glCode: string }) {
+  const { t } = useT();
   const ok = Math.abs(recon.difference) <= 0.05;
   return (
     <div
@@ -179,23 +183,23 @@ function ReconStrip({ recon, glName, glCode }: { recon: SundryResponse["reconcil
       role="status"
     >
       <span className="flex items-center gap-2 text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-        <Scale className="h-3.5 w-3.5 text-dmk-gold" /> GL ↔ Sundry subledger
+        <Scale className="h-3.5 w-3.5 text-dmk-gold" /> {t("sund.glSubledger")}
       </span>
       <span className="text-[12px] text-dmk-text-secondary">
-        GL <span className="font-semibold text-dmk-text-primary">A/c {glCode}</span> · {glName}
+        GL <span className="font-semibold text-dmk-text-primary">{t("sund.glAcct", { code: glCode })}</span> · {glName}
       </span>
       <span className="text-[12px] text-dmk-text-secondary font-money">
-        GL balance <span className="text-dmk-text-primary font-semibold">{formatINR(recon.glBalance)}</span>
+        {t("sund.glBalance")} <span className="text-dmk-text-primary font-semibold">{formatINR(recon.glBalance)}</span>
       </span>
       <span className="text-[12px] text-dmk-text-secondary font-money">
-        Σ party balances <span className="text-dmk-text-primary font-semibold">{formatINR(recon.partySum)}</span>
+        {t("sund.partySum")} <span className="text-dmk-text-primary font-semibold">{formatINR(recon.partySum)}</span>
       </span>
       {typeof recon.claimsBalance === "number" && recon.claimsBalance > 0.009 && (
         <span
           className="text-[12px] text-dmk-text-secondary font-money"
-          title="Unattributed vendor recoveries (debit notes without a vendor) are parked in A/c 1400 so Sundry Creditors stays equal to Σ vendor balances"
+          title={t("sund.claimsTitle")}
         >
-          Vendor claims A/c 1400 <span className="text-dmk-gold font-semibold">{formatINR(recon.claimsBalance)}</span>
+          {t("sund.claims")} <span className="text-dmk-gold font-semibold">{formatINR(recon.claimsBalance)}</span>
         </span>
       )}
       <span
@@ -204,13 +208,14 @@ function ReconStrip({ recon, glName, glCode }: { recon: SundryResponse["reconcil
           ok ? "bg-dmk-success/15 text-dmk-success" : "bg-dmk-danger/15 text-dmk-danger"
         )}
       >
-        Δ {formatINR(recon.difference)} {ok ? "· RECONCILED" : "· MISMATCH"}
+        Δ {formatINR(recon.difference)} {ok ? t("sund.reconOk") : t("sund.reconBad")}
       </span>
     </div>
   );
 }
 
 function DebtorsTab({ refreshKey }: { refreshKey: number }) {
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const { toast } = useToast();
   const [data, setData] = React.useState<SundryResponse | null>(null);
@@ -226,7 +231,7 @@ function DebtorsTab({ refreshKey }: { refreshKey: number }) {
       .then((res) => alive && setData(res))
       .catch((e) => {
         if (alive) {
-          setError(e instanceof Error ? e.message : "Failed to load sundry debtors");
+          setError(e instanceof Error ? e.message : t("sund.errDebtors"));
           setData(null);
         }
       })
@@ -241,8 +246,8 @@ function DebtorsTab({ refreshKey }: { refreshKey: number }) {
   function exportCsv() {
     if (!data) return;
     const out: (string | number)[][] = [
-      ["Sundry Debtors — A/c 1100", `As of ${data.asOf.slice(0, 10)}`],
-      ["Party", "City", "Type", "Ledger balance", "Credit limit", "Utilisation %", "Open invoices", "Open outstanding", "Unapplied receipts", "Overdue", "0-30", "31-60", "61-90", "90+", "Oldest invoice", "Age (days)", "Last activity"],
+      [t("sund.csvDebtorsTitle"), t("aging.asOf", { date: data.asOf.slice(0, 10) })],
+      [t("aging.colParty"), t("cmn.city"), t("cmn.type"), t("sund.colLedgerBalance"), t("sund.colCreditLimit"), t("sund.colUtilisation"), t("sund.colOpenInvoices"), t("sund.colOpenOutstanding"), t("sund.colUnappliedReceipts"), t("sund.colOverdue"), "0-30", "31-60", "61-90", "90+", t("sund.colOldestInvoice"), t("aging.csvAge"), t("sund.colLastActivity")],
     ];
     for (const p of parties) {
       out.push([
@@ -267,7 +272,7 @@ function DebtorsTab({ refreshKey }: { refreshKey: number }) {
     }
     out.push(["TOTAL", "", "", data.totals.net, "", "", "", data.totals.openOutstanding ?? 0, data.totals.unapplied ?? 0, data.totals.overdue ?? 0, "", "", "", "", "", "", ""]);
     downloadCSV(`sundry-debtors-${new Date().toISOString().slice(0, 10)}.csv`, out);
-    toast({ title: "Exported", description: "Sundry debtors register downloaded as CSV." });
+    toast({ title: t("jrnl.toastExported"), description: t("sund.toastDebtorsCsv") });
   }
 
   return (
@@ -276,26 +281,26 @@ function DebtorsTab({ refreshKey }: { refreshKey: number }) {
       {loading && !data ? (
         <LoadingRows rows={8} />
       ) : !data ? (
-        <EmptyState icon={BookUser} title="Sundry debtors unavailable" hint="Refresh once the firm data is loaded." />
+        <EmptyState icon={BookUser} title={t("sund.unavailableDebtors")} hint={t("g2b.refreshHint")} />
       ) : (
         <>
           {/* KPI row */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <KpiCard label="Total Receivable (net Dr)" value={formatINR(data.totals.net)} icon={BookUser} tone="yellow" sub={`${data.totals.partyCount} parties on credit`} />
-            <KpiCard label="Overdue for collection" value={formatINR(data.totals.overdue ?? 0)} icon={Timer} tone="danger" sub="past credit terms" />
-            <KpiCard label="Open invoice value" value={formatINR(data.totals.openOutstanding ?? 0)} icon={ReceiptText} tone="info" sub={`unapplied receipts ${formatINR(data.totals.unapplied ?? 0)}`} />
-            <KpiCard label="Advances held (Cr balances)" value={formatINR(data.totals.credit)} icon={ArrowDownToLine} tone="success" sub={`${data.totals.overLimitCount ?? 0} party(s) over limit`} />
+            <KpiCard label={t("sund.kpiTotalDr")} value={formatINR(data.totals.net)} icon={BookUser} tone="yellow" sub={t("sund.kpiTotalDrSub", { n: data.totals.partyCount })} />
+            <KpiCard label={t("sund.kpiOverdue")} value={formatINR(data.totals.overdue ?? 0)} icon={Timer} tone="danger" sub={t("sund.pastCreditTerms")} />
+            <KpiCard label={t("sund.kpiOpenInv")} value={formatINR(data.totals.openOutstanding ?? 0)} icon={ReceiptText} tone="info" sub={t("sund.unappliedAmt", { amt: formatINR(data.totals.unapplied ?? 0) })} />
+            <KpiCard label={t("sund.kpiAdvancesCr")} value={formatINR(data.totals.credit)} icon={ArrowDownToLine} tone="success" sub={t("sund.overLimitCount", { n: data.totals.overLimitCount ?? 0 })} />
           </div>
 
           <ReconStrip recon={data.reconciliation} glName={data.glName} glCode={data.glCode} />
 
           {parties.length === 0 ? (
-            <EmptyState icon={BookUser} title="No sundry debtors yet" hint="B2B customers appear here once they owe on credit sales." />
+            <EmptyState icon={BookUser} title={t("sund.emptyDebtors")} hint={t("sund.emptyDebtorsHint")} />
           ) : (
             <div className="dmk-card overflow-hidden">
               <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-dmk-border-subtle">
                 <p className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-                  Sundry Debtors register · {parties.length} parties · as of {formatDate(data.asOf)}
+                  {t("sund.registerDebtors", { n: parties.length, date: formatDate(data.asOf) })}
                 </p>
                 <Button size="sm" variant="outline" className="h-7 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={exportCsv}>
                   <ArrowDownToLine className="h-3.5 w-3.5" /> CSV
@@ -305,13 +310,13 @@ function DebtorsTab({ refreshKey }: { refreshKey: number }) {
                 <table className="w-full text-[12.5px]">
                   <thead className="sticky top-0 bg-dmk-bg-tertiary z-10">
                     <tr className="text-left text-[10px] uppercase tracking-wider text-dmk-text-muted border-b border-dmk-border-subtle">
-                      <th className="px-4 py-2 font-semibold">Party</th>
-                      <th className="px-3 py-2 font-semibold text-right">Ledger balance</th>
-                      <th className="px-3 py-2 font-semibold">Credit limit</th>
-                      <th className="px-3 py-2 font-semibold">Aging</th>
-                      <th className="px-3 py-2 font-semibold text-right">Open invoices</th>
-                      <th className="px-3 py-2 font-semibold">Oldest open</th>
-                      <th className="px-3 py-2 font-semibold">Last activity</th>
+                      <th className="px-4 py-2 font-semibold">{t("aging.colParty")}</th>
+                      <th className="px-3 py-2 font-semibold text-right">{t("sund.colLedgerBalance")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("sund.colCreditLimit")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("sund.colAging")}</th>
+                      <th className="px-3 py-2 font-semibold text-right">{t("sund.colOpenInvoices")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("sund.colOldestOpen")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("sund.colLastActivity")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -322,8 +327,8 @@ function DebtorsTab({ refreshKey }: { refreshKey: number }) {
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
                               <PartyLink partyType="CUSTOMER" partyId={p.id} name={p.name} />
-                              {p.overLimit && <Badge tone="danger">OVER LIMIT</Badge>}
-                              {p.overdueCount > 0 && <Badge tone="warning">{p.overdueCount} overdue</Badge>}
+                              {p.overLimit && <Badge tone="danger">{t("sund.overLimit")}</Badge>}
+                              {p.overdueCount > 0 && <Badge tone="warning">{t("sund.overdueCount", { n: p.overdueCount })}</Badge>}
                             </div>
                             <p className="text-[10.5px] text-dmk-text-muted mt-0.5">
                               {p.customerType === "B2B" ? "B2B" : "B2C"} {p.city ? `· ${p.city}` : ""} {p.phone ? `· ${p.phone}` : ""}
@@ -331,7 +336,7 @@ function DebtorsTab({ refreshKey }: { refreshKey: number }) {
                           </td>
                           <td className="px-3 py-2.5 text-right">
                             <span className={cn("font-money font-semibold", hasDue ? "text-dmk-yellow" : p.ledgerBalance < -0.009 ? "text-dmk-success" : "text-dmk-text-muted")}>
-                              {hasDue ? `Dr ${formatINR(p.ledgerBalance)}` : p.ledgerBalance < -0.009 ? `Cr ${formatINR(-p.ledgerBalance)}` : "Clear"}
+                              {hasDue ? `Dr ${formatINR(p.ledgerBalance)}` : p.ledgerBalance < -0.009 ? `Cr ${formatINR(-p.ledgerBalance)}` : t("pled.clear")}
                             </span>
                           </td>
                           <td className="px-3 py-2.5 min-w-[130px]">
@@ -342,10 +347,10 @@ function DebtorsTab({ refreshKey }: { refreshKey: number }) {
                                   <span className={cn("text-[10.5px] font-semibold", p.overLimit ? "text-dmk-danger" : "text-dmk-text-muted")}>{p.utilizationPct.toFixed(0)}%</span>
                                 </div>
                                 <UtilBar pct={p.utilizationPct} overLimit={p.overLimit} />
-                                <p className="text-[10px] text-dmk-text-muted mt-0.5">avail {formatINR(Math.max(p.available ?? 0, 0))} · {p.creditDays}d</p>
+                                <p className="text-[10px] text-dmk-text-muted mt-0.5">{t("sund.availDays", { amt: formatINR(Math.max(p.available ?? 0, 0)), n: p.creditDays })}</p>
                               </>
                             ) : (
-                              <span className="text-[11px] text-dmk-text-muted">No limit</span>
+                              <span className="text-[11px] text-dmk-text-muted">{t("sund.noLimit")}</span>
                             )}
                           </td>
                           <td className="px-3 py-2.5"><BucketChips buckets={p.buckets} /></td>
@@ -353,7 +358,7 @@ function DebtorsTab({ refreshKey }: { refreshKey: number }) {
                             {p.openInvoiceCount > 0 ? (
                               <>
                                 <span className="font-money text-dmk-text-primary font-semibold">{formatINR(p.openOutstanding)}</span>
-                                <p className="text-[10.5px] text-dmk-text-muted">{p.openInvoiceCount} invoice(s)</p>
+                                <p className="text-[10.5px] text-dmk-text-muted">{t("sund.invoiceCount", { n: p.openInvoiceCount })}</p>
                               </>
                             ) : (
                               <span className="text-[11px] text-dmk-text-muted">—</span>
@@ -363,7 +368,7 @@ function DebtorsTab({ refreshKey }: { refreshKey: number }) {
                             {p.oldestInvoice ? (
                               <>
                                 <p className="text-[11.5px] text-dmk-text-secondary font-mono">{p.oldestInvoice.no}</p>
-                                <p className={cn("text-[10.5px]", p.oldestInvoice.ageDays > 60 ? "text-dmk-danger" : "text-dmk-text-muted")}>{p.oldestInvoice.ageDays} days old</p>
+                                <p className={cn("text-[10.5px]", p.oldestInvoice.ageDays > 60 ? "text-dmk-danger" : "text-dmk-text-muted")}>{t("sund.daysOld", { n: p.oldestInvoice.ageDays })}</p>
                               </>
                             ) : (
                               <span className="text-[11px] text-dmk-text-muted">—</span>
@@ -387,6 +392,7 @@ function DebtorsTab({ refreshKey }: { refreshKey: number }) {
 }
 
 function CreditorsTab({ refreshKey }: { refreshKey: number }) {
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const setView = useErpStore((s) => s.setView);
   const { toast } = useToast();
@@ -403,7 +409,7 @@ function CreditorsTab({ refreshKey }: { refreshKey: number }) {
       .then((res) => alive && setData(res))
       .catch((e) => {
         if (alive) {
-          setError(e instanceof Error ? e.message : "Failed to load sundry creditors");
+          setError(e instanceof Error ? e.message : t("sund.errCreditors"));
           setData(null);
         }
       })
@@ -418,8 +424,8 @@ function CreditorsTab({ refreshKey }: { refreshKey: number }) {
   function exportCsv() {
     if (!data) return;
     const out: (string | number)[][] = [
-      ["Sundry Creditors — A/c 2000", `As of ${data.asOf.slice(0, 10)}`],
-      ["Vendor", "Type", "Brand", "Ledger balance (Cr)", "Terms", "Open POs", "Open PO value", "0-30", "31-60", "61-90", "90+", "Last payment", "Last activity"],
+      [t("sund.csvCreditorsTitle"), t("aging.asOf", { date: data.asOf.slice(0, 10) })],
+      [t("cmn.vendor"), t("cmn.type"), t("cmn.brand"), t("sund.colLedgerCr"), t("sund.colTerms"), t("sund.colOpenPos"), t("sund.colOpenPoValue"), "0-30", "31-60", "61-90", "90+", t("sund.colLastPayment"), t("sund.colLastActivity")],
     ];
     for (const p of parties) {
       out.push([
@@ -440,7 +446,7 @@ function CreditorsTab({ refreshKey }: { refreshKey: number }) {
     }
     out.push(["TOTAL", "", "", data.totals.net, "", data.totals.openPOCount ?? 0, data.totals.openPOValue ?? 0, "", "", "", "", "", ""]);
     downloadCSV(`sundry-creditors-${new Date().toISOString().slice(0, 10)}.csv`, out);
-    toast({ title: "Exported", description: "Sundry creditors register downloaded as CSV." });
+    toast({ title: t("jrnl.toastExported"), description: t("sund.toastCreditorsCsv") });
   }
 
   return (
@@ -449,26 +455,26 @@ function CreditorsTab({ refreshKey }: { refreshKey: number }) {
       {loading && !data ? (
         <LoadingRows rows={8} />
       ) : !data ? (
-        <EmptyState icon={BookUser} title="Sundry creditors unavailable" hint="Refresh once the firm data is loaded." />
+        <EmptyState icon={BookUser} title={t("sund.unavailableCreditors")} hint={t("g2b.refreshHint")} />
       ) : (
         <>
           {/* KPI row */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <KpiCard label="Total Payable (net Cr)" value={formatINR(data.totals.net)} icon={BookUser} tone="yellow" sub={`${data.totals.partyCount} vendors on credit`} />
-            <KpiCard label="Open PO exposure" value={formatINR(data.totals.openPOValue ?? 0)} icon={ReceiptText} tone="info" sub={`${data.totals.openPOCount ?? 0} confirmed PO(s) unsettled`} />
-            <KpiCard label="Advances paid (Dr balances)" value={formatINR(data.totals.debit)} icon={ArrowDownToLine} tone="success" sub="paid ahead of supply" />
-            <KpiCard label="Worst bucket" value={formatINR(Math.max(...parties.map((p) => p.buckets.d90plus), 0))} icon={Timer} tone="danger" sub="payables aged 90+ days" />
+            <KpiCard label={t("sund.kpiTotalCr")} value={formatINR(data.totals.net)} icon={BookUser} tone="yellow" sub={t("sund.kpiTotalCrSub", { n: data.totals.partyCount })} />
+            <KpiCard label={t("sund.kpiOpenPo")} value={formatINR(data.totals.openPOValue ?? 0)} icon={ReceiptText} tone="info" sub={t("sund.kpiOpenPoSub", { n: data.totals.openPOCount ?? 0 })} />
+            <KpiCard label={t("sund.kpiAdvancesDr")} value={formatINR(data.totals.debit)} icon={ArrowDownToLine} tone="success" sub={t("sund.paidAhead")} />
+            <KpiCard label={t("sund.kpiWorst")} value={formatINR(Math.max(...parties.map((p) => p.buckets.d90plus), 0))} icon={Timer} tone="danger" sub={t("sund.payables90")} />
           </div>
 
           <ReconStrip recon={data.reconciliation} glName={data.glName} glCode={data.glCode} />
 
           {parties.length === 0 ? (
-            <EmptyState icon={BookUser} title="No sundry creditors yet" hint="Vendors appear here once purchases are booked on credit." />
+            <EmptyState icon={BookUser} title={t("sund.emptyCreditors")} hint={t("sund.emptyCreditorsHint")} />
           ) : (
             <div className="dmk-card overflow-hidden">
               <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-dmk-border-subtle">
                 <p className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-                  Sundry Creditors register · {parties.length} vendors · as of {formatDate(data.asOf)}
+                  {t("sund.registerCreditors", { n: parties.length, date: formatDate(data.asOf) })}
                 </p>
                 <Button size="sm" variant="outline" className="h-7 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={exportCsv}>
                   <ArrowDownToLine className="h-3.5 w-3.5" /> CSV
@@ -478,14 +484,14 @@ function CreditorsTab({ refreshKey }: { refreshKey: number }) {
                 <table className="w-full text-[12.5px]">
                   <thead className="sticky top-0 bg-dmk-bg-tertiary z-10">
                     <tr className="text-left text-[10px] uppercase tracking-wider text-dmk-text-muted border-b border-dmk-border-subtle">
-                      <th className="px-4 py-2 font-semibold">Vendor</th>
-                      <th className="px-3 py-2 font-semibold text-right">Ledger balance</th>
-                      <th className="px-3 py-2 font-semibold">Terms</th>
-                      <th className="px-3 py-2 font-semibold text-right">Open POs</th>
-                      <th className="px-3 py-2 font-semibold">Aging</th>
-                      <th className="px-3 py-2 font-semibold">Last payment</th>
-                      <th className="px-3 py-2 font-semibold">Last activity</th>
-                      <th className="px-3 py-2 font-semibold text-right">Actions</th>
+                      <th className="px-4 py-2 font-semibold">{t("cmn.vendor")}</th>
+                      <th className="px-3 py-2 font-semibold text-right">{t("sund.colLedgerBalance")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("sund.colTerms")}</th>
+                      <th className="px-3 py-2 font-semibold text-right">{t("sund.colOpenPos")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("sund.colAging")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("sund.colLastPayment")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("sund.colLastActivity")}</th>
+                      <th className="px-3 py-2 font-semibold text-right">{t("cmn.actions")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -498,11 +504,11 @@ function CreditorsTab({ refreshKey }: { refreshKey: number }) {
                               <PartyLink partyType="VENDOR" partyId={p.id} name={p.name} />
                               <Badge tone={p.vendorType === "MANUFACTURER" ? "dr" : "info"}>{p.vendorType}</Badge>
                             </div>
-                            {p.brand && <p className="text-[10.5px] text-dmk-text-muted mt-0.5">Brand · {p.brand}</p>}
+                            {p.brand && <p className="text-[10.5px] text-dmk-text-muted mt-0.5">{t("sund.brandDot", { brand: p.brand })}</p>}
                           </td>
                           <td className="px-3 py-2.5 text-right">
                             <span className={cn("font-money font-semibold", owed ? "text-dmk-yellow" : p.ledgerBalance < -0.009 ? "text-dmk-success" : "text-dmk-text-muted")}>
-                              {owed ? `Cr ${formatINR(p.ledgerBalance)}` : p.ledgerBalance < -0.009 ? `Dr ${formatINR(-p.ledgerBalance)}` : "Clear"}
+                              {owed ? `Cr ${formatINR(p.ledgerBalance)}` : p.ledgerBalance < -0.009 ? `Dr ${formatINR(-p.ledgerBalance)}` : t("pled.clear")}
                             </span>
                           </td>
                           <td className="px-3 py-2.5"><span className="text-[11.5px] text-dmk-text-secondary">{p.paymentTerms.replace("_", "-")}</span></td>
@@ -510,7 +516,7 @@ function CreditorsTab({ refreshKey }: { refreshKey: number }) {
                             {p.openPOCount > 0 ? (
                               <>
                                 <span className="font-money text-dmk-text-primary font-semibold">{formatINR(p.openPOValue)}</span>
-                                <p className="text-[10.5px] text-dmk-text-muted">{p.openPOCount} PO(s)</p>
+                                <p className="text-[10.5px] text-dmk-text-muted">{t("sund.poCount", { n: p.openPOCount })}</p>
                               </>
                             ) : (
                               <span className="text-[11px] text-dmk-text-muted">—</span>
@@ -524,7 +530,7 @@ function CreditorsTab({ refreshKey }: { refreshKey: number }) {
                                 <p className="text-[10.5px] text-dmk-text-muted">{formatDate(p.lastPayment.date)} · {p.lastPayment.mode}</p>
                               </>
                             ) : (
-                              <span className="text-[11px] text-dmk-text-muted">No payments yet</span>
+                              <span className="text-[11px] text-dmk-text-muted">{t("sund.noPaymentsYet")}</span>
                             )}
                           </td>
                           <td className="px-3 py-2.5">
@@ -540,10 +546,10 @@ function CreditorsTab({ refreshKey }: { refreshKey: number }) {
                                     className="h-7 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
                                     onClick={() => setView("purchase/payments")}
                                   >
-                                    <Banknote className="h-3.5 w-3.5" /> Pay
+                                    <Banknote className="h-3.5 w-3.5" /> {t("pled.pay")}
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>Record a payment against this creditor</TooltipContent>
+                                <TooltipContent>{t("sund.payTooltip")}</TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
                           </td>
@@ -562,18 +568,19 @@ function CreditorsTab({ refreshKey }: { refreshKey: number }) {
 }
 
 export default function SundryView() {
+  const { t } = useT();
   const [tab, setTab] = React.useState<"debtors" | "creditors">("debtors");
   const [refreshKey, setRefreshKey] = React.useState(0);
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Sundry Debtors & Creditors"
-        subtitle="Party-wise sundry registers — receivables owed by customers (A/c 1100) and payables owed to vendors (A/c 2000), reconciled to the general ledger"
+        title={t("sund.title")}
+        subtitle={t("sund.subtitle")}
         icon={BookUser}
         actions={
-          <Button variant="outline" size="sm" className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setRefreshKey((k) => k + 1)} aria-label="Refresh sundry registers">
-            <RefreshCw className="h-4 w-4" /> Refresh
+          <Button variant="outline" size="sm" className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setRefreshKey((k) => k + 1)} aria-label={t("sund.refreshAria")}>
+            <RefreshCw className="h-4 w-4" /> {t("cmn.refresh")}
           </Button>
         }
       />
@@ -581,21 +588,19 @@ export default function SundryView() {
       <div className="dmk-well px-3 py-2.5 flex items-start gap-2.5">
         <ShieldAlert className="h-4 w-4 text-dmk-gold mt-0.5 shrink-0" />
         <p className="text-[12px] text-dmk-text-secondary">
-          <span className="font-semibold text-dmk-text-primary">What is “sundry”?</span> In double-entry books, every
-          customer ledger sits under the group <span className="font-semibold">Sundry Debtors</span> (they owe you for
-          credit sales) and every vendor ledger under <span className="font-semibold">Sundry Creditors</span> (you owe
-          them for credit purchases). These registers are the party-wise detail behind GL A/c 1100 and A/c 2000 — the
-          same amounts that appear on the balance sheet, in billing credit checks and on payment vouchers.
+          <span className="font-semibold text-dmk-text-primary">{t("sund.whatQ")}</span> {t("sund.whatSegA")}{" "}
+          <span className="font-semibold">{t("sund.debtors")}</span> {t("sund.whatSegB")}{" "}
+          <span className="font-semibold">{t("sund.creditors")}</span> {t("sund.whatSegC")}
         </p>
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as "debtors" | "creditors")} className="gap-4">
         <TabsList className="bg-dmk-input-well border border-dmk-border-subtle">
           <TabsTrigger value="debtors" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
-            <BookUser className="h-3.5 w-3.5 mr-1.5" /> Sundry Debtors (A/c 1100)
+            <BookUser className="h-3.5 w-3.5 mr-1.5" /> {t("sund.tabDebtors")}
           </TabsTrigger>
           <TabsTrigger value="creditors" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
-            <Landmark className="h-3.5 w-3.5 mr-1.5" /> Sundry Creditors (A/c 2000)
+            <Landmark className="h-3.5 w-3.5 mr-1.5" /> {t("sund.tabCreditors")}
           </TabsTrigger>
         </TabsList>
         <TabsContent value="debtors" className="mt-0"><DebtorsTab refreshKey={refreshKey} /></TabsContent>

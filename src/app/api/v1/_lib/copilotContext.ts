@@ -117,7 +117,7 @@ async function buildCopilotContextUncached(firmId: string, now: Date): Promise<C
 
       db.invoice.findMany({
         where: { firmId, status: "POSTED" },
-        orderBy: { invoiceDate: "desc" },
+        orderBy: [{ invoiceDate: "desc" }, { createdAt: "desc" }],
         take: 10,
         select: {
           invoiceNumber: true,
@@ -154,7 +154,7 @@ async function buildCopilotContextUncached(firmId: string, now: Date): Promise<C
       // Recent purchase orders (vendor, date, total, status)
       db.purchaseOrder.findMany({
         where: { firmId },
-        orderBy: { poDate: "desc" },
+        orderBy: [{ poDate: "desc" }, { createdAt: "desc" }],
         take: 6,
         select: {
           poNumber: true,

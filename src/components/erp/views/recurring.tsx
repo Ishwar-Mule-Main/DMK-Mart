@@ -80,6 +80,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useT, type TFn } from "@/lib/i18n";
 import { filterByQuery } from "@/lib/search-rank";
 import { cn } from "@/lib/utils";
 
@@ -94,20 +95,9 @@ function normalizeProducts(res: unknown): Product[] {
   return obj?.products ?? [];
 }
 
-const FREQUENCIES = [
-  { value: "WEEKLY", label: "Weekly" },
-  { value: "MONTHLY", label: "Monthly" },
-  { value: "BIMONTHLY", label: "Every 2 months" },
-  { value: "QUARTERLY", label: "Quarterly" },
-];
+const FREQUENCIES = ["WEEKLY", "MONTHLY", "BIMONTHLY", "QUARTERLY"] as const;
 
-const PAYMENT_MODES = [
-  { value: "CREDIT", label: "Credit" },
-  { value: "CASH", label: "Cash" },
-  { value: "UPI", label: "UPI" },
-  { value: "CARD", label: "Card" },
-  { value: "NEFT", label: "NEFT / Bank" },
-];
+const PAYMENT_MODES = ["CREDIT", "CASH", "UPI", "CARD", "NEFT"] as const;
 
 function paymentBadge(mode: string) {
   switch (mode) {
@@ -124,8 +114,26 @@ function paymentBadge(mode: string) {
   }
 }
 
-function frequencyLabel(f: string): string {
-  return FREQUENCIES.find((x) => x.value === f)?.label ?? f;
+/** Translated frequency label — falls back to the raw enum. */
+function frequencyLabel(t: TFn, f: string): string {
+  switch (f) {
+    case "WEEKLY": return t("rec.freqWeekly");
+    case "MONTHLY": return t("rec.freqMonthly");
+    case "BIMONTHLY": return t("rec.freqBimonthly");
+    case "QUARTERLY": return t("rec.freqQuarterly");
+    default: return f;
+  }
+}
+
+/** Translated payment-mode label — enum codes (UPI etc.) stay as-is. */
+function payModeLabel(t: TFn, m: string): string {
+  switch (m) {
+    case "CREDIT": return t("rec.payCredit");
+    case "CASH": return t("rec.payCash");
+    case "CARD": return t("rec.payCard");
+    case "NEFT": return t("rec.payNeft");
+    default: return m;
+  }
 }
 
 /** Client replica of the server estimate (tier → bulk → GST). */
@@ -157,6 +165,7 @@ const emptyLine: Line = { productId: "", qty: "", disc: "" };
 
 export default function RecurringView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const setView = useErpStore((s) => s.setView);
   const activeFirm = useActiveFirm();
@@ -215,14 +224,14 @@ export default function RecurringView() {
         if (alive) {
           setRows([]);
           if (e instanceof ApiError)
-            toast({ variant: "destructive", title: "Could not load templates", description: e.message });
+            toast({ variant: "destructive", title: t("rec.errLoad"), description: e.message });
         }
       }
     })();
     return () => {
       alive = false;
     };
-  }, [activeFirmId, refresh, toast]);
+  }, [activeFirmId, refresh, toast, t]);
 
   // ── load directory once per firm ──────────────────────────────
   React.useEffect(() => {
@@ -275,19 +284,19 @@ export default function RecurringView() {
     setFormOpen(true);
   }
 
-  function openEdit(t: RecurringTemplate) {
-    setEditOf(t);
-    setName(t.name);
-    setCustomerId(t.customerId);
-    setFrequency(t.frequency);
-    setPaymentMode(t.paymentMode);
-    setStartDate(toISODate(new Date(t.startDate)));
-    setEndDate(t.endDate ? toISODate(new Date(t.endDate)) : "");
-    setSkipUntil(t.skipUntil ? toISODate(new Date(t.skipUntil)) : "");
-    setNotes(t.notes);
-    setAutoPost(t.autoPost !== false);
+  function openEdit(tpl: RecurringTemplate) {
+    setEditOf(tpl);
+    setName(tpl.name);
+    setCustomerId(tpl.customerId);
+    setFrequency(tpl.frequency);
+    setPaymentMode(tpl.paymentMode);
+    setStartDate(toISODate(new Date(tpl.startDate)));
+    setEndDate(tpl.endDate ? toISODate(new Date(tpl.endDate)) : "");
+    setSkipUntil(tpl.skipUntil ? toISODate(new Date(tpl.skipUntil)) : "");
+    setNotes(tpl.notes);
+    setAutoPost(tpl.autoPost !== false);
     setLines(
-      t.items.map((i) => ({
+      tpl.items.map((i) => ({
         productId: i.productId,
         qty: String(i.quantity),
         disc: i.manualDiscountPct === null || i.manualDiscountPct === undefined ? "" : String(i.manualDiscountPct),
@@ -329,17 +338,17 @@ export default function RecurringView() {
   }
 
   function validateForm(): string | null {
-    if (!name.trim()) return "Template name is required.";
-    if (!customerId) return "Select a customer for this standing order.";
+    if (!name.trim()) return t("rec.errName");
+    if (!customerId) return t("rec.errCustomer");
     const clean = lines.filter((l) => l.productId);
-    if (clean.length === 0) return "Add at least one product line.";
+    if (clean.length === 0) return t("rec.errLines");
     for (const l of clean) {
-      if (!(Number(l.qty) > 0)) return "Every line needs a quantity greater than 0.";
+      if (!(Number(l.qty) > 0)) return t("rec.errQty");
       if (l.disc !== "" && (Number(l.disc) < 0 || Number(l.disc) > 100))
-        return "Manual discount must be between 0 and 100.";
+        return t("rec.errDisc");
     }
-    if (endDate && startDate && endDate < startDate) return "End date cannot be before the start date.";
-    if (skipUntil && startDate && skipUntil < startDate) return "Skip-until date cannot be before the start date.";
+    if (endDate && startDate && endDate < startDate) return t("rec.errEnd");
+    if (skipUntil && startDate && skipUntil < startDate) return t("rec.errSkip");
     return null;
   }
 
@@ -373,52 +382,52 @@ export default function RecurringView() {
     try {
       if (editOf) {
         await apiPatch<RecurringTemplate>("/api/v1/recurring", { id: editOf.id, ...payload });
-        toast({ title: "Template updated", description: `“${payload.name}” saved.` });
+        toast({ title: t("rec.toastUpdated"), description: t("rec.toastUpdatedDesc", { name: payload.name }) });
       } else {
         await apiPost<RecurringTemplate>("/api/v1/recurring", payload);
-        toast({ title: "Template created", description: `“${payload.name}” will auto-post invoices on schedule.` });
+        toast({ title: t("rec.toastCreated"), description: t("rec.toastCreatedDesc", { name: payload.name }) });
       }
       setFormOpen(false);
       setRefresh((r) => r + 1);
     } catch (e) {
-      setFormError(e instanceof ApiError ? e.message : "Could not save the template.");
+      setFormError(e instanceof ApiError ? e.message : t("rec.errSave"));
     } finally {
       setSaving(false);
     }
   }
 
   // ── row actions ───────────────────────────────────────────────
-  function openRuns(t: RecurringTemplate) {
+  function openRuns(tpl: RecurringTemplate) {
     if (!activeFirmId) return;
-    setRunsOf(t);
+    setRunsOf(tpl);
     setRunsData(null);
     setRunsError(null);
     setRunsLoading(true);
-    apiGet<RecurringRunsResponse>("/api/v1/recurring/runs", { firmId: activeFirmId, templateId: t.id })
+    apiGet<RecurringRunsResponse>("/api/v1/recurring/runs", { firmId: activeFirmId, templateId: tpl.id })
       .then((res) => setRunsData(res))
-      .catch((e) => setRunsError(e instanceof ApiError ? e.message : "Could not load run history."))
+      .catch((e) => setRunsError(e instanceof ApiError ? e.message : t("rec.errRuns")))
       .finally(() => setRunsLoading(false));
   }
 
-  async function toggleActive(t: RecurringTemplate) {
+  async function toggleActive(tpl: RecurringTemplate) {
     try {
       await apiPatch<RecurringTemplate>("/api/v1/recurring", {
         firmId: activeFirmId,
-        id: t.id,
-        isActive: !t.isActive,
+        id: tpl.id,
+        isActive: !tpl.isActive,
       });
       toast({
-        title: t.isActive ? "Template paused" : "Template resumed",
-        description: t.isActive
-          ? `“${t.name}” is excluded from generation while paused.`
-          : `“${t.name}” is back on schedule.`,
+        title: tpl.isActive ? t("rec.toastPaused") : t("rec.toastResumed"),
+        description: tpl.isActive
+          ? t("rec.toastPausedDesc", { name: tpl.name })
+          : t("rec.toastResumedDesc", { name: tpl.name }),
       });
       setRefresh((r) => r + 1);
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Update failed",
-        description: e instanceof ApiError ? e.message : "Could not change template state.",
+        title: t("rec.errUpdate"),
+        description: e instanceof ApiError ? e.message : t("rec.errUpdateDesc"),
       });
     }
   }
@@ -428,14 +437,14 @@ export default function RecurringView() {
     setDeleting(true);
     try {
       await apiDelete(`/api/v1/recurring?firmId=${activeFirmId}&id=${deleteOf.id}`);
-      toast({ title: "Moved to Deleted Data", description: `“${deleteOf.name}” removed from the schedule — restore it from Intelligence → Deleted Data.` });
+      toast({ title: t("rec.toastMoved"), description: t("rec.toastMovedDesc", { name: deleteOf.name }) });
       setDeleteOf(null);
       setRefresh((r) => r + 1);
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Delete failed",
-        description: e instanceof ApiError ? e.message : "Could not delete this template.",
+        title: t("rec.errDelete"),
+        description: e instanceof ApiError ? e.message : t("rec.errDeleteDesc"),
       });
     } finally {
       setDeleting(false);
@@ -455,19 +464,19 @@ export default function RecurringView() {
         const run = res.runs[0];
         if (run?.ok && run.skipped) {
           toast({
-            title: `Skipped ${run.skippedCycles ?? 1} cycle${(run.skippedCycles ?? 1) === 1 ? "" : "s"}`,
-            description: `${run.templateName} is on hold until ${run.holdUntil ? formatDate(run.holdUntil) : "the hold date"} — schedule advanced without billing.`,
+            title: t("rec.toastSkipped", { n: run.skippedCycles ?? 1 }),
+            description: t("rec.toastSkippedDesc", { name: run.templateName, date: run.holdUntil ? formatDate(run.holdUntil) : t("rec.phHoldDate") }),
           });
         } else if (run?.ok) {
           toast({
-            title: `Invoice ${run.invoiceNumber} generated`,
-            description: `${run.templateName} · ${formatINR(run.grandTotal ?? 0)}${(run.invoices ?? 1) > 1 ? ` · ${(run.invoices ?? 1)} cycles caught up` : ""}`,
+            title: t("rec.toastGenerated", { no: run.invoiceNumber ?? "" }),
+            description: `${t("rec.toastGeneratedDesc", { name: run.templateName ?? "", amt: formatINR(run.grandTotal ?? 0) })}${(run.invoices ?? 1) > 1 ? ` ${t("rec.cyclesCaught", { n: run.invoices ?? 1 })}` : ""}`,
           });
         } else {
           toast({
             variant: "destructive",
-            title: "Generation failed",
-            description: run?.error ?? "No invoice was generated for this template.",
+            title: t("rec.toastGenFailed"),
+            description: run?.error ?? t("rec.errNoInvoice"),
           });
         }
         setRefresh((r) => r + 1);
@@ -478,8 +487,8 @@ export default function RecurringView() {
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Generation failed",
-        description: e instanceof ApiError ? e.message : "Could not run recurring generation.",
+        title: t("rec.toastGenFailed"),
+        description: e instanceof ApiError ? e.message : t("rec.errGenRun"),
       });
     } finally {
       if (templateId) setRunningId(null);
@@ -523,18 +532,18 @@ export default function RecurringView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Recurring Billing"
-        subtitle="Standing-order templates → auto-posted tax invoices"
+        title={t("nav.recurring")}
+        subtitle={t("rec.subtitle")}
         icon={CalendarClock}
         actions={
           <>
             {autoAlive && (
               <span
-                title="The platform scheduler is live — due AUTO templates post themselves every 5 min. Full heartbeat in Settings."
+                title={t("rec.autoLiveTip")}
                 className="hidden sm:inline-flex h-9 items-center gap-1.5 rounded-lg border border-dmk-success/30 bg-[rgba(34,197,94,0.07)] px-3 text-[11px] font-semibold text-dmk-success"
               >
                 <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-dmk-success" />
-                AUTO-POSTER LIVE
+                {t("rec.autoLive")}
               </span>
             )}
             <Button
@@ -544,11 +553,11 @@ export default function RecurringView() {
               onClick={() => runGenerate()}
             >
               {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-              Generate due now
+              {t("rec.generateDue")}
               <span className="ml-1 rounded-full bg-[#0A0F1D]/15 px-1.5 text-[10.5px] font-bold">{dueRows.length}</span>
             </Button>
             <Button size="sm" className="h-9 bg-dmk-blue text-white hover:bg-dmk-blue/90" onClick={openNew}>
-              <Plus className="h-4 w-4" /> New Template
+              <Plus className="h-4 w-4" /> {t("rec.newTemplate")}
             </Button>
           </>
         }
@@ -558,65 +567,65 @@ export default function RecurringView() {
       <div className="dmk-enter-stagger grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="dmk-kpi p-4 flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Active Templates</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rec.kpiActive")}</span>
             <CalendarClock className="h-3.5 w-3.5 text-dmk-blue/70" />
           </div>
           <span className="font-money text-[20px] font-semibold leading-none text-dmk-text-primary">{activeCount}</span>
-          <span className="text-[11px] text-dmk-text-muted">{list.length} total · {(list.length - activeCount)} paused</span>
+          <span className="text-[11px] text-dmk-text-muted">{t("rec.kpiTotal", { n: list.length, p: list.length - activeCount })}</span>
         </div>
         <div className="dmk-kpi p-4 flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Due Today</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rec.kpiDue")}</span>
             <Zap className="h-3.5 w-3.5 text-dmk-gold/70" />
           </div>
           <span className="font-money text-[20px] font-semibold leading-none text-dmk-gold">{dueRows.length}</span>
           <span className={cn("text-[11px]", overdueCount > 0 ? "text-dmk-danger" : "text-dmk-text-muted")}>
-            {overdueCount > 0 ? `${overdueCount} overdue — run generation` : list.some((t) => t.onHold) ? `${list.filter((t) => t.onHold).length} on hold` : "on schedule"}
+            {overdueCount > 0 ? t("rec.kpiOverdue", { n: overdueCount }) : holdCount > 0 ? t("rec.kpiHold", { n: holdCount }) : t("rec.kpiSchedule")}
           </span>
         </div>
         <div className="dmk-kpi p-4 flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Due Value</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rec.kpiDueValue")}</span>
             <IndianRupee className="h-3.5 w-3.5 text-dmk-yellow/70" />
           </div>
           <span className="font-money text-[20px] font-semibold leading-none text-dmk-yellow">{formatINR(dueValue)}</span>
-          <span className="text-[11px] text-dmk-text-muted">est. grand total incl. GST</span>
+          <span className="text-[11px] text-dmk-text-muted">{t("rec.kpiEstTotal")}</span>
         </div>
         <div className="dmk-kpi p-4 flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Billed This Month</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rec.kpiBilled")}</span>
             <History className="h-3.5 w-3.5 text-dmk-success/70" />
           </div>
           <span className="font-money text-[20px] font-semibold leading-none text-dmk-text-primary">{monthRuns}</span>
-          <span className="text-[11px] text-dmk-text-muted">invoices · ≈ {formatINR(monthRunsValue)} est.</span>
+          <span className="text-[11px] text-dmk-text-muted">{t("rec.kpiInvoices", { amt: formatINR(monthRunsValue) })}</span>
         </div>
       </div>
 
       {/* filters */}
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search template, customer or SKU…" className="pl-9" />
+          <SearchInput value={query} onChange={setQuery} placeholder={t("rec.searchPh")} className="pl-9" />
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className={cn(inputCls, "w-full sm:w-[170px]")}>
-            <SelectValue placeholder="All templates" />
+            <SelectValue placeholder={t("rec.phAll")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="ALL">All templates</SelectItem>
-            <SelectItem value="DUE">Due today</SelectItem>
+            <SelectItem value="ALL">{t("rec.fAll")}</SelectItem>
+            <SelectItem value="DUE">{t("rec.fDue")}</SelectItem>
             <SelectItem value="HOLD" disabled={holdCount === 0}>
-              On hold{holdCount > 0 ? ` (${holdCount})` : ""}
+              {holdCount > 0 ? t("rec.fHoldN", { n: holdCount }) : t("rec.fHold")}
             </SelectItem>
             <SelectItem value="AUTO" disabled={autoCount === 0}>
-              Auto-posting{autoCount > 0 ? ` (${autoCount})` : ""}
+              {autoCount > 0 ? t("rec.fAutoN", { n: autoCount }) : t("rec.fAuto")}
             </SelectItem>
-            <SelectItem value="ACTIVE">Active only</SelectItem>
-            <SelectItem value="PAUSED">Paused only</SelectItem>
+            <SelectItem value="ACTIVE">{t("cmn.activeOnly")}</SelectItem>
+            <SelectItem value="PAUSED">{t("rec.fPaused")}</SelectItem>
           </SelectContent>
         </Select>
         <Button size="sm" variant="outline" className="h-9 border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary" onClick={() => setRefresh((r) => r + 1)}>
-          <RefreshCw className="h-4 w-4" /> Refresh
+          <RefreshCw className="h-4 w-4" /> {t("cmn.refresh")}
         </Button>
       </div>
 
@@ -628,16 +637,16 @@ export default function RecurringView() {
           ) : filtered.length === 0 ? (
             <EmptyState
               icon={CalendarClock}
-              title={list.length === 0 ? "No recurring templates" : "No templates match your filters"}
+              title={list.length === 0 ? t("rec.emptyNone") : t("rec.emptyFiltered")}
               hint={
                 list.length === 0
-                  ? "Create a standing order — e.g. “20 buckets every month to Latur trader” — and DMK Mart will auto-post the tax invoice on schedule."
-                  : "Try a different search or switch the status filter."
+                  ? t("rec.emptyHint")
+                  : t("rec.emptyFilteredHint")
               }
               action={
                 list.length === 0 ? (
                   <Button size="sm" className="h-9 bg-dmk-blue text-white hover:bg-dmk-blue/90" onClick={openNew}>
-                    <Plus className="h-4 w-4" /> New Template
+                    <Plus className="h-4 w-4" /> {t("rec.newTemplate")}
                   </Button>
                 ) : undefined
               }
@@ -646,98 +655,98 @@ export default function RecurringView() {
             <table className="dmk-table min-w-[1120px]">
               <thead>
                 <tr>
-                  <th>Template</th>
-                  <th>Customer</th>
-                  <th>Frequency</th>
-                  <th>Payment</th>
-                  <th>Items</th>
-                  <th className="text-right">Est. Value</th>
-                  <th>Next Run</th>
-                  <th>Status</th>
-                  <th className="text-right">Actions</th>
+                  <th>{t("rec.colTemplate")}</th>
+                  <th>{t("cmn.customer")}</th>
+                  <th>{t("rec.colFrequency")}</th>
+                  <th>{t("rec.colPayment")}</th>
+                  <th>{t("rec.colItems")}</th>
+                  <th className="text-right">{t("rec.colEstValue")}</th>
+                  <th>{t("rec.colNextRun")}</th>
+                  <th>{t("cmn.status")}</th>
+                  <th className="text-right">{t("cmn.actions")}</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((t) => {
-                  const overdue = !t.onHold && (t.overdueBy ?? 0) > 0;
-                  const dueToday = !!t.dueToday && !overdue && !t.onHold;
+                {filtered.map((tpl) => {
+                  const overdue = !tpl.onHold && (tpl.overdueBy ?? 0) > 0;
+                  const dueToday = !!tpl.dueToday && !overdue && !tpl.onHold;
                   return (
-                    <React.Fragment key={t.id}>
-                    <tr className={cn("group/row", t.onHold && "opacity-80")}>
+                    <React.Fragment key={tpl.id}>
+                    <tr className={cn("group/row", tpl.onHold && "opacity-80")}>
                       <td className="max-w-[220px]">
-                        <span className="block truncate text-[13px] font-semibold text-dmk-text-primary">{t.name}</span>
-                        {t.notes && (
-                          <span className="block truncate text-[10.5px] text-dmk-text-muted" title={t.notes}>
-                            {t.notes}
+                        <span className="block truncate text-[13px] font-semibold text-dmk-text-primary">{tpl.name}</span>
+                        {tpl.notes && (
+                          <span className="block truncate text-[10.5px] text-dmk-text-muted" title={tpl.notes}>
+                            {tpl.notes}
                           </span>
                         )}
                       </td>
                       <td className="max-w-[190px]">
                         <span className="block truncate text-[12.5px] font-medium text-dmk-text-primary">
-                          {t.customer?.partyName ?? "—"}
+                          {tpl.customer?.partyName ?? "—"}
                         </span>
                         <span className="block truncate text-[10.5px] text-dmk-text-muted">
-                          {t.customer?.city || t.customer?.stateCode || ""}
+                          {tpl.customer?.city || tpl.customer?.stateCode || ""}
                         </span>
                       </td>
                       <td>
-                        <Badge tone="gold">{frequencyLabel(t.frequency)}</Badge>
+                        <Badge tone="gold">{frequencyLabel(t, tpl.frequency)}</Badge>
                       </td>
-                      <td>{paymentBadge(t.paymentMode)}</td>
+                      <td>{paymentBadge(tpl.paymentMode)}</td>
                       <td className="text-[12.5px] text-dmk-text-secondary whitespace-nowrap">
                         <button
-                          onClick={() => setExpandedId((id) => (id === t.id ? null : t.id))}
-                          title="Expand product list"
+                          onClick={() => setExpandedId((id) => (id === tpl.id ? null : tpl.id))}
+                          title={t("rec.expandTip")}
                           className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 -mx-1 hover:bg-dmk-hover transition-colors"
                         >
-                          <ChevronDown className={cn("h-3.5 w-3.5 text-dmk-text-muted transition-transform", expandedId === t.id && "rotate-180 text-dmk-yellow")} />
-                          {t.itemSummary}
+                          <ChevronDown className={cn("h-3.5 w-3.5 text-dmk-text-muted transition-transform", expandedId === tpl.id && "rotate-180 text-dmk-yellow")} />
+                          {tpl.itemSummary}
                         </button>
                       </td>
                       <td className="text-right whitespace-nowrap">
-                        <Money value={t.estValue?.estTotal ?? 0} className="text-[13px] font-semibold text-dmk-text-primary" />
+                        <Money value={tpl.estValue?.estTotal ?? 0} className="text-[13px] font-semibold text-dmk-text-primary" />
                         <span className="block text-[10px] text-dmk-text-muted">
-                          tax {formatINR(t.estValue?.estTax ?? 0)}
+                          {t("rec.taxSub", { amt: formatINR(tpl.estValue?.estTax ?? 0) })}
                         </span>
                       </td>
                       <td className="whitespace-nowrap">
-                        {t.onHold ? (
+                        {tpl.onHold ? (
                           <span className="inline-flex items-center gap-1 rounded-md bg-[rgba(245,158,11,0.12)] px-2 py-1 text-[11px] font-semibold text-dmk-warning">
-                            <CalendarOff className="h-3 w-3" /> HOLD · till {t.holdUntilLabel}
+                            <CalendarOff className="h-3 w-3" /> {t("rec.holdBadge", { date: tpl.holdUntilLabel ?? "" })}
                           </span>
                         ) : overdue ? (
                           <span className="inline-flex items-center gap-1 rounded-md bg-[rgba(239,68,68,0.12)] px-2 py-1 text-[11px] font-semibold text-dmk-danger">
-                            OVERDUE by {t.overdueBy}d
+                            {t("rec.overdueBadge", { n: tpl.overdueBy ?? 0 })}
                           </span>
                         ) : dueToday ? (
                           <span className="inline-flex items-center gap-1 rounded-md bg-dmk-gold/15 px-2 py-1 text-[11px] font-semibold text-dmk-gold">
-                            DUE TODAY
+                            {t("rec.dueTodayBadge")}
                           </span>
                         ) : (
-                          <span className="text-[12.5px] text-dmk-text-secondary">{t.nextRunLabel ?? formatDate(t.nextRunDate)}</span>
+                          <span className="text-[12.5px] text-dmk-text-secondary">{tpl.nextRunLabel ?? formatDate(tpl.nextRunDate)}</span>
                         )}
-                        {t.lastRunDate && (
-                          <span className="block text-[10px] text-dmk-text-muted">last {formatDate(t.lastRunDate)}</span>
+                        {tpl.lastRunDate && (
+                          <span className="block text-[10px] text-dmk-text-muted">{t("rec.lastRun", { date: formatDate(tpl.lastRunDate) })}</span>
                         )}
                       </td>
                       <td>
                         <div className="flex flex-col items-start gap-1">
-                          {t.isActive ? <Badge tone="success">ACTIVE</Badge> : <Badge tone="neutral">PAUSED</Badge>}
-                          {t.autoPost !== false && t.isActive && (
+                          {tpl.isActive ? <Badge tone="success">ACTIVE</Badge> : <Badge tone="neutral">PAUSED</Badge>}
+                          {tpl.autoPost !== false && tpl.isActive && (
                             <span
-                              title="Auto-posted by the platform scheduler when due — no manual run needed"
+                              title={t("rec.autoTip")}
                               className="inline-flex items-center gap-1 rounded-md bg-dmk-success/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-dmk-success"
                             >
                               <Zap className="h-2.5 w-2.5" /> AUTO
                             </span>
                           )}
-                          {(t.runsCount ?? 0) > 0 && (
+                          {(tpl.runsCount ?? 0) > 0 && (
                             <button
-                              onClick={() => openRuns(t)}
-                              title="Open run history — subscription ledger"
+                              onClick={() => openRuns(tpl)}
+                              title={t("rec.tipHistory")}
                               className="inline-flex items-center gap-1 rounded-md bg-dmk-blue/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-dmk-info transition-colors hover:bg-dmk-blue/20"
                             >
-                              <History className="h-2.5 w-2.5" /> {t.runsCount} RUN{(t.runsCount ?? 0) === 1 ? "" : "S"}
+                              <History className="h-2.5 w-2.5" /> {(tpl.runsCount ?? 0) === 1 ? t("rec.runsOne", { n: tpl.runsCount ?? 0 }) : t("rec.runsMany", { n: tpl.runsCount ?? 0 })}
                             </button>
                           )}
                         </div>
@@ -745,37 +754,37 @@ export default function RecurringView() {
                       <td>
                         <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
                           <button
-                            onClick={() => runGenerate(t.id)}
-                            disabled={runningId === t.id}
-                            title={t.onHold ? "On hold — run now skips the due cycles" : "Run now — bill the next cycle immediately"}
+                            onClick={() => runGenerate(tpl.id)}
+                            disabled={runningId === tpl.id}
+                            title={tpl.onHold ? t("rec.tipRunHold") : t("rec.tipRunNow")}
                             className="flex h-8 w-8 items-center justify-center rounded-md text-dmk-success hover:bg-dmk-hover disabled:opacity-40"
                           >
-                            {runningId === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : t.onHold ? <SkipForward className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                            {runningId === tpl.id ? <Loader2 className="h-4 w-4 animate-spin" /> : tpl.onHold ? <SkipForward className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                           </button>
                           <button
-                            onClick={() => openRuns(t)}
-                            title="Run history — subscription ledger"
+                            onClick={() => openRuns(tpl)}
+                            title={t("rec.tipHistory")}
                             className="flex h-8 w-8 items-center justify-center rounded-md text-dmk-info hover:bg-dmk-hover"
                           >
                             <History className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => openEdit(t)}
-                            title="Edit template"
+                            onClick={() => openEdit(tpl)}
+                            title={t("rec.tipEdit")}
                             className="flex h-8 w-8 items-center justify-center rounded-md text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
                           >
                             <Pencil className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => toggleActive(t)}
-                            title={t.isActive ? "Pause — stop auto generation" : "Resume schedule"}
+                            onClick={() => toggleActive(tpl)}
+                            title={tpl.isActive ? t("rec.tipPause") : t("rec.tipResume")}
                             className="flex h-8 w-8 items-center justify-center rounded-md text-dmk-warning hover:bg-dmk-hover"
                           >
-                            {t.isActive ? <Pause className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
+                            {tpl.isActive ? <Pause className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
                           </button>
                           <button
-                            onClick={() => setDeleteOf(t)}
-                            title="Delete template"
+                            onClick={() => setDeleteOf(tpl)}
+                            title={t("rec.tipDelete")}
                             className="flex h-8 w-8 items-center justify-center rounded-md text-dmk-danger hover:bg-dmk-hover"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -783,16 +792,16 @@ export default function RecurringView() {
                         </div>
                       </td>
                     </tr>
-                    {expandedId === t.id && (
-                      <tr key={`${t.id}-items`} className="bg-dmk-input-well/40">
+                    {expandedId === tpl.id && (
+                      <tr key={`${tpl.id}-items`} className="bg-dmk-input-well/40">
                         <td colSpan={9} className="px-4 py-3">
                           <p className="text-[10px] uppercase tracking-widest font-semibold text-dmk-text-muted mb-2">
-                            Products in this template — billed every cycle
+                            {t("rec.productsIn")}
                           </p>
                           <div className="flex flex-wrap gap-1.5">
-                            {t.items.map((i) => (
+                            {tpl.items.map((i) => (
                               <span
-                                key={`${t.id}-${i.sku}-${i.productId}`}
+                                key={`${tpl.id}-${i.sku}-${i.productId}`}
                                 className="inline-flex items-center gap-1.5 rounded-md border border-dmk-border-subtle bg-dmk-bg-primary px-2 py-1 text-[11px] text-dmk-text-secondary whitespace-nowrap"
                               >
                                 <span className="font-money text-dmk-text-muted">{i.sku}</span>
@@ -821,33 +830,33 @@ export default function RecurringView() {
         <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[88vh] overflow-y-auto sm:w-[760px]">
           <DialogHeader>
             <DialogTitle className="text-[16px] text-dmk-text-primary">
-              {editOf ? "Edit Recurring Template" : "New Recurring Template"}
+              {editOf ? t("rec.dlgEdit") : t("rec.dlgNew")}
             </DialogTitle>
             <DialogDescription className="text-[12px] text-dmk-text-muted">
-              Every cycle posts a real tax invoice through the billing engine — tier pricing, GST, credit control and stock all apply.
+              {t("rec.dlgDesc")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-3 py-1">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Template Name">
+              <Field label={t("rec.fName")}>
                 <Input
                   className={inputCls}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Latur monthly buckets"
+                  placeholder={t("rec.phName")}
                 />
               </Field>
-              <Field label="Customer">
+              <Field label={t("cmn.customer")}>
                 <Select value={customerId} onValueChange={setCustomerId}>
                   <SelectTrigger className={inputCls}>
-                    <SelectValue placeholder="Select customer" />
+                    <SelectValue placeholder={t("rec.phSelectCust")} />
                   </SelectTrigger>
                   <SelectContent className="max-h-64">
                     {customers.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.partyName}
-                        {c.customerType === "B2C_COUNTER" ? " · Counter" : ""}
+                        {c.customerType === "B2C_COUNTER" ? ` ${t("rec.counterTag")}` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -856,46 +865,46 @@ export default function RecurringView() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Field label="Frequency">
+              <Field label={t("rec.colFrequency")}>
                 <Select value={frequency} onValueChange={setFrequency}>
                   <SelectTrigger className={inputCls}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {FREQUENCIES.map((f) => (
-                      <SelectItem key={f.value} value={f.value}>
-                        {f.label}
+                      <SelectItem key={f} value={f}>
+                        {frequencyLabel(t, f)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Payment">
+              <Field label={t("rec.colPayment")}>
                 <Select value={paymentMode} onValueChange={setPaymentMode}>
                   <SelectTrigger className={inputCls}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {PAYMENT_MODES.map((m) => (
-                      <SelectItem key={m.value} value={m.value}>
-                        {m.label}
+                      <SelectItem key={m} value={m}>
+                        {payModeLabel(t, m)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Start Date">
+              <Field label={t("rec.fStart")}>
                 <Input type="date" className={inputCls} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
               </Field>
-              <Field label="End Date (optional)">
+              <Field label={t("rec.fEnd")}>
                 <Input type="date" className={inputCls} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </Field>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Field
-                label="Skip cycles until (optional)"
-                hint="Vacation / stock-out hold — cycles due inside the window are skipped, not back-billed. Clear the date to lift the hold."
+                label={t("rec.fSkip")}
+                hint={t("rec.fSkipHint")}
               >
                 <Input
                   type="date"
@@ -909,12 +918,12 @@ export default function RecurringView() {
                 <div className="flex items-end pb-1">
                   <p className="flex items-center gap-1.5 rounded-md bg-[rgba(245,158,11,0.1)] px-2.5 py-2 text-[11px] font-semibold text-dmk-warning">
                     <CalendarOff className="h-3.5 w-3.5 shrink-0" />
-                    On hold until {new Date(`${skipUntil}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                    {t("rec.onHoldUntil", { date: new Date(`${skipUntil}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) })}
                   </p>
                 </div>
               ) : (
                 <div className="flex items-end pb-1">
-                  <p className="text-[11px] text-dmk-text-muted">No hold — the template bills every cycle on schedule.</p>
+                  <p className="text-[11px] text-dmk-text-muted">{t("rec.noHold")}</p>
                 </div>
               )}
             </div>
@@ -922,14 +931,14 @@ export default function RecurringView() {
             {/* line items editor */}
             <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/40 p-3">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Line Items</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("rec.lineItems")}</span>
                 <Button
                   size="sm"
                   variant="outline"
                   className="h-7 border-dmk-border-medium bg-transparent px-2 text-[11.5px] text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
                   onClick={() => setLines((ls) => [...ls, { ...emptyLine }])}
                 >
-                  <Plus className="h-3.5 w-3.5" /> Add line
+                  <Plus className="h-3.5 w-3.5" /> {t("rec.addLine")}
                 </Button>
               </div>
               <div className="space-y-2">
@@ -942,7 +951,7 @@ export default function RecurringView() {
                       <div className="min-w-0">
                         <Select value={l.productId} onValueChange={(v) => setLine(i, { productId: v })}>
                           <SelectTrigger className={cn(inputCls, "w-full")}>
-                            <SelectValue placeholder="Search product…" />
+                            <SelectValue placeholder={t("rec.phProduct")} />
                           </SelectTrigger>
                           <SelectContent className="max-h-64">
                             {products.map((p2) => (
@@ -954,9 +963,9 @@ export default function RecurringView() {
                         </Select>
                         {est && p && (
                           <span className="mt-0.5 block truncate text-[10px] text-dmk-text-muted">
-                            ₹{est.bulk.unitPrice.toFixed(2)}/unit
-                            {est.bulk.discountPct > 0 ? ` · bulk −${est.bulk.discountPct}%` : ""}
-                            {l.disc !== "" ? ` · manual −${l.disc}%` : ""} · GST {p.gstRate}%
+                            {t("rec.perUnit", { price: est.bulk.unitPrice.toFixed(2) })}
+                            {est.bulk.discountPct > 0 ? ` · ${t("rec.bulkPart", { n: est.bulk.discountPct })}` : ""}
+                            {l.disc !== "" ? ` · ${t("rec.manualPart", { n: l.disc })}` : ""} · {t("rec.gstPart", { n: p.gstRate })}
                           </span>
                         )}
                       </div>
@@ -965,7 +974,7 @@ export default function RecurringView() {
                         min="0"
                         step="any"
                         className={inputCls}
-                        placeholder="Qty"
+                        placeholder={t("rec.phQty")}
                         value={l.qty}
                         onChange={(e) => setLine(i, { qty: e.target.value })}
                       />
@@ -975,14 +984,14 @@ export default function RecurringView() {
                         max="100"
                         step="any"
                         className={inputCls}
-                        placeholder="Disc %"
-                        title="Manual discount % — leave empty for automatic bulk discounts"
+                        placeholder={t("rec.phDisc")}
+                        title={t("rec.tipManualDisc")}
                         value={l.disc}
                         onChange={(e) => setLine(i, { disc: e.target.value })}
                       />
                       <button
                         onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls))}
-                        title="Remove line"
+                        title={t("rec.tipRemoveLine")}
                         className="flex h-9 w-7 items-center justify-center rounded-md text-dmk-text-muted hover:bg-dmk-hover hover:text-dmk-danger"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -995,22 +1004,22 @@ export default function RecurringView() {
               {/* live estimate strip */}
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-dmk-border-subtle bg-dmk-bg-primary/60 px-3 py-2">
                 <span className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-                  Quick estimate {intra ? "· CGST + SGST" : "· IGST"}
+                  {t("rec.quickEstimate")} {intra ? t("rec.estIntra") : t("rec.estInter")}
                 </span>
                 <span className="flex items-center gap-3 font-money text-[12.5px]">
-                  <span className="text-dmk-text-secondary">Taxable {formatINR(preview.taxable)}</span>
-                  <span className="text-dmk-info">GST {formatINR(preview.tax)}</span>
-                  <span className="font-semibold text-dmk-gold">Total {formatINR(preview.total)}</span>
+                  <span className="text-dmk-text-secondary">{t("rec.sumTaxable", { amt: formatINR(preview.taxable) })}</span>
+                  <span className="text-dmk-info">{t("rec.sumGst", { amt: formatINR(preview.tax) })}</span>
+                  <span className="font-semibold text-dmk-gold">{t("rec.sumTotal", { amt: formatINR(preview.total) })}</span>
                 </span>
               </div>
             </div>
 
-            <Field label="Notes (optional)">
+            <Field label={t("rec.fNotes")}>
               <Textarea
                 className={cn(inputCls, "min-h-[56px] resize-none")}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g. Deliver via transporter, bill on 1st of every month"
+                placeholder={t("rec.phNotes")}
               />
             </Field>
 
@@ -1025,11 +1034,10 @@ export default function RecurringView() {
               <span className="flex flex-col gap-0.5">
                 <span className="flex items-center gap-2 text-[12.5px] font-semibold text-dmk-text-primary">
                   <Zap className={cn("h-3.5 w-3.5", autoPost ? "text-dmk-success" : "text-dmk-text-muted")} />
-                  Auto-post on schedule
+                  {t("rec.autoPostTitle")}
                 </span>
                 <span className="text-[11px] leading-snug text-dmk-text-muted">
-                  When due, the platform scheduler bills this template automatically every {""}
-                  {autoPost ? "cycle" : "manual pass only"} — same engine, same credit &amp; stock guards.
+                  {t("rec.autoPostDesc", { mode: autoPost ? t("rec.modeCycle") : t("rec.modeManual") })}
                 </span>
               </span>
               <Switch id="tpl-autopost" checked={autoPost} onCheckedChange={setAutoPost} />
@@ -1044,11 +1052,11 @@ export default function RecurringView() {
 
           <DialogFooter className="gap-2">
             <Button variant="outline" className="h-9 border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary" onClick={() => setFormOpen(false)} disabled={saving}>
-              Cancel
+              {t("cmn.cancel")}
             </Button>
             <Button className="h-9 bg-dmk-blue text-white hover:bg-dmk-blue/90" onClick={submitTemplate} disabled={saving}>
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              {editOf ? "Save changes" : "Create template"}
+              {editOf ? t("cmn.saveChanges") : t("rec.btnCreate")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1058,11 +1066,11 @@ export default function RecurringView() {
       <Dialog open={!!genResult} onOpenChange={(o) => !o && setGenResult(null)}>
         <DialogContent className="dmk-elevated border-dmk-border-medium">
           <DialogHeader>
-            <DialogTitle className="text-[16px] text-dmk-text-primary">Generation Report</DialogTitle>
+            <DialogTitle className="text-[16px] text-dmk-text-primary">{t("rec.reportTitle")}</DialogTitle>
             <DialogDescription className="text-[12px] text-dmk-text-muted">
-              {genResult?.generated ?? 0} template{(genResult?.generated ?? 0) === 1 ? "" : "s"} billed ·{" "}
-              {(genResult?.skipped ?? 0) > 0 ? `${genResult?.skipped} skipped · ` : ""}
-              {genResult?.failed ?? 0} failed. Invoices and journals are posted.
+              {t("rec.reportBilled", { n: genResult?.generated ?? 0 })}{" · "}
+              {(genResult?.skipped ?? 0) > 0 ? `${t("rec.reportSkipped", { n: genResult?.skipped ?? 0 })} · ` : ""}
+              {t("rec.reportFailed", { n: genResult?.failed ?? 0 })}
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
@@ -1098,13 +1106,12 @@ export default function RecurringView() {
                 </div>
                 {run.ok && !run.skipped ? (
                   <p className="mt-1 pl-6 text-[11.5px] text-dmk-text-secondary">
-                    Invoice <span className="font-mono">{run.invoiceNumber}</span>
-                    {(run.invoices ?? 1) > 1 ? ` · ${run.invoices} cycles caught up` : ""}
+                    {t("rec.runInvoice", { no: run.invoiceNumber ?? "" })}
+                    {(run.invoices ?? 1) > 1 ? ` · ${t("rec.cyclesCaughtUp", { n: run.invoices ?? 1 })}` : ""}
                   </p>
                 ) : run.ok && run.skipped ? (
                   <p className="mt-1 pl-6 text-[11.5px] text-dmk-text-secondary">
-                    {run.skippedCycles ?? 1} cycle{(run.skippedCycles ?? 1) === 1 ? "" : "s"} inside the hold window skipped —
-                    next run {run.holdUntil ? `after ${formatDate(run.holdUntil)}` : "advanced"} without billing.
+                    {t("rec.skippedDesc", { n: run.skippedCycles ?? 1, after: run.holdUntil ? t("rec.afterDate", { date: formatDate(run.holdUntil) }) : t("rec.advanced") })}
                   </p>
                 ) : (
                   <p className="mt-1 pl-6 text-[11.5px] text-dmk-danger">{run.error}</p>
@@ -1112,12 +1119,12 @@ export default function RecurringView() {
               </div>
             ))}
             {(genResult?.runs ?? []).length === 0 && (
-              <p className="py-6 text-center text-[12.5px] text-dmk-text-muted">No templates were due.</p>
+              <p className="py-6 text-center text-[12.5px] text-dmk-text-muted">{t("rec.noneDue")}</p>
             )}
           </div>
           <DialogFooter>
             <Button className="h-9 bg-dmk-blue text-white hover:bg-dmk-blue/90" onClick={() => setGenResult(null)}>
-              Done
+              {t("rec.done")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1129,10 +1136,10 @@ export default function RecurringView() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-[16px] text-dmk-text-primary">
               <History className="h-4 w-4 text-dmk-info" />
-              Run History — {runsOf?.name}
+              {t("rec.runsTitle", { name: runsOf?.name ?? "" })}
             </DialogTitle>
             <DialogDescription className="text-[12px] text-dmk-text-muted">
-              Subscription ledger — every tax invoice auto-posted by this template, newest first.
+              {t("rec.runsDesc")}
             </DialogDescription>
           </DialogHeader>
 
@@ -1147,19 +1154,19 @@ export default function RecurringView() {
               {/* KPI wells */}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">Total runs</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("rec.kpiTotalRuns")}</p>
                   <p className="mt-0.5 font-money text-[15px] font-semibold text-dmk-text-primary">{runsData.totals.runs}</p>
                 </div>
                 <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">Total billed</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("rec.kpiTotalBilled")}</p>
                   <p className="mt-0.5 font-money text-[15px] font-semibold text-dmk-gold">{formatINR(runsData.totals.billed)}</p>
                 </div>
                 <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">Avg invoice</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("rec.kpiAvgInvoice")}</p>
                   <p className="mt-0.5 font-money text-[15px] font-semibold text-dmk-text-primary">{formatINR(runsData.totals.avgInvoice)}</p>
                 </div>
                 <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/60 px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">Last run</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("rec.kpiLastRun")}</p>
                   <p className="mt-0.5 truncate text-[12.5px] font-semibold text-dmk-text-secondary">
                     {runsData.totals.lastRunDate ? formatDate(runsData.totals.lastRunDate) : "—"}
                     {runsData.totals.lastInvoiceNo && (
@@ -1172,9 +1179,9 @@ export default function RecurringView() {
               {runsData.rows.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-dmk-border-medium px-4 py-8 text-center">
                   <History className="mx-auto h-6 w-6 text-dmk-text-muted" />
-                  <p className="mt-2 text-[13px] font-semibold text-dmk-text-primary">No runs yet</p>
+                  <p className="mt-2 text-[13px] font-semibold text-dmk-text-primary">{t("rec.noRuns")}</p>
                   <p className="mt-0.5 text-[11.5px] text-dmk-text-muted">
-                    Invoices appear here the first time the template bills — run it now or wait for the schedule.
+                    {t("rec.noRunsHint")}
                   </p>
                 </div>
               ) : (
@@ -1182,11 +1189,11 @@ export default function RecurringView() {
                   <table className="dmk-table min-w-[560px]">
                     <thead>
                       <tr>
-                        <th>Invoice #</th>
-                        <th>Date</th>
-                        <th>Mode</th>
-                        <th className="text-right">GST (₹)</th>
-                        <th className="text-right">Total (₹)</th>
+                        <th>{t("rec.colInvoiceNo")}</th>
+                        <th>{t("cmn.date")}</th>
+                        <th>{t("rcpt.colMode")}</th>
+                        <th className="text-right">{t("rec.colGst")}</th>
+                        <th className="text-right">{t("rec.colTotal")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1208,7 +1215,7 @@ export default function RecurringView() {
               )}
 
               <p className="border-t border-dmk-border-subtle pt-2 text-[10.5px] text-dmk-text-muted">
-                Totals reconcile with the invoice register — every run is a real A4 tax invoice with its own journal and stock draw.
+                {t("rec.reconcileNote")}
               </p>
             </div>
           ) : null}
@@ -1219,7 +1226,7 @@ export default function RecurringView() {
               className="h-9 border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
               onClick={() => setRunsOf(null)}
             >
-              Close
+              {t("cmn.close")}
             </Button>
             <Button
               className="h-9 bg-dmk-blue text-white hover:bg-dmk-blue/90"
@@ -1228,7 +1235,7 @@ export default function RecurringView() {
                 setView("sales/invoices");
               }}
             >
-              Open Invoice Register
+              {t("rec.openRegister")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1238,15 +1245,14 @@ export default function RecurringView() {
       <AlertDialog open={!!deleteOf} onOpenChange={(o) => !o && setDeleteOf(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete “{deleteOf?.name}”?</AlertDialogTitle>
+            <AlertDialogTitle>{t("rec.delTitle", { name: deleteOf?.name ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription>
-              The template and its lines are snapshotted to the Deleted Data folder, then removed from the
-              schedule — restore it anytime from Intelligence → Deleted Data. Invoices already posted stay in your books.
+              {t("rec.delDesc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="h-9 border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
-              Cancel
+              {t("cmn.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="h-9 bg-dmk-danger text-white hover:bg-dmk-danger/90"
@@ -1256,7 +1262,7 @@ export default function RecurringView() {
                 confirmDelete();
               }}
             >
-              {deleting && <Loader2 className="h-4 w-4 animate-spin" />} Delete
+              {deleting && <Loader2 className="h-4 w-4 animate-spin" />} {t("cmn.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -30,6 +30,7 @@ import { useErpStore, DEFAULT_SALES_PERMS, type SalesPermissions } from "@/store
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/api-client";
 import { formatINR, formatDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
+import { useT, type TFn } from "@/lib/i18n";
 import { filterByQuery } from "@/lib/search-rank";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -132,16 +133,46 @@ const EMPTY_TOTALS: OrderTotals = { count: 0, booked: 0, estimatedAmount: 0 };
 
 type PermKey = keyof SalesPermissions;
 
-const PERM_SECTIONS: ReadonlyArray<{ key: PermKey; label: string; desc: string }> = [
-  { key: "canB2BBilling", label: "B2B Fast Billing", desc: "Wholesale invoices with customer tier pricing" },
-  { key: "canB2CPos", label: "B2C Counter POS", desc: "Walk-in retail billing, Cash / UPI / Card" },
-  { key: "canSalesOrders", label: "Sales Orders — SO Booking", desc: "Record phone / PDF orders for delivery" },
-  { key: "canManageCustomers", label: "Customer Master", desc: "Add / edit shops, phones, addresses" },
-  { key: "canViewStock", label: "Stock Lookup", desc: "Sellable quantities only — purchase costs hidden" },
-  { key: "canViewInvoices", label: "Invoice Register", desc: "View & reprint bills" },
-  { key: "canRecordReceipts", label: "Customer Payment Receipts", desc: "Record collections (optional trust)" },
-  { key: "canOverridePrice", label: "Price & Discount Overrides", desc: "Manual discounts beyond tier pricing" },
+const PERM_SECTIONS: ReadonlyArray<{ key: PermKey }> = [
+  { key: "canB2BBilling" },
+  { key: "canB2CPos" },
+  { key: "canSalesOrders" },
+  { key: "canManageCustomers" },
+  { key: "canViewStock" },
+  { key: "canViewInvoices" },
+  { key: "canRecordReceipts" },
+  { key: "canOverridePrice" },
 ];
+
+/** Translated permission section label. */
+function permLabel(t: TFn, key: PermKey): string {
+  switch (key) {
+    case "canB2BBilling": return t("steam.permB2b");
+    case "canB2CPos": return t("steam.permPos");
+    case "canSalesOrders": return t("steam.permSo");
+    case "canManageCustomers": return t("steam.permCust");
+    case "canViewStock": return t("steam.permStock");
+    case "canViewInvoices": return t("steam.permInv");
+    case "canRecordReceipts": return t("steam.permReceipts");
+    case "canOverridePrice": return t("steam.permOverride");
+    default: return key;
+  }
+}
+
+/** Translated permission section description. */
+function permDesc(t: TFn, key: PermKey): string {
+  switch (key) {
+    case "canB2BBilling": return t("steam.permB2bDesc");
+    case "canB2CPos": return t("steam.permPosDesc");
+    case "canSalesOrders": return t("steam.permSoDesc");
+    case "canManageCustomers": return t("steam.permCustDesc");
+    case "canViewStock": return t("steam.permStockDesc");
+    case "canViewInvoices": return t("steam.permInvDesc");
+    case "canRecordReceipts": return t("steam.permReceiptsDesc");
+    case "canOverridePrice": return t("steam.permOverrideDesc");
+    default: return key;
+  }
+}
 
 function permsOf(m: SalesMemberRow): SalesPermissions {
   return {
@@ -171,6 +202,7 @@ const SO_STATUS_TONE: Record<SalesOrderRow["status"], "info" | "success" | "dang
 export default function SalesTeamView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const { toast } = useToast();
+  const { t } = useT();
 
   const [tab, setTab] = React.useState<"members" | "orders">("members");
 
@@ -193,12 +225,12 @@ export default function SalesTeamView() {
   const [memberQuery, setMemberQuery] = React.useState("");
   const [memberSearch, setMemberSearch] = React.useState("");
   React.useEffect(() => {
-    const t = setTimeout(() => setMemberSearch(memberQuery), 220);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setMemberSearch(memberQuery), 220);
+    return () => clearTimeout(timer);
   }, [memberQuery]);
   React.useEffect(() => {
-    const t = setTimeout(() => setOrderSearch(orderQuery), 220);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setOrderSearch(orderQuery), 220);
+    return () => clearTimeout(timer);
   }, [orderQuery]);
 
   // Dialogs & confirms
@@ -226,9 +258,9 @@ export default function SalesTeamView() {
       setMembers([]);
       setRoutes([]);
       setKpiTotals(EMPTY_TOTALS);
-      setLoadError(e instanceof ApiError ? e.message : "Could not load the sales team.");
+      setLoadError(e instanceof ApiError ? e.message : t("steam.errLoad"));
     }
-  }, [activeFirmId]);
+  }, [activeFirmId, t]);
 
   React.useEffect(() => {
     load();
@@ -249,11 +281,11 @@ export default function SalesTeamView() {
     } catch (e) {
       setOrders([]);
       setOrderTotals(EMPTY_TOTALS);
-      setOrdersError(e instanceof ApiError ? e.message : "Could not load the order book.");
+      setOrdersError(e instanceof ApiError ? e.message : t("steam.errLoadOrders"));
     } finally {
       setOrdersLoading(false);
     }
-  }, [activeFirmId, orderStatus, orderSearch]);
+  }, [activeFirmId, orderStatus, orderSearch, t]);
 
   React.useEffect(() => {
     loadOrders();
@@ -275,18 +307,18 @@ export default function SalesTeamView() {
     try {
       await apiPatch(`/api/v1/sales-team/members/${toggleOf.member.id}`, { isActive: toggleOf.next });
       toast({
-        title: toggleOf.next ? `${toggleOf.member.fullName} activated` : `${toggleOf.member.fullName} suspended`,
+        title: toggleOf.next ? t("steam.toastActivated", { name: toggleOf.member.fullName }) : t("steam.toastSuspended", { name: toggleOf.member.fullName }),
         description: toggleOf.next
-          ? "They can sign in at /sales again — allowed sections reappear on their next screen."
-          : "Their sign-in stops immediately — the sidebar disappears on their next screen.",
+          ? t("steam.toastActivateDesc")
+          : t("steam.toastSuspendDesc"),
       });
       setToggleOf(null);
       load();
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Update failed",
-        description: e instanceof ApiError ? e.message : "Try again.",
+        title: t("steam.errUpdate"),
+        description: e instanceof ApiError ? e.message : t("sale.tryAgain"),
       });
     } finally {
       setToggling(false);
@@ -299,8 +331,8 @@ export default function SalesTeamView() {
     try {
       await apiDelete(`/api/v1/sales-team/members/${removeOf.id}`);
       toast({
-        title: `${removeOf.fullName} removed`,
-        description: "Account suspended and archived — restorable from Deleted Data anytime.",
+        title: t("steam.toastRemoved", { name: removeOf.fullName }),
+        description: t("steam.toastRemovedDesc"),
       });
       setRemoveOf(null);
       load();
@@ -308,8 +340,8 @@ export default function SalesTeamView() {
       setRemoveOf(null);
       toast({
         variant: "destructive",
-        title: "Could not remove this member",
-        description: e instanceof ApiError ? e.message : "Try again.",
+        title: t("steam.errRemove"),
+        description: e instanceof ApiError ? e.message : t("sale.tryAgain"),
       });
     } finally {
       setRemoving(false);
@@ -322,8 +354,8 @@ export default function SalesTeamView() {
     try {
       await apiPatch(`/api/v1/sales-orders/${cancelOf.id}`, { status: "CANCELLED" });
       toast({
-        title: `${cancelOf.orderNumber} cancelled`,
-        description: "The estimate is released — the order is marked CANCELLED in the book.",
+        title: t("steam.toastCancelled", { no: cancelOf.orderNumber }),
+        description: t("steam.toastCancelledDesc"),
       });
       setCancelOf(null);
       loadOrders();
@@ -332,8 +364,8 @@ export default function SalesTeamView() {
       setCancelOf(null);
       toast({
         variant: "destructive",
-        title: "Could not cancel this order",
-        description: e instanceof ApiError ? e.message : "Only booked orders can be cancelled.",
+        title: t("steam.errCancelOrder"),
+        description: e instanceof ApiError ? e.message : t("steam.errOnlyBooked"),
       });
     } finally {
       setCancelling(false);
@@ -344,35 +376,35 @@ export default function SalesTeamView() {
     <div className="space-y-4 dmk-enter-stagger">
       <PageHeader
         icon={UsersRound}
-        title="Sales Team Management"
-        subtitle="Members sign in at /sales with the username + password you set here — sidebar sections appear only for the permissions you toggle"
+        title={t("steam.title")}
+        subtitle={t("steam.subtitle")}
         actions={
           <Button
             variant="outline"
             onClick={() => load()}
             className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
           >
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+            <RefreshCw className="h-3.5 w-3.5" /> {t("cmn.refresh")}
           </Button>
         }
       />
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard label="Active members" value={String(activeCount)} sub={`${memberList.length} accounts total`} icon={UsersRound} />
-        <KpiCard label="Total billed" value={formatINR(totalBilled)} sub="lifetime by sales team" icon={IndianRupee} tone="gold" />
-        <KpiCard label="Billed today" value={formatINR(todayBilled)} sub="since midnight" icon={Coins} tone="success" />
-        <KpiCard label="Sales orders booked" value={String(kpiTotals.booked)} sub={`${kpiTotals.count} in the order book`} icon={ClipboardList} tone="info" />
+        <KpiCard label={t("steam.kpiActive")} value={String(activeCount)} sub={t("steam.kpiAccounts", { n: memberList.length })} icon={UsersRound} />
+        <KpiCard label={t("steam.kpiTotalBilled")} value={formatINR(totalBilled)} sub={t("steam.kpiLifetime")} icon={IndianRupee} tone="gold" />
+        <KpiCard label={t("steam.kpiToday")} value={formatINR(todayBilled)} sub={t("steam.kpiSinceMidnight")} icon={Coins} tone="success" />
+        <KpiCard label={t("steam.kpiOrders")} value={String(kpiTotals.booked)} sub={t("steam.kpiInBook", { n: kpiTotals.count })} icon={ClipboardList} tone="info" />
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v === "orders" ? "orders" : "members")} className="space-y-4">
         <TabsList className="bg-dmk-input-well border border-dmk-border-subtle h-10">
           <TabsTrigger value="members" className="text-[12.5px] gap-1.5 data-[state=active]:bg-dmk-yellow data-[state=active]:text-dmk-bg-primary">
-            <UsersRound className="h-4 w-4" /> Members
+            <UsersRound className="h-4 w-4" /> {t("steam.tabMembers")}
             <span className="ml-1 rounded-full bg-dmk-input-well px-1.5 text-[10px] font-bold text-dmk-text-secondary">{memberList.length}</span>
           </TabsTrigger>
           <TabsTrigger value="orders" className="text-[12.5px] gap-1.5 data-[state=active]:bg-dmk-yellow data-[state=active]:text-dmk-bg-primary">
-            <ScrollText className="h-4 w-4" /> Order Book (SO)
+            <ScrollText className="h-4 w-4" /> {t("steam.tabOrders")}
             {kpiTotals.booked > 0 && (
               <span className="ml-1 rounded-full bg-dmk-gold/20 px-1.5 text-[10px] font-bold text-dmk-gold">{kpiTotals.booked}</span>
             )}
@@ -386,14 +418,14 @@ export default function SalesTeamView() {
             <SearchInput
               value={memberQuery}
               onChange={setMemberQuery}
-              placeholder="Search name, username or phone…"
+              placeholder={t("steam.searchMembers")}
               className="flex-1"
             />
             <Button
               onClick={() => setDialog({ mode: "create" })}
               className="h-9 shrink-0 bg-dmk-yellow text-dmk-bg-primary hover:bg-dmk-yellow/90 font-semibold"
             >
-              <UserPlus className="h-4 w-4" /> Add Sales Member
+              <UserPlus className="h-4 w-4" /> {t("steam.addMember")}
             </Button>
           </div>
 
@@ -407,11 +439,11 @@ export default function SalesTeamView() {
             <div className="dmk-card">
               <EmptyState
                 icon={UsersRound}
-                title={memberList.length === 0 ? "No sales members yet" : "No members match your search"}
+                title={memberList.length === 0 ? t("steam.emptyNone") : t("steam.emptyFiltered")}
                 hint={
                   memberList.length === 0
-                    ? "Create one account per salesperson — they sign in at /sales with the username + password you set, and see only the sections you allow."
-                    : "Try a different name, username or phone."
+                    ? t("steam.emptyHint")
+                    : t("steam.emptyFilteredHint")
                 }
                 action={
                   memberList.length === 0 ? (
@@ -419,7 +451,7 @@ export default function SalesTeamView() {
                       onClick={() => setDialog({ mode: "create" })}
                       className="h-10 bg-dmk-yellow text-dmk-bg-primary hover:bg-dmk-yellow/90 font-semibold"
                     >
-                      <UserPlus className="h-4 w-4" /> Create the first account
+                      <UserPlus className="h-4 w-4" /> {t("steam.createFirst")}
                     </Button>
                   ) : undefined
                 }
@@ -429,13 +461,13 @@ export default function SalesTeamView() {
             <DataTable>
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Username</th>
-                  <th>Route</th>
-                  <th>Permissions</th>
-                  <th className="text-right">Billed</th>
-                  <th>Status</th>
-                  <th className="text-right">Actions</th>
+                  <th>{t("cmn.name")}</th>
+                  <th>{t("steam.colUsername")}</th>
+                  <th>{t("steam.colRoute")}</th>
+                  <th>{t("steam.colPerms")}</th>
+                  <th className="text-right">{t("steam.colBilled")}</th>
+                  <th>{t("cmn.status")}</th>
+                  <th className="text-right">{t("cmn.actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -443,7 +475,7 @@ export default function SalesTeamView() {
                   <tr key={m.id}>
                     <td>
                       <p className="text-[13px] font-semibold text-dmk-text-primary whitespace-nowrap">{m.fullName}</p>
-                      <p className="text-[10.5px] text-dmk-text-muted whitespace-nowrap">{m.phone || "no phone"}</p>
+                      <p className="text-[10.5px] text-dmk-text-muted whitespace-nowrap">{m.phone || t("sale.noPhone")}</p>
                     </td>
                     <td>
                       <span className="dmk-badge dmk-badge-neutral font-mono">@{m.username}</span>
@@ -458,19 +490,19 @@ export default function SalesTeamView() {
                     <td>
                       <div className="flex flex-col gap-1">
                         <span className="text-[12px] font-semibold text-dmk-text-secondary whitespace-nowrap">
-                          {permCount(permsOf(m))}/8 sections
+                          {t("steam.sections", { n: permCount(permsOf(m)) })}
                         </span>
                         {(m.canRecordReceipts || m.canOverridePrice) && (
                           <div className="flex gap-1">
-                            {m.canRecordReceipts && <Badge tone="warning">+receipts</Badge>}
-                            {m.canOverridePrice && <Badge tone="gold">+override</Badge>}
+                            {m.canRecordReceipts && <Badge tone="warning">{t("steam.plusReceipts")}</Badge>}
+                            {m.canOverridePrice && <Badge tone="gold">{t("steam.plusOverride")}</Badge>}
                           </div>
                         )}
                       </div>
                     </td>
                     <td className="text-right">
                       <p className="font-money text-[13px] font-semibold text-dmk-text-primary whitespace-nowrap">{formatINR(Number(m.totalBilled || 0))}</p>
-                      <p className="text-[10.5px] text-dmk-text-muted font-money whitespace-nowrap">{formatINR(Number(m.todayBilled || 0))} today</p>
+                      <p className="text-[10.5px] text-dmk-text-muted font-money whitespace-nowrap">{t("steam.today", { amt: formatINR(Number(m.todayBilled || 0)) })}</p>
                     </td>
                     <td>
                       {m.isActive ? <Badge tone="success">ACTIVE</Badge> : <Badge tone="warning">SUSPENDED</Badge>}
@@ -483,7 +515,7 @@ export default function SalesTeamView() {
                           className="h-8 border-dmk-border-subtle text-[12px] text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
                           onClick={() => setDialog({ mode: "edit", member: m })}
                         >
-                          <Pencil className="h-3.5 w-3.5" /> Edit
+                          <Pencil className="h-3.5 w-3.5" /> {t("cmn.edit")}
                         </Button>
                         <Button
                           variant="outline"
@@ -497,7 +529,7 @@ export default function SalesTeamView() {
                           onClick={() => setToggleOf({ member: m, next: !m.isActive })}
                         >
                           {m.isActive ? <Ban className="h-3.5 w-3.5" /> : <RotateCcw className="h-3.5 w-3.5" />}
-                          {m.isActive ? "Suspend" : "Activate"}
+                          {m.isActive ? t("steam.suspend") : t("steam.activate")}
                         </Button>
                         <Button
                           variant="outline"
@@ -505,7 +537,7 @@ export default function SalesTeamView() {
                           className="h-8 border-dmk-border-subtle text-[12px] text-dmk-danger/80 hover:bg-dmk-hover hover:text-dmk-danger"
                           onClick={() => setRemoveOf(m)}
                         >
-                          <Trash2 className="h-3.5 w-3.5" /> Remove
+                          <Trash2 className="h-3.5 w-3.5" /> {t("steam.remove")}
                         </Button>
                       </div>
                     </td>
@@ -516,7 +548,7 @@ export default function SalesTeamView() {
           )}
 
           <p className="text-[11px] text-dmk-text-muted">
-            Suspended members keep their billing history and attribution — only their /sales sign-in and sidebar access stop. Removed accounts are restorable from Deleted Data.
+            {t("steam.footNote")}
           </p>
         </TabsContent>
 
@@ -526,19 +558,19 @@ export default function SalesTeamView() {
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
             <Select value={orderStatus} onValueChange={setOrderStatus}>
               <SelectTrigger className="h-9 w-full sm:w-[170px] shrink-0 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary">
-                <SelectValue placeholder="Status" />
+                <SelectValue placeholder={t("cmn.status")} />
               </SelectTrigger>
               <SelectContent className="border-dmk-border-subtle bg-dmk-bg-secondary text-dmk-text-primary">
-                <SelectItem value="ALL">All statuses</SelectItem>
-                <SelectItem value="BOOKED">Booked</SelectItem>
-                <SelectItem value="CONVERTED">Converted</SelectItem>
-                <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                <SelectItem value="ALL">{t("steam.allStatuses")}</SelectItem>
+                <SelectItem value="BOOKED">{t("steam.stBooked")}</SelectItem>
+                <SelectItem value="CONVERTED">{t("steam.stConverted")}</SelectItem>
+                <SelectItem value="CANCELLED">{t("steam.stCancelled")}</SelectItem>
               </SelectContent>
             </Select>
             <SearchInput
               value={orderQuery}
               onChange={setOrderQuery}
-              placeholder="Search order #, customer or notes…"
+              placeholder={t("steam.searchOrders")}
               className="flex-1"
             />
             <Button
@@ -546,7 +578,7 @@ export default function SalesTeamView() {
               onClick={() => loadOrders()}
               className="h-9 shrink-0 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
             >
-              <RefreshCw className={cn("h-3.5 w-3.5", ordersLoading && "animate-spin")} /> Refresh
+              <RefreshCw className={cn("h-3.5 w-3.5", ordersLoading && "animate-spin")} /> {t("cmn.refresh")}
             </Button>
           </div>
 
@@ -560,22 +592,22 @@ export default function SalesTeamView() {
             <div className="dmk-card">
               <EmptyState
                 icon={ClipboardList}
-                title="No sales orders here"
-                hint="Sales members with the Sales Orders section book phone / PDF orders at /sales — they land here for the office to convert into invoices."
+                title={t("steam.emptyOrders")}
+                hint={t("steam.emptyOrdersHint")}
               />
             </div>
           ) : (
             <DataTable>
               <thead>
                 <tr>
-                  <th>Order #</th>
-                  <th>Date</th>
-                  <th>Customer</th>
-                  <th className="text-right">Items</th>
-                  <th className="text-right">Estimated</th>
-                  <th>Booked by</th>
-                  <th>Status</th>
-                  <th className="text-right">Actions</th>
+                  <th>{t("steam.colOrderNo")}</th>
+                  <th>{t("cmn.date")}</th>
+                  <th>{t("cmn.customer")}</th>
+                  <th className="text-right">{t("steam.colItems")}</th>
+                  <th className="text-right">{t("steam.colEstimated")}</th>
+                  <th>{t("steam.colBookedBy")}</th>
+                  <th>{t("cmn.status")}</th>
+                  <th className="text-right">{t("cmn.actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -596,7 +628,7 @@ export default function SalesTeamView() {
                       {formatINR(Number(o.estimatedTotal || 0))}
                     </td>
                     <td>
-                      <span className="dmk-badge dmk-badge-neutral whitespace-nowrap">{o.salesMember?.fullName ?? "Office"}</span>
+                      <span className="dmk-badge dmk-badge-neutral whitespace-nowrap">{o.salesMember?.fullName ?? t("steam.office")}</span>
                     </td>
                     <td>
                       <Badge tone={SO_STATUS_TONE[o.status] ?? "neutral"}>{o.status}</Badge>
@@ -610,7 +642,7 @@ export default function SalesTeamView() {
                             className="h-8 border-dmk-border-subtle text-[12px] text-dmk-danger/80 hover:bg-dmk-hover hover:text-dmk-danger"
                             onClick={() => setCancelOf(o)}
                           >
-                            <Ban className="h-3.5 w-3.5" /> Cancel
+                            <Ban className="h-3.5 w-3.5" /> {t("cmn.cancel")}
                           </Button>
                         ) : (
                           <span className="text-[11.5px] text-dmk-text-disabled">—</span>
@@ -625,16 +657,12 @@ export default function SalesTeamView() {
 
           {/* Totals strip */}
           <div className="dmk-well px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-dmk-text-muted">
-            <span>
-              <span className="font-semibold text-dmk-text-secondary">{orderTotals.count}</span> orders
-            </span>
+            <span>{t("steam.totOrders", { n: orderTotals.count })}</span>
             <span aria-hidden="true">·</span>
-            <span>
-              <span className="font-semibold text-dmk-text-secondary">{orderTotals.booked}</span> booked
-            </span>
+            <span>{t("steam.totBooked", { n: orderTotals.booked })}</span>
             <span aria-hidden="true">·</span>
-            <span className="font-money text-dmk-text-secondary">{formatINR(orderTotals.estimatedAmount)} estimated</span>
-            <span className="ml-auto hidden sm:inline">Only BOOKED orders can be cancelled — converted orders are locked to the books.</span>
+            <span className="font-money text-dmk-text-secondary">{t("steam.totEstimated", { amt: formatINR(orderTotals.estimatedAmount) })}</span>
+            <span className="ml-auto hidden sm:inline">{t("steam.totNote")}</span>
           </div>
         </TabsContent>
       </Tabs>
@@ -658,17 +686,17 @@ export default function SalesTeamView() {
         <AlertDialogContent className="border-dmk-border-subtle bg-dmk-bg-secondary">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-dmk-text-primary">
-              {toggleOf?.next ? "Activate" : "Suspend"} {toggleOf?.member.fullName}?
+              {toggleOf?.next ? t("steam.activateTitle", { name: toggleOf.member.fullName }) : t("steam.suspendTitle", { name: toggleOf?.member.fullName ?? "" })}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-dmk-text-muted">
               {toggleOf?.next
-                ? "They can sign in at /sales again — the sidebar sections you've allowed reappear on their next screen. History stays intact."
-                : "Their /sales sign-in stops immediately and the sidebar disappears on their next screen. Billing history and attribution stay intact — activate anytime."}
+                ? t("steam.activateDesc")
+                : t("steam.suspendDesc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
-              Cancel
+              {t("cmn.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               className={toggleOf?.next ? "bg-dmk-success text-white hover:bg-dmk-success/90" : "bg-dmk-warning text-dmk-bg-primary hover:bg-dmk-warning/90"}
@@ -679,7 +707,7 @@ export default function SalesTeamView() {
               }}
             >
               {toggling && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              {toggleOf?.next ? "Activate member" : "Suspend member"}
+              {toggleOf?.next ? t("steam.activateBtn") : t("steam.suspendBtn")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -689,15 +717,14 @@ export default function SalesTeamView() {
       <AlertDialog open={Boolean(removeOf)} onOpenChange={(v) => !v && setRemoveOf(null)}>
         <AlertDialogContent className="border-dmk-border-subtle bg-dmk-bg-secondary">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-dmk-text-primary">Remove {removeOf?.fullName}?</AlertDialogTitle>
+            <AlertDialogTitle className="text-dmk-text-primary">{t("steam.removeTitle", { name: removeOf?.fullName ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription className="text-dmk-text-muted">
-              The account is suspended and archived in Deleted Data — restorable from Deleted Data anytime. Invoices, sales orders
-              and receipts they created keep their attribution history.
+              {t("steam.removeDesc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
-              Cancel
+              {t("cmn.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
@@ -707,7 +734,7 @@ export default function SalesTeamView() {
                 removeMember();
               }}
             >
-              {removing && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Remove
+              {removing && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} {t("steam.remove")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -717,16 +744,17 @@ export default function SalesTeamView() {
       <AlertDialog open={Boolean(cancelOf)} onOpenChange={(v) => !v && setCancelOf(null)}>
         <AlertDialogContent className="border-dmk-border-subtle bg-dmk-bg-secondary">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-dmk-text-primary">Cancel {cancelOf?.orderNumber}?</AlertDialogTitle>
+            <AlertDialogTitle className="text-dmk-text-primary">{t("steam.cancelOrderTitle", { no: cancelOf?.orderNumber ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription className="text-dmk-text-muted">
-              The estimated {cancelOf ? formatINR(Number(cancelOf.estimatedTotal || 0)) : ""} for{" "}
-              {cancelOf?.customer?.partyName ?? "this customer"} is released and the order is marked CANCELLED. Only booked orders
-              can be cancelled — once converted to an invoice this is no longer possible.
+              {t("steam.cancelOrderDesc", {
+                amt: cancelOf ? formatINR(Number(cancelOf.estimatedTotal || 0)) : "",
+                name: cancelOf?.customer?.partyName ?? t("steam.thisCustomer"),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-dmk-border-subtle bg-transparent text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary">
-              Keep order
+              {t("steam.keepOrder")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-dmk-danger text-white hover:bg-dmk-danger/90"
@@ -736,7 +764,7 @@ export default function SalesTeamView() {
                 cancelOrder();
               }}
             >
-              {cancelling && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Cancel order
+              {cancelling && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} {t("steam.cancelOrderBtn")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -760,6 +788,7 @@ function MemberDialog({
 }) {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const { toast } = useToast();
+  const { t } = useT();
 
   const [form, setForm] = React.useState({
     fullName: member?.fullName ?? "",
@@ -783,11 +812,11 @@ function MemberDialog({
   async function save() {
     if (!activeFirmId) return;
     if (!form.fullName.trim() || !form.username.trim()) {
-      setError("Full name and username are required.");
+      setError(t("steam.errRequired"));
       return;
     }
     if (form.password && form.password.length < 4) {
-      setError("Password must be at least 4 characters.");
+      setError(t("steam.errPassword"));
       return;
     }
     setBusy(true);
@@ -811,19 +840,19 @@ function MemberDialog({
       if (member) {
         await apiPatch(`/api/v1/sales-team/members/${member.id}`, payload);
         toast({
-          title: "Sales member updated",
-          description: `@${username} — changes apply on their next screen at /sales.`,
+          title: t("steam.toastUpdated"),
+          description: t("steam.toastUpdatedDesc", { username }),
         });
       } else {
         await apiPost("/api/v1/sales-team/members", payload);
         toast({
-          title: "Sales member created",
-          description: `${form.fullName.trim()} can now sign in at /sales with @${username} and the password you set.`,
+          title: t("steam.toastCreated"),
+          description: t("steam.toastCreatedDesc", { name: form.fullName.trim(), username }),
         });
       }
       onSaved();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Save failed.");
+      setError(e instanceof ApiError ? e.message : t("steam.errSave"));
     } finally {
       setBusy(false);
     }
@@ -834,85 +863,85 @@ function MemberDialog({
       <DialogContent className="dmk-card sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-[15px] font-bold text-dmk-text-primary">
-            {member ? "Edit sales member" : "Add sales member"}
+            {member ? t("steam.dlgEdit") : t("steam.dlgCreate")}
           </DialogTitle>
           <DialogDescription className="text-[12px] text-dmk-text-muted">
             {member
-              ? `@${member.username} signs in at /sales — changes apply on their next screen.`
-              : "They sign in at /sales with this username + password, and see only the portal sections you switch on below."}
+              ? t("steam.dlgEditDesc", { username: member.username })
+              : t("steam.dlgCreateDesc")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Full name *</label>
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("steam.fFullName")}</label>
             <Input
               value={form.fullName}
               onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
-              placeholder="e.g. Kirti Patil"
+              placeholder={t("steam.phFullName")}
               className={inputCls}
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Phone</label>
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("cmn.phone")}</label>
             <Input
               value={form.phone}
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-              placeholder="e.g. 98765 43210"
+              placeholder={t("steam.phPhone")}
               className={inputCls}
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Username *</label>
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("steam.fUsername")}</label>
             <Input
               value={form.username}
               onChange={(e) => setForm((f) => ({ ...f, username: e.target.value.toLowerCase() }))}
-              placeholder="e.g. kirti"
+              placeholder={t("steam.phUsername")}
               className={cn(inputCls, "lowercase font-mono")}
             />
-            <p className="text-[10.5px] text-dmk-text-muted">lowercase — used to sign in at /sales</p>
+            <p className="text-[10.5px] text-dmk-text-muted">{t("steam.usernameHint")}</p>
           </div>
           <div className="space-y-1.5">
             <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-              {member ? "Set new password" : "Password *"}
+              {member ? t("steam.fNewPassword") : t("steam.fPassword")}
             </label>
             <Input
               type="password"
               value={form.password}
               onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              placeholder={member ? "leave blank to keep current" : "min 4 chars"}
+              placeholder={member ? t("steam.phKeepCurrent") : t("steam.phMin4")}
               className={inputCls}
             />
-            <p className="text-[10.5px] text-dmk-text-muted">share securely — members change it nowhere</p>
+            <p className="text-[10.5px] text-dmk-text-muted">{t("steam.passwordHint")}</p>
           </div>
           <div className={cn("space-y-1.5", !member && "sm:col-span-2")}>
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Assigned route</label>
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("steam.fRoute")}</label>
             <Select value={form.assignedRouteId} onValueChange={(v) => setForm((f) => ({ ...f, assignedRouteId: v }))}>
               <SelectTrigger className="h-9 w-full border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary">
-                <SelectValue placeholder="No territory" />
+                <SelectValue placeholder={t("steam.phNoTerritory")} />
               </SelectTrigger>
               <SelectContent className="border-dmk-border-subtle bg-dmk-bg-secondary text-dmk-text-primary">
-                <SelectItem value="NONE">No territory (all routes)</SelectItem>
+                <SelectItem value="NONE">{t("steam.noTerritory")}</SelectItem>
                 {routes.map((r) => (
                   <SelectItem key={r.id} value={r.id}>
                     {r.name}
-                    {!r.isActive ? " (inactive)" : ""}
+                    {!r.isActive ? ` ${t("steam.inactive")}` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-[10.5px] text-dmk-text-muted">optional — delivery territory from Trip Planner routes</p>
+            <p className="text-[10.5px] text-dmk-text-muted">{t("steam.routeHint")}</p>
           </div>
           {member && (
             <div className="flex items-center justify-between rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-3 py-2.5 self-end">
               <div>
-                <p className="text-[12.5px] font-medium text-dmk-text-primary">Active</p>
-                <p className="text-[10.5px] text-dmk-text-muted">Suspended members cannot sign in at /sales.</p>
+                <p className="text-[12.5px] font-medium text-dmk-text-primary">{t("steam.active")}</p>
+                <p className="text-[10.5px] text-dmk-text-muted">{t("steam.activeHint")}</p>
               </div>
               <Switch
                 checked={form.isActive}
                 onCheckedChange={(v) => setForm((f) => ({ ...f, isActive: v }))}
-                aria-label="Account active"
+                aria-label={t("steam.ariaActive")}
               />
             </div>
           )}
@@ -921,8 +950,8 @@ function MemberDialog({
         {/* Section permissions switchboard */}
         <div className="space-y-2 rounded-lg border border-dmk-border-subtle bg-dmk-bg-primary/40 p-3">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">Section permissions</p>
-            <span className="dmk-badge dmk-badge-neutral">{enabledCount}/8 sections</span>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("steam.permsTitle")}</p>
+            <span className="dmk-badge dmk-badge-neutral">{t("steam.sections", { n: enabledCount })}</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {PERM_SECTIONS.map((p) => (
@@ -932,18 +961,18 @@ function MemberDialog({
               >
                 <div className="min-w-0">
                   <p className="flex flex-wrap items-center gap-1.5 text-[12.5px] font-medium text-dmk-text-primary">
-                    {p.label}
-                    {p.key === "canOverridePrice" && <Badge tone="warning">protected</Badge>}
+                    {permLabel(t, p.key)}
+                    {p.key === "canOverridePrice" && <Badge tone="warning">{t("steam.protected")}</Badge>}
                   </p>
-                  <p className="text-[10.5px] text-dmk-text-muted mt-0.5 leading-snug">{p.desc}</p>
+                  <p className="text-[10.5px] text-dmk-text-muted mt-0.5 leading-snug">{permDesc(t, p.key)}</p>
                 </div>
-                <Switch checked={perms[p.key]} onCheckedChange={(v) => setPerm(p.key, v)} aria-label={p.label} />
+                <Switch checked={perms[p.key]} onCheckedChange={(v) => setPerm(p.key, v)} aria-label={permLabel(t, p.key)} />
               </div>
             ))}
           </div>
           <p className="flex items-start gap-1.5 text-[10.5px] leading-relaxed text-dmk-info">
             <ShieldCheck className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-            Always hidden from sales: purchases, P&amp;L, bank/CC, GSTR-2B, journals, settings &amp; backups.
+            {t("steam.hiddenNote")}
           </p>
         </div>
 
@@ -955,7 +984,7 @@ function MemberDialog({
             className="h-10 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
             onClick={onClose}
           >
-            Cancel
+            {t("cmn.cancel")}
           </Button>
           <Button
             onClick={save}
@@ -963,7 +992,7 @@ function MemberDialog({
             className="h-10 bg-dmk-yellow text-dmk-bg-primary hover:bg-dmk-yellow/90 font-bold"
           >
             {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-            {busy ? "Saving…" : member ? "Save changes" : "Create member"}
+            {busy ? t("steam.saving") : member ? t("cmn.saveChanges") : t("steam.createMember")}
           </Button>
         </DialogFooter>
       </DialogContent>

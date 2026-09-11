@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/dialog";
 import { apiGet } from "@/lib/api-client";
 import { downloadCSV, formatINR, formatDate, toISODate } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -249,14 +250,14 @@ interface ProfitTotals {
   bestSku: string | null;
 }
 
-const REPORTS: Array<{ type: ReportType; label: string; icon: LucideIcon; desc: string }> = [
-  { type: "sales", label: "Sales Report", icon: FileText, desc: "Posted invoice line items" },
-  { type: "purchases", label: "Purchase Report", icon: ShoppingCart, desc: "Confirmed PO line items" },
-  { type: "profitability", label: "Profitability", icon: TrendingUp, desc: "Margin vs WAC per product" },
-  { type: "stock", label: "Stock Report", icon: Boxes, desc: "Dual-stock position & valuation" },
-  { type: "valuation", label: "Valuation (WAC)", icon: Scale, desc: "Weighted average cost valuation" },
-  { type: "gst", label: "GST Summary", icon: Percent, desc: "Output tax vs ITC vs net payable" },
-  { type: "gstr1", label: "GSTR-1 (Sales)", icon: ScrollText, desc: "Outward supplies — B2B/B2C · rate · HSN" },
+const REPORTS: Array<{ type: ReportType; labelKey: string; icon: LucideIcon; descKey: string }> = [
+  { type: "sales", labelKey: "rep.sales", icon: FileText, descKey: "rep.salesDesc" },
+  { type: "purchases", labelKey: "rep.purchases", icon: ShoppingCart, descKey: "rep.purchasesDesc" },
+  { type: "profitability", labelKey: "rep.profitability", icon: TrendingUp, descKey: "rep.profitabilityDesc" },
+  { type: "stock", labelKey: "rep.stock", icon: Boxes, descKey: "rep.stockDesc" },
+  { type: "valuation", labelKey: "rep.valuation", icon: Scale, descKey: "rep.valuationDesc" },
+  { type: "gst", labelKey: "rep.gst", icon: Percent, descKey: "rep.gstDesc" },
+  { type: "gstr1", labelKey: "rep.gstr1", icon: ScrollText, descKey: "rep.gstr1Desc" },
 ];
 
 const CHART_BLUE = "#2563EB";
@@ -278,6 +279,7 @@ function compactINR(v: number): string {
 }
 
 export default function ReportsView() {
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const financialYear = useErpStore((s) => s.financialYear);
   const { toast } = useToast();
@@ -306,7 +308,7 @@ export default function ReportsView() {
   React.useEffect(() => {
     if (!activeFirmId) return;
     let alive = true;
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       setLoading(true);
       setError(null);
       try {
@@ -319,7 +321,7 @@ export default function ReportsView() {
         if (alive) setData(res);
       } catch (e) {
         if (alive) {
-          setError(e instanceof Error ? e.message : "Failed to load report");
+          setError(e instanceof Error ? e.message : t("rep.errLoad"));
           setData(null);
         }
       } finally {
@@ -328,7 +330,7 @@ export default function ReportsView() {
     }, 200);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [activeFirmId, type, dateFrom, dateTo, refreshKey]);
 
@@ -337,7 +339,7 @@ export default function ReportsView() {
     if (data.type === "sales" && data.rows) {
       const rows = data.rows as SalesRow[];
       const out: (string | number)[][] = [
-        ["Invoice #", "Date", "Customer", "Mode", "SKU", "Product", "HSN", "Qty", "Unit Price", "Disc %", "Taxable", "GST %", "CGST", "SGST", "IGST", "Total"],
+        [t("g2b.colInvoiceNo"), t("cmn.date"), t("cmn.customer"), t("rep.colMode"), t("cmn.sku"), t("cmn.product"), "HSN", t("rep.colQty"), t("rep.csvUnitPrice"), t("rep.colDiscPct"), t("g2b.colTaxable"), t("rep.colGstPct"), "CGST", "SGST", "IGST", t("cmn.total")],
       ];
       rows.forEach((r) =>
         out.push([r.invoiceNumber, r.invoiceDate, r.customer, r.paymentMode, r.sku, r.productName, r.hsnCode, r.quantity, r.unitPrice, r.bulkDiscountPct, r.taxableAmount, r.gstRate, r.cgstAmount, r.sgstAmount, r.igstAmount, r.totalAmount])
@@ -346,7 +348,7 @@ export default function ReportsView() {
     } else if (data.type === "purchases" && data.rows) {
       const rows = data.rows as PurchaseRow[];
       const out: (string | number)[][] = [
-        ["PO #", "Date", "Vendor", "SKU", "Product", "HSN", "Qty", "Received", "Unit Cost", "Taxable", "GST %", "CGST", "SGST", "IGST", "Total"],
+        [t("g2b.colPoNo"), t("cmn.date"), t("cmn.vendor"), t("cmn.sku"), t("cmn.product"), "HSN", t("rep.colQty"), t("rep.csvReceived"), t("rep.csvUnitCost"), t("g2b.colTaxable"), t("rep.colGstPct"), "CGST", "SGST", "IGST", t("cmn.total")],
       ];
       rows.forEach((r) =>
         out.push([r.poNumber, r.poDate, r.vendor, r.sku, r.productName, r.hsnCode, r.quantity, r.receivedQty, r.unitCost, r.taxableAmount, r.gstRate, r.cgstAmount, r.sgstAmount, r.igstAmount, r.totalAmount])
@@ -354,13 +356,13 @@ export default function ReportsView() {
       downloadCSV(`purchase-report-${dateFrom}-to-${dateTo}.csv`, out);
     } else if (data.type === "profitability" && data.totals) {
       const rows = (data.rows ?? []) as ProfitRow[];
-      const t = data.totals as ProfitTotals;
+      const pt = data.totals as ProfitTotals;
       const out: (string | number)[][] = [
-        ["Product Profitability — margin vs WAC", `${dateFrom} → ${dateTo}`],
-        ["Net Revenue", "COGS", "Gross Profit", "Margin %", "Products", "Loss Makers"],
-        [t.revenue, t.cogs, t.grossProfit, t.marginPct, t.products, t.lossMakers],
+        [t("rep.csvProfitTitle"), `${dateFrom} → ${dateTo}`],
+        [t("rep.netRevenue"), t("rep.csvCogs"), t("rep.csvGrossProfit"), t("rep.csvMarginPct"), t("rep.products"), t("rep.csvLossMakers")],
+        [pt.revenue, pt.cogs, pt.grossProfit, pt.marginPct, pt.products, pt.lossMakers],
         [],
-        ["SKU", "Product", "Qty Sold", "Qty Returned", "Net Qty", "Gross Revenue", "Returned Value", "Net Revenue", "WAC", "COGS", "Gross Profit", "Margin %", "Invoices", "Avg Line Value"],
+        [t("cmn.sku"), t("cmn.product"), t("rep.csvQtySold"), t("rep.csvQtyReturned"), t("rep.csvNetQty"), t("rep.csvGrossRevenue"), t("rep.csvReturnedValue"), t("rep.netRevenue"), t("rep.csvWac"), t("rep.csvCogs"), t("rep.csvGrossProfit"), t("rep.csvMarginPct"), t("rep.invoices"), t("rep.csvAvgLine")],
       ];
       rows.forEach((r) =>
         out.push([r.sku, r.name, r.qtySold, r.qtyReturned, r.netQty, r.grossRevenue, r.returnedValue, r.netRevenue, r.wac, r.cogs, r.grossProfit, r.marginPct, r.invoiceCount, r.avgLineValue])
@@ -369,7 +371,7 @@ export default function ReportsView() {
     } else if (data.type === "stock" && data.rows) {
       const rows = data.rows as StockRow[];
       const out: (string | number)[][] = [
-        ["SKU", "Name", "Category", "Brand", "Unit", "Status", "Sellable", "Damaged", "Threshold", "Cost", "Stock Value", "Damaged Value"],
+        [t("cmn.sku"), t("cmn.name"), t("cmn.category"), t("cmn.brand"), t("cmn.unit"), t("cmn.status"), t("rep.colSellable"), t("rep.colDamaged"), t("rep.colThreshold"), t("rep.csvCost"), t("rep.csvStockValue"), t("rep.csvDamagedValue")],
       ];
       rows.forEach((r) =>
         out.push([r.sku, r.name, r.category, r.brand, r.unit, r.isActive ? "ACTIVE" : "INACTIVE", r.stockQuantity, r.damagedStock, r.lowStockThreshold, r.purchaseCost, r.stockValue, r.damagedValue])
@@ -378,51 +380,51 @@ export default function ReportsView() {
     } else if (data.type === "valuation" && data.rows) {
       const rows = data.rows as ValuationRow[];
       const out: (string | number)[][] = [
-        ["Stock Valuation — Weighted Average Cost", `Generated ${toISODate(new Date())}`],
-        ["SKU", "Name", "Category", "Unit", "WAC", "Purchase Cost", "Sellable Qty", "Damaged Qty", "Stock Value", "Damaged Value", "Total Value", "Receipts Qty", "Method"],
+        [t("rep.csvValuationTitle"), t("rep.csvGenerated", { date: toISODate(new Date()) })],
+        [t("cmn.sku"), t("cmn.name"), t("cmn.category"), t("cmn.unit"), t("rep.csvWac"), t("rep.csvPurchaseCost"), t("rep.csvSellableQty"), t("rep.csvDamagedQty"), t("rep.csvStockValue"), t("rep.csvDamagedValue"), t("rep.csvTotalValue"), t("rep.csvReceiptsQty"), t("rep.csvMethod")],
       ];
       rows.forEach((r) =>
         out.push([r.sku, r.name, r.category, r.unit, r.wac, r.purchaseCost, r.stockQuantity, r.damagedStock, r.stockValue, r.damagedValue, r.totalValue, r.receiptsQty, r.method])
       );
       if (data.totals) {
         const vt = data.totals as { stockValue: number; damagedValue: number; totalValue?: number };
-        out.push([], ["TOTALS", "", "", "", "", "", "", "", vt.stockValue, vt.damagedValue, vt.totalValue ?? vt.stockValue + vt.damagedValue]);
+        out.push([], [t("rep.csvTotals"), "", "", "", "", "", "", "", vt.stockValue, vt.damagedValue, vt.totalValue ?? vt.stockValue + vt.damagedValue]);
       }
       downloadCSV(`stock-valuation-wac-${toISODate(new Date())}.csv`, out);
     } else if (data.type === "gstr1" && data.totals) {
-      const t = data.totals as Gstr1Totals;
+      const gt = data.totals as Gstr1Totals;
       const docs = (data.rows ?? []) as unknown as Gstr1DocRow[];
       const out: (string | number)[][] = [
-        ["GSTR-1 — Outward Supplies", `${dateFrom} → ${dateTo}`],
-        ["Taxable", "CGST", "SGST", "IGST", "Total Tax", "Invoices", "B2B", "B2C"],
-        [t.totalTaxable, t.totalCgst, t.totalSgst, t.totalIgst, t.totalTax, t.invoiceCount, t.b2bCount, t.b2cCount],
+        [t("rep.csvGstr1Title"), `${dateFrom} → ${dateTo}`],
+        [t("g2b.colTaxable"), "CGST", "SGST", "IGST", t("rep.csvTotalTax"), t("rep.invoices"), "B2B", "B2C"],
+        [gt.totalTaxable, gt.totalCgst, gt.totalSgst, gt.totalIgst, gt.totalTax, gt.invoiceCount, gt.b2bCount, gt.b2cCount],
         [],
-        ["RATE-WISE"],
-        ["GST %", "Qty", "Taxable", "CGST", "SGST", "IGST"],
+        [t("rep.csvRateWise")],
+        [t("rep.colGstPct"), t("rep.colQty"), t("g2b.colTaxable"), "CGST", "SGST", "IGST"],
       ];
       (data.rateWise ?? []).forEach((r) => out.push([`${r.rate}%`, r.qty, r.taxable, r.cgst, r.sgst, r.igst]));
-      out.push([], ["HSN-WISE"], ["HSN", "Description", "Qty", "Taxable", "CGST", "SGST", "IGST"]);
+      out.push([], [t("rep.csvHsnWise")], ["HSN", t("rep.colDescription"), t("rep.colQty"), t("g2b.colTaxable"), "CGST", "SGST", "IGST"]);
       (data.hsnWise ?? []).forEach((r) => out.push([r.hsn, r.description, r.qty, r.taxable, r.cgst, r.sgst, r.igst]));
-      out.push([], ["INVOICE DOCS"], ["Doc #", "Date", "Party", "GSTIN", "Type", "Place of Supply", "Taxable", "CGST", "SGST", "IGST", "Total"]);
+      out.push([], [t("rep.csvInvoiceDocs")], [t("rep.colDocNo"), t("cmn.date"), t("aging.colParty"), "GSTIN", t("cmn.type"), t("rep.csvPosFull"), t("g2b.colTaxable"), "CGST", "SGST", "IGST", t("cmn.total")]);
       docs.forEach((r) => out.push([r.docNo, r.date, r.party, r.gstin ?? "", r.supplyType, r.placeOfSupply, r.taxable, r.cgst, r.sgst, r.igst, r.total]));
       downloadCSV(`gstr1-outward-${dateFrom}-to-${dateTo}.csv`, out);
     } else if (data.type === "gst" && data.output && data.input && data.net) {
       const out: (string | number)[][] = [
-        ["GST Summary", `${dateFrom} → ${dateTo}`],
-        ["Component", "Output Tax", "Input ITC", "Net Payable"],
+        [t("rep.csvGstTitle"), `${dateFrom} → ${dateTo}`],
+        [t("rep.csvComponent"), t("rep.csvOutputTax"), t("rep.csvInputItc"), t("rep.csvNetPayable")],
         ["CGST", data.output.cgst, data.input.cgst, data.net.cgst],
         ["SGST", data.output.sgst, data.input.sgst, data.net.sgst],
         ["IGST", data.output.igst, data.input.igst, data.net.igst],
         [],
-        ["OUTPUT DOCS (Sales)"],
-        ["Doc #", "Date", "Party", "State", "Taxable", "CGST", "SGST", "IGST", "Total"],
+        [t("rep.csvOutputDocs")],
+        [t("rep.colDocNo"), t("cmn.date"), t("aging.colParty"), t("rep.colState"), t("g2b.colTaxable"), "CGST", "SGST", "IGST", t("cmn.total")],
       ];
       data.output.rows.forEach((r) => out.push([r.docNo, r.date, r.party, r.partyStateCode, r.taxable, r.cgst, r.sgst, r.igst, r.total]));
-      out.push([], ["INPUT DOCS (Purchases / ITC)"], ["Doc #", "Date", "Party", "State", "Taxable", "CGST", "SGST", "IGST", "Total"]);
+      out.push([], [t("rep.csvInputDocs")], [t("rep.colDocNo"), t("cmn.date"), t("aging.colParty"), t("rep.colState"), t("g2b.colTaxable"), "CGST", "SGST", "IGST", t("cmn.total")]);
       data.input.rows.forEach((r) => out.push([r.docNo, r.date, r.party, r.partyStateCode, r.taxable, r.cgst, r.sgst, r.igst, r.total]));
       downloadCSV(`gst-summary-${dateFrom}-to-${dateTo}.csv`, out);
     }
-    toast({ title: "Exported", description: "Report downloaded as CSV." });
+    toast({ title: t("jrnl.toastExported"), description: t("rep.toastCsv") });
   }
 
   const activeReport = REPORTS.find((r) => r.type === type)!;
@@ -430,8 +432,8 @@ export default function ReportsView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Reports & Exports"
-        subtitle="Tabular business reports with GST component analysis — exportable to CSV"
+        title={t("rep.title")}
+        subtitle={t("rep.subtitle")}
         icon={Landmark}
         actions={
           <>
@@ -442,7 +444,7 @@ export default function ReportsView() {
               disabled={loading}
               className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
             >
-              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
+              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> {t("cmn.refresh")}
             </Button>
             <Button
               size="sm"
@@ -450,7 +452,7 @@ export default function ReportsView() {
               disabled={!data || loading}
               className="h-9 gap-2 bg-dmk-yellow text-[12.5px] font-semibold text-[#0A0F1D] hover:bg-dmk-yellow/85"
             >
-              <Download className="h-3.5 w-3.5" /> Export CSV
+              <Download className="h-3.5 w-3.5" /> {t("jrnl.exportCsv")}
             </Button>
           </>
         }
@@ -484,9 +486,9 @@ export default function ReportsView() {
                 </span>
                 <div className="min-w-0">
                   <p className={cn("text-[13px] font-semibold truncate", selected ? "text-dmk-text-primary" : "text-dmk-text-secondary")}>
-                    {r.label}
+                    {t(r.labelKey)}
                   </p>
-                  <p className="text-[10.5px] text-dmk-text-muted truncate">{r.desc}</p>
+                  <p className="text-[10.5px] text-dmk-text-muted truncate">{t(r.descKey)}</p>
                 </div>
               </div>
             </button>
@@ -497,7 +499,7 @@ export default function ReportsView() {
       {/* ── Date range ──────────────────────────────────── */}
       <div className="dmk-card p-3 flex flex-wrap items-end gap-3">
         <div className="w-40">
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">From</label>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">{t("rep.from")}</label>
           <Input
             type="date"
             value={dateFrom}
@@ -507,7 +509,7 @@ export default function ReportsView() {
           />
         </div>
         <div className="w-40">
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">To</label>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">{t("rep.to")}</label>
           <Input
             type="date"
             value={dateTo}
@@ -517,7 +519,7 @@ export default function ReportsView() {
           />
         </div>
         {type === "stock" && (
-          <p className="text-[11px] text-dmk-text-muted pb-1">Stock &amp; valuation reports are position snapshots — date filters not applicable.</p>
+          <p className="text-[11px] text-dmk-text-muted pb-1">{t("rep.snapshotNote")}</p>
         )}
       </div>
 
@@ -526,7 +528,7 @@ export default function ReportsView() {
       {loading && !data ? (
         <LoadingRows rows={8} />
       ) : !data ? (
-        <EmptyState icon={activeReport.icon} title="No report data" hint="Try widening the date range." />
+        <EmptyState icon={activeReport.icon} title={t("rep.noData")} hint={t("rep.noDataHint")} />
       ) : data.type === "sales" ? (
         <SalesReport rows={(data.rows ?? []) as SalesRow[]} />
       ) : data.type === "purchases" ? (
@@ -560,7 +562,7 @@ export default function ReportsView() {
       ) : data.output && data.input && data.net ? (
         <GstReport output={data.output} input={data.input} net={data.net} />
       ) : (
-        <EmptyState icon={activeReport.icon} title="No report data" hint="Try widening the date range." />
+        <EmptyState icon={activeReport.icon} title={t("rep.noData")} hint={t("rep.noDataHint")} />
       )}
     </div>
   );
@@ -571,16 +573,17 @@ export default function ReportsView() {
 // ═══════════════════════════════════════════════════════════════
 
 function SalesReport({ rows }: { rows: SalesRow[] }) {
+  const { t, speechTag } = useT();
   const byDate = React.useMemo(() => {
     const map = new Map<string, number>();
     for (const r of rows) map.set(r.invoiceDate, (map.get(r.invoiceDate) ?? 0) + r.totalAmount);
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, total]) => ({
-        label: new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
+        label: new Date(`${date}T00:00:00`).toLocaleDateString(speechTag, { day: "2-digit", month: "short" }),
         total: Math.round(total * 100) / 100,
       }));
-  }, [rows]);
+  }, [rows, speechTag]);
 
   const totalValue = rows.reduce((s, r) => s + r.totalAmount, 0);
 
@@ -589,15 +592,15 @@ function SalesReport({ rows }: { rows: SalesRow[] }) {
       <div className="dmk-card p-4">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h2 className="text-[15px] font-semibold text-dmk-text-primary">Sales by Invoice Date</h2>
+            <h2 className="text-[15px] font-semibold text-dmk-text-primary">{t("rep.salesByDate")}</h2>
             <p className="text-[11px] text-dmk-text-muted">
-              {rows.length} line items · total {formatINR(totalValue)}
+              {t("rep.lineItems", { n: rows.length, amt: formatINR(totalValue) })}
             </p>
           </div>
-          <Badge tone="success">SALES</Badge>
+          <Badge tone="success">{t("rep.badgeSales")}</Badge>
         </div>
         {byDate.length === 0 ? (
-          <p className="text-[12px] text-dmk-text-muted py-8 text-center">No sales in this window.</p>
+          <p className="text-[12px] text-dmk-text-muted py-8 text-center">{t("rep.noSalesWindow")}</p>
         ) : (
           <div className="h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -624,7 +627,7 @@ function SalesReport({ rows }: { rows: SalesRow[] }) {
                   formatter={(value) => formatINR(Number(value))}
                   cursor={{ fill: "rgba(37,99,235,0.08)" }}
                 />
-                <Bar dataKey="total" name="Sales" fill={CHART_BLUE} radius={[4, 4, 0, 0]} maxBarSize={36} />
+                <Bar dataKey="total" name={t("rep.chartSales")} fill={CHART_BLUE} radius={[4, 4, 0, 0]} maxBarSize={36} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -636,18 +639,18 @@ function SalesReport({ rows }: { rows: SalesRow[] }) {
           <table className="dmk-table">
             <thead>
               <tr>
-                <th>Invoice #</th>
-                <th>Date</th>
-                <th>Customer</th>
-                <th>Mode</th>
-                <th>SKU</th>
-                <th>Product</th>
-                <th className="num text-right">Qty</th>
-                <th className="num text-right">Rate (₹)</th>
-                <th className="num text-right">Disc %</th>
-                <th className="num text-right">Taxable (₹)</th>
-                <th className="num text-right">GST %</th>
-                <th className="num text-right">Total (₹)</th>
+                <th>{t("g2b.colInvoiceNo")}</th>
+                <th>{t("cmn.date")}</th>
+                <th>{t("cmn.customer")}</th>
+                <th>{t("rep.colMode")}</th>
+                <th>{t("cmn.sku")}</th>
+                <th>{t("cmn.product")}</th>
+                <th className="num text-right">{t("rep.colQty")}</th>
+                <th className="num text-right">{t("rep.colRateRs")}</th>
+                <th className="num text-right">{t("rep.colDiscPct")}</th>
+                <th className="num text-right">{t("g2b.colTaxableRs")}</th>
+                <th className="num text-right">{t("rep.colGstPct")}</th>
+                <th className="num text-right">{t("g2b.colTotalRs")}</th>
               </tr>
             </thead>
             <tbody>
@@ -680,37 +683,38 @@ function SalesReport({ rows }: { rows: SalesRow[] }) {
 // ═══════════════════════════════════════════════════════════════
 
 function PurchasesReport({ rows }: { rows: PurchaseRow[] }) {
+  const { t } = useT();
   const totalValue = rows.reduce((s, r) => s + r.totalAmount, 0);
   return (
     <div className="space-y-4">
       <div className="dmk-card p-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-[15px] font-semibold text-dmk-text-primary">Purchase line items</h2>
+          <h2 className="text-[15px] font-semibold text-dmk-text-primary">{t("rep.purchLineItems")}</h2>
           <p className="text-[11px] text-dmk-text-muted">
-            {rows.length} items · total {formatINR(totalValue)} · confirmed POs only
+            {t("rep.purchSub", { n: rows.length, amt: formatINR(totalValue) })}
           </p>
         </div>
-        <Badge tone="info">PURCHASES</Badge>
+        <Badge tone="info">{t("rep.badgePurchases")}</Badge>
       </div>
       {rows.length === 0 ? (
-        <EmptyState icon={ShoppingCart} title="No purchases in this window" hint="Confirmed POs will appear here." />
+        <EmptyState icon={ShoppingCart} title={t("rep.noPurchasesWindow")} hint={t("rep.noPurchasesHint")} />
       ) : (
         <div className="dmk-card overflow-hidden">
           <div className="overflow-x-auto max-h-[max(420px,calc(100vh-480px))] overflow-y-auto">
             <table className="dmk-table">
               <thead>
                 <tr>
-                  <th>PO #</th>
-                  <th>Date</th>
-                  <th>Vendor</th>
-                  <th>SKU</th>
-                  <th>Product</th>
-                  <th className="num text-right">Qty</th>
-                  <th className="num text-right">Recd</th>
-                  <th className="num text-right">Cost (₹)</th>
-                  <th className="num text-right">Taxable (₹)</th>
-                  <th className="num text-right">GST %</th>
-                  <th className="num text-right">Total (₹)</th>
+                  <th>{t("g2b.colPoNo")}</th>
+                  <th>{t("cmn.date")}</th>
+                  <th>{t("cmn.vendor")}</th>
+                  <th>{t("cmn.sku")}</th>
+                  <th>{t("cmn.product")}</th>
+                  <th className="num text-right">{t("rep.colQty")}</th>
+                  <th className="num text-right">{t("rep.colRecd")}</th>
+                  <th className="num text-right">{t("rep.colCostRs")}</th>
+                  <th className="num text-right">{t("g2b.colTaxableRs")}</th>
+                  <th className="num text-right">{t("rep.colGstPct")}</th>
+                  <th className="num text-right">{t("g2b.colTotalRs")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -743,23 +747,24 @@ function PurchasesReport({ rows }: { rows: PurchaseRow[] }) {
 // ═══════════════════════════════════════════════════════════════
 
 function StockReport({ rows, totals }: { rows: StockRow[]; totals?: { stockValue: number; damagedValue: number } }) {
+  const { t } = useT();
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="dmk-kpi p-4">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Stock Value (Sellable)</span>
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.stockValueSellable")}</span>
           <span className="font-money text-[19px] font-semibold text-dmk-success block mt-2">{formatINR(totals?.stockValue ?? 0)}</span>
         </div>
         <div className="dmk-kpi p-4">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Damaged Value</span>
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.damagedValue")}</span>
           <span className="font-money text-[19px] font-semibold text-dmk-danger block mt-2">{formatINR(totals?.damagedValue ?? 0)}</span>
         </div>
         <div className="dmk-kpi p-4">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Products</span>
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.products")}</span>
           <span className="font-money text-[19px] font-semibold text-dmk-text-primary block mt-2">{rows.length}</span>
         </div>
         <div className="dmk-kpi p-4">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Total Units</span>
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.totalUnits")}</span>
           <span className="font-money text-[19px] font-semibold text-dmk-text-primary block mt-2">
             {rows.reduce((s, r) => s + r.stockQuantity + r.damagedStock, 0).toFixed(0)}
           </span>
@@ -771,16 +776,16 @@ function StockReport({ rows, totals }: { rows: StockRow[]; totals?: { stockValue
           <table className="dmk-table">
             <thead>
               <tr>
-                <th>SKU</th>
-                <th>Product</th>
-                <th className="hidden md:table-cell">Category</th>
-                <th className="hidden lg:table-cell">Brand</th>
-                <th className="num text-right">Sellable</th>
-                <th className="num text-right">Damaged</th>
-                <th className="num text-right hidden md:table-cell">Threshold</th>
-                <th className="num text-right">Cost (₹)</th>
-                <th className="num text-right">Stock Value (₹)</th>
-                <th className="num text-right">Damaged Value (₹)</th>
+                <th>{t("cmn.sku")}</th>
+                <th>{t("cmn.product")}</th>
+                <th className="hidden md:table-cell">{t("cmn.category")}</th>
+                <th className="hidden lg:table-cell">{t("cmn.brand")}</th>
+                <th className="num text-right">{t("rep.colSellable")}</th>
+                <th className="num text-right">{t("rep.colDamaged")}</th>
+                <th className="num text-right hidden md:table-cell">{t("rep.colThreshold")}</th>
+                <th className="num text-right">{t("rep.colCostRs")}</th>
+                <th className="num text-right">{t("rep.colStockValueRs")}</th>
+                <th className="num text-right">{t("rep.colDamagedValueRs")}</th>
               </tr>
             </thead>
             <tbody>
@@ -789,7 +794,7 @@ function StockReport({ rows, totals }: { rows: StockRow[]; totals?: { stockValue
                   <td className="font-money text-[12px] text-dmk-text-secondary">{r.sku}</td>
                   <td className="max-w-[220px]">
                     <span className="block truncate text-[12.5px] font-medium">{r.name}</span>
-                    <span className="text-[10.5px] text-dmk-text-muted">{r.unit} · {r.isActive ? "Active" : "Inactive"}</span>
+                    <span className="text-[10.5px] text-dmk-text-muted">{r.unit} · {r.isActive ? t("rep.active") : t("rep.inactive")}</span>
                   </td>
                   <td className="hidden md:table-cell text-[12px] text-dmk-text-secondary">{r.category}</td>
                   <td className="hidden lg:table-cell text-[12px] text-dmk-text-muted">{r.brand || "—"}</td>
@@ -826,6 +831,7 @@ function ValuationReport({
   totals?: { stockValue: number; damagedValue: number; totalValue?: number };
   method?: string;
 }) {
+  const { t } = useT();
   const stockValue = totals?.stockValue ?? rows.reduce((s, r) => s + r.stockValue, 0);
   const damagedValue = totals?.damagedValue ?? rows.reduce((s, r) => s + r.damagedValue, 0);
   const totalValue = totals?.totalValue ?? stockValue + damagedValue;
@@ -836,19 +842,19 @@ function ValuationReport({
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="dmk-kpi p-4">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Stock Value @ WAC</span>
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.stockValueWac")}</span>
           <span className="font-money text-[19px] font-semibold text-dmk-success block mt-2">{formatINR(stockValue)}</span>
         </div>
         <div className="dmk-kpi p-4">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Quarantine @ WAC</span>
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.quarantineWac")}</span>
           <span className="font-money text-[19px] font-semibold text-dmk-danger block mt-2">{formatINR(damagedValue)}</span>
         </div>
         <div className="dmk-kpi p-4">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Total Valuation</span>
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.totalValuation")}</span>
           <span className="font-money text-[19px] font-semibold text-dmk-text-primary block mt-2">{formatINR(totalValue)}</span>
         </div>
         <div className="dmk-kpi p-4">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Variance vs Cost</span>
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.varianceCost")}</span>
           <span className={cn("font-money text-[19px] font-semibold block mt-2", variance === 0 ? "text-dmk-text-primary" : variance > 0 ? "text-dmk-info" : "text-dmk-warning")}>
             {variance >= 0 ? "+" : ""}{formatINR(variance)}
           </span>
@@ -858,8 +864,8 @@ function ValuationReport({
       <div className="dmk-well px-3.5 py-2.5 flex items-center gap-2">
         <Scale className="h-3.5 w-3.5 text-dmk-info shrink-0" />
         <p className="text-[11.5px] text-dmk-text-secondary">
-          <span className="font-semibold text-dmk-text-primary">Method:</span> {method ?? "Weighted Average Cost from confirmed goods receipts"}.
-          Products never received fall back to last purchase cost.
+          <span className="font-semibold text-dmk-text-primary">{t("rep.methodLabel")}</span> {method ?? t("rep.methodFallback")}.{" "}
+          {t("rep.methodTail")}
         </p>
       </div>
 
@@ -868,16 +874,16 @@ function ValuationReport({
           <table className="dmk-table">
             <thead>
               <tr>
-                <th>SKU</th>
-                <th>Product</th>
-                <th className="hidden md:table-cell">Category</th>
-                <th className="num text-right">Sellable</th>
-                <th className="num text-right">Damaged</th>
-                <th className="num text-right">WAC (₹)</th>
-                <th className="num text-right hidden lg:table-cell">Last Cost (₹)</th>
-                <th className="num text-right">Stock Value (₹)</th>
-                <th className="num text-right hidden md:table-cell">Damaged (₹)</th>
-                <th className="num text-right">Basis</th>
+                <th>{t("cmn.sku")}</th>
+                <th>{t("cmn.product")}</th>
+                <th className="hidden md:table-cell">{t("cmn.category")}</th>
+                <th className="num text-right">{t("rep.colSellable")}</th>
+                <th className="num text-right">{t("rep.colDamaged")}</th>
+                <th className="num text-right">{t("rep.colWacRs")}</th>
+                <th className="num text-right hidden lg:table-cell">{t("rep.colLastCostRs")}</th>
+                <th className="num text-right">{t("rep.colStockValueRs")}</th>
+                <th className="num text-right hidden md:table-cell">{t("rep.colDamagedRs")}</th>
+                <th className="num text-right">{t("rep.colBasis")}</th>
               </tr>
             </thead>
             <tbody>
@@ -895,7 +901,7 @@ function ValuationReport({
                     <td className={cn("num text-right", r.damagedStock > 0 ? "text-dmk-danger font-semibold" : "text-dmk-text-muted")}>
                       {r.damagedStock}
                     </td>
-                    <td className="num text-right font-money font-semibold text-dmk-text-primary" title={delta !== 0 ? `Δ ${formatINR(delta)} vs last cost` : undefined}>
+                    <td className="num text-right font-money font-semibold text-dmk-text-primary" title={delta !== 0 ? t("rep.deltaVsCost", { amt: formatINR(delta) }) : undefined}>
                       {formatINR(r.wac)}
                       {delta !== 0 && (
                         <span className={cn("ml-1 text-[9.5px] font-sans", delta > 0 ? "text-dmk-info" : "text-dmk-warning")}>
@@ -908,7 +914,7 @@ function ValuationReport({
                     <td className="num text-right hidden md:table-cell font-money text-dmk-danger">{formatINR(r.damagedValue)}</td>
                     <td>
                       <Badge tone={r.method.startsWith("WAC") ? "info" : "neutral"}>
-                        {r.method.startsWith("WAC") ? `${r.receiptsQty} recd` : "last cost"}
+                        {r.method.startsWith("WAC") ? t("rep.recdBadge", { n: r.receiptsQty }) : t("rep.lastCostBadge")}
                       </Badge>
                     </td>
                   </tr>
@@ -919,7 +925,7 @@ function ValuationReport({
               <tfoot>
                 <tr className="bg-dmk-input-well">
                   <td colSpan={7} className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
-                    Totals — {rows.length} products valued
+                    {t("rep.totalsValued", { n: rows.length })}
                   </td>
                   <td className="num text-right font-money font-bold text-dmk-success">{formatINR(stockValue)}</td>
                   <td className="num text-right hidden md:table-cell font-money font-bold text-dmk-danger">{formatINR(damagedValue)}</td>
@@ -939,6 +945,7 @@ function ValuationReport({
 // ═══════════════════════════════════════════════════════════════
 
 function GstReport({ output, input, net }: { output: GstSide; input: GstSide; net: { cgst: number; sgst: number; igst: number } }) {
+  const { t } = useT();
   const netTotal = Math.round((net.cgst + net.sgst + net.igst) * 100) / 100;
 
   const componentRows = [
@@ -953,38 +960,38 @@ function GstReport({ output, input, net }: { output: GstSide; input: GstSide; ne
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Output Tax (Sales)</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.outputTaxSales")}</span>
             <ArrowUpRight className="h-4 w-4 text-dmk-success" />
           </div>
           <span className="font-money text-[20px] font-semibold text-dmk-success block mt-2">
             {formatINR(output.cgst + output.sgst + output.igst)}
           </span>
           <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
-            Taxable {formatINR(output.taxable)} · Docs {formatINR(output.total)}
+            {t("rep.kpiTaxableDocs", { taxable: formatINR(output.taxable), total: formatINR(output.total) })}
           </span>
         </div>
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Input ITC (Purchases)</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.inputItcPurchases")}</span>
             <ArrowDownRight className="h-4 w-4 text-dmk-info" />
           </div>
           <span className="font-money text-[20px] font-semibold text-dmk-info block mt-2">
             {formatINR(input.cgst + input.sgst + input.igst)}
           </span>
           <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
-            Taxable {formatINR(input.taxable)} · Docs {formatINR(input.total)}
+            {t("rep.kpiTaxableDocs", { taxable: formatINR(input.taxable), total: formatINR(input.total) })}
           </span>
         </div>
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net GST Payable</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.netGstPayable")}</span>
             <Percent className="h-4 w-4 text-dmk-yellow" />
           </div>
           <span className={cn("font-money text-[20px] font-semibold block mt-2", netTotal >= 0 ? "text-dmk-yellow" : "text-dmk-success")}>
             {formatINR(netTotal)}
           </span>
           <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
-            {netTotal >= 0 ? "Payable to government" : "Credit carried forward"}
+            {netTotal >= 0 ? t("rep.payableToGov") : t("rep.creditCarried")}
           </span>
         </div>
       </div>
@@ -992,16 +999,16 @@ function GstReport({ output, input, net }: { output: GstSide; input: GstSide; ne
       {/* Component table */}
       <div className="dmk-card overflow-hidden">
         <div className="px-4 py-2.5 border-b border-dmk-border-subtle">
-          <h2 className="text-[13px] font-semibold text-dmk-text-primary">By Component</h2>
+          <h2 className="text-[13px] font-semibold text-dmk-text-primary">{t("rep.byComponent")}</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="dmk-table">
             <thead>
               <tr>
-                <th>Component</th>
-                <th className="num text-right">Output Tax (₹)</th>
-                <th className="num text-right">Input ITC (₹)</th>
-                <th className="num text-right">Net Payable (₹)</th>
+                <th>{t("rep.colComponent")}</th>
+                <th className="num text-right">{t("rep.colOutputTaxRs")}</th>
+                <th className="num text-right">{t("rep.colInputItcRs")}</th>
+                <th className="num text-right">{t("rep.colNetPayableRs")}</th>
               </tr>
             </thead>
             <tbody>
@@ -1016,7 +1023,7 @@ function GstReport({ output, input, net }: { output: GstSide; input: GstSide; ne
                 </tr>
               ))}
               <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
-                <td className="font-bold text-dmk-text-primary">TOTAL</td>
+                <td className="font-bold text-dmk-text-primary">{t("aging.totalRow")}</td>
                 <td className="num text-right font-money font-bold text-dmk-success">
                   {formatINR(output.cgst + output.sgst + output.igst)}
                 </td>
@@ -1033,35 +1040,36 @@ function GstReport({ output, input, net }: { output: GstSide; input: GstSide; ne
       </div>
 
       {/* Output + Input doc tables */}
-      <GstSideTable title="Output Tax Documents (Sales Invoices)" tone="success" rows={output.rows} />
-      <GstSideTable title="Input Tax Credit Documents (Confirmed POs)" tone="info" rows={input.rows} />
+      <GstSideTable title={t("rep.outputDocsTitle")} tone="success" rows={output.rows} />
+      <GstSideTable title={t("rep.inputDocsTitle")} tone="info" rows={input.rows} />
     </div>
   );
 }
 
 function GstSideTable({ title, tone, rows }: { title: string; tone: "success" | "info"; rows: GstDocRow[] }) {
+  const { t } = useT();
   return (
     <div className="dmk-card overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-dmk-border-subtle">
         <h2 className="text-[13px] font-semibold text-dmk-text-primary">{title}</h2>
-        <Badge tone={tone}>{rows.length} docs</Badge>
+        <Badge tone={tone}>{t("rep.docsCount", { n: rows.length })}</Badge>
       </div>
       {rows.length === 0 ? (
-        <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No documents in this window.</p>
+        <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">{t("rep.noDocsWindow")}</p>
       ) : (
         <div className="overflow-x-auto max-h-72 overflow-y-auto">
           <table className="dmk-table">
             <thead>
               <tr>
-                <th>Doc #</th>
-                <th>Date</th>
-                <th>Party</th>
-                <th className="hidden md:table-cell">State</th>
-                <th className="num text-right">Taxable (₹)</th>
+                <th>{t("rep.colDocNo")}</th>
+                <th>{t("cmn.date")}</th>
+                <th>{t("aging.colParty")}</th>
+                <th className="hidden md:table-cell">{t("rep.colState")}</th>
+                <th className="num text-right">{t("g2b.colTaxableRs")}</th>
                 <th className="num text-right">CGST (₹)</th>
                 <th className="num text-right">SGST (₹)</th>
-                <th className="num text-right">IGST (₹)</th>
-                <th className="num text-right">Total (₹)</th>
+                <th className="num text-right">{t("g2b.colIgstRs")}</th>
+                <th className="num text-right">{t("g2b.colTotalRs")}</th>
               </tr>
             </thead>
             <tbody>
@@ -1106,6 +1114,7 @@ function Gstr1Report({
   hsnWise: Gstr1HsnRow[];
   docs: Gstr1DocRow[];
 }) {
+  const { t } = useT();
   const rateTaxTotal = rateWise.reduce((s, r) => s + r.taxable, 0);
   const hsnTaxTotal = hsnWise.reduce((s, r) => s + r.taxable, 0);
   // Cross-foot: rate-wise + hsn-wise taxable must equal the doc totals.
@@ -1119,7 +1128,7 @@ function Gstr1Report({
       <div className="dmk-enter-stagger grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Total Output Tax</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.totalOutputTax")}</span>
             <Percent className="h-4 w-4 text-dmk-yellow" />
           </div>
           <span className="font-money text-[20px] font-semibold text-dmk-yellow block mt-2">{formatINR(totals.totalTax)}</span>
@@ -1129,32 +1138,32 @@ function Gstr1Report({
         </div>
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">B2B Taxable</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.b2bTaxable")}</span>
             <Badge tone="info">B2B</Badge>
           </div>
           <span className="font-money text-[20px] font-semibold text-dmk-text-primary block mt-2">{formatINR(b2b?.taxable ?? 0)}</span>
           <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
-            {b2b?.count ?? 0} doc{(b2b?.count ?? 0) === 1 ? "" : "s"} · registered buyers
+            {t("rep.b2bSub", { n: b2b?.count ?? 0 })}
           </span>
         </div>
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">B2C Taxable</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.b2cTaxable")}</span>
             <Badge tone="dr">B2C</Badge>
           </div>
           <span className="font-money text-[20px] font-semibold text-dmk-text-primary block mt-2">{formatINR(b2c?.taxable ?? 0)}</span>
           <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
-            {b2c?.count ?? 0} doc{(b2c?.count ?? 0) === 1 ? "" : "s"} · counter / unregistered
+            {t("rep.b2cSub", { n: b2c?.count ?? 0 })}
           </span>
         </div>
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Invoices</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.invoices")}</span>
             <ScrollText className="h-4 w-4 text-dmk-gold" />
           </div>
           <span className="font-money text-[20px] font-semibold text-dmk-text-primary block mt-2">{totals.invoiceCount}</span>
           <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
-            Taxable {formatINR(totals.totalTaxable)} total
+            {t("rep.taxableTotal", { amt: formatINR(totals.totalTaxable) })}
           </span>
         </div>
       </div>
@@ -1169,35 +1178,35 @@ function Gstr1Report({
               : "border-dmk-warning/40 bg-dmk-warning/10 text-dmk-warning"
           )}
         >
-          {reconciled ? "CROSS-FOOTED ✓" : `Δ ${formatINR(Math.abs(rateDelta || hsnDelta))}`}
+          {reconciled ? t("rep.crossFooted") : `Δ ${formatINR(Math.abs(rateDelta || hsnDelta))}`}
         </span>
         <span className="text-dmk-text-muted">
-          Rate-wise <span className="font-money text-dmk-text-secondary">{formatINR(rateTaxTotal)}</span>
-          {" · "}HSN-wise <span className="font-money text-dmk-text-secondary">{formatINR(hsnTaxTotal)}</span>
-          {" · "}both reconcile to invoice totals <span className="font-money text-dmk-text-secondary">{formatINR(totals.totalTaxable)}</span>
+          {t("rep.recRateWise")} <span className="font-money text-dmk-text-secondary">{formatINR(rateTaxTotal)}</span>
+          {" · "}{t("rep.recHsnWise")} <span className="font-money text-dmk-text-secondary">{formatINR(hsnTaxTotal)}</span>
+          {" · "}{t("rep.recReconciles")} <span className="font-money text-dmk-text-secondary">{formatINR(totals.totalTaxable)}</span>
         </span>
       </div>
 
       {/* Rate-wise */}
       <div className="dmk-card overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-dmk-border-subtle">
-          <h2 className="text-[13px] font-semibold text-dmk-text-primary">Rate-wise Tax Buckets</h2>
-          <Badge tone="gold">{rateWise.length} rate{rateWise.length === 1 ? "" : "s"}</Badge>
+          <h2 className="text-[13px] font-semibold text-dmk-text-primary">{t("rep.rateBuckets")}</h2>
+          <Badge tone="gold">{t("rep.rateCount", { n: rateWise.length })}</Badge>
         </div>
         {rateWise.length === 0 ? (
-          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No supplies in this window.</p>
+          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">{t("rep.noSupplies")}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="dmk-table">
               <thead>
                 <tr>
-                  <th>GST Rate</th>
-                  <th className="num text-right">Qty</th>
-                  <th className="num text-right">Taxable (₹)</th>
+                  <th>{t("rep.colGstRate")}</th>
+                  <th className="num text-right">{t("rep.colQty")}</th>
+                  <th className="num text-right">{t("g2b.colTaxableRs")}</th>
                   <th className="num text-right">CGST (₹)</th>
                   <th className="num text-right">SGST (₹)</th>
-                  <th className="num text-right">IGST (₹)</th>
-                  <th className="num text-right">Tax (₹)</th>
+                  <th className="num text-right">{t("g2b.colIgstRs")}</th>
+                  <th className="num text-right">{t("g2b.colTaxRs")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1219,7 +1228,7 @@ function Gstr1Report({
               </tbody>
               <tfoot>
                 <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
-                  <td className="font-bold text-dmk-text-primary">TOTAL</td>
+                  <td className="font-bold text-dmk-text-primary">{t("aging.totalRow")}</td>
                   <td className="num text-right text-dmk-text-secondary">{rateWise.reduce((s, r) => s + r.qty, 0)}</td>
                   <td className="num text-right font-money font-bold">{formatINR(rateTaxTotal)}</td>
                   <td className="num text-right font-money font-bold">{formatINR(totals.totalCgst)}</td>
@@ -1236,23 +1245,23 @@ function Gstr1Report({
       {/* HSN-wise */}
       <div className="dmk-card overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-dmk-border-subtle">
-          <h2 className="text-[13px] font-semibold text-dmk-text-primary">HSN-wise Summary</h2>
-          <Badge tone="neutral">{hsnWise.length} HSN{hsnWise.length === 1 ? "" : "s"}</Badge>
+          <h2 className="text-[13px] font-semibold text-dmk-text-primary">{t("rep.hsnSummary")}</h2>
+          <Badge tone="neutral">{t("rep.hsnCount", { n: hsnWise.length })}</Badge>
         </div>
         {hsnWise.length === 0 ? (
-          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No supplies in this window.</p>
+          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">{t("rep.noSupplies")}</p>
         ) : (
           <div className="overflow-x-auto max-h-72 overflow-y-auto">
             <table className="dmk-table">
               <thead>
                 <tr>
                   <th>HSN</th>
-                  <th>Description</th>
-                  <th className="num text-right">Qty</th>
-                  <th className="num text-right">Taxable (₹)</th>
+                  <th>{t("rep.colDescription")}</th>
+                  <th className="num text-right">{t("rep.colQty")}</th>
+                  <th className="num text-right">{t("g2b.colTaxableRs")}</th>
                   <th className="num text-right">CGST (₹)</th>
                   <th className="num text-right">SGST (₹)</th>
-                  <th className="num text-right">IGST (₹)</th>
+                  <th className="num text-right">{t("g2b.colIgstRs")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1276,27 +1285,27 @@ function Gstr1Report({
       {/* Invoice docs */}
       <div className="dmk-card overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-dmk-border-subtle">
-          <h2 className="text-[13px] font-semibold text-dmk-text-primary">Outward Invoice Documents</h2>
-          <Badge tone="neutral">{docs.length} docs</Badge>
+          <h2 className="text-[13px] font-semibold text-dmk-text-primary">{t("rep.outwardDocs")}</h2>
+          <Badge tone="neutral">{t("rep.docsCount", { n: docs.length })}</Badge>
         </div>
         {docs.length === 0 ? (
-          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No invoices in this window.</p>
+          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">{t("rep.noInvoicesWindow")}</p>
         ) : (
           <div className="overflow-x-auto max-h-96 overflow-y-auto">
             <table className="dmk-table min-w-[980px]">
               <thead>
                 <tr>
-                  <th>Doc #</th>
-                  <th>Date</th>
-                  <th>Party</th>
+                  <th>{t("rep.colDocNo")}</th>
+                  <th>{t("cmn.date")}</th>
+                  <th>{t("aging.colParty")}</th>
                   <th>GSTIN</th>
-                  <th>Type</th>
+                  <th>{t("cmn.type")}</th>
                   <th>POS</th>
-                  <th className="num text-right">Taxable (₹)</th>
+                  <th className="num text-right">{t("g2b.colTaxableRs")}</th>
                   <th className="num text-right">CGST (₹)</th>
                   <th className="num text-right">SGST (₹)</th>
-                  <th className="num text-right">IGST (₹)</th>
-                  <th className="num text-right">Total (₹)</th>
+                  <th className="num text-right">{t("g2b.colIgstRs")}</th>
+                  <th className="num text-right">{t("g2b.colTotalRs")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1348,6 +1357,7 @@ function ProfitabilityReport({
   dateFrom: string;
   dateTo: string;
 }) {
+  const { t } = useT();
   const [sortBy, setSortBy] = React.useState<"profit" | "margin" | "revenue" | "qty">("profit");
   const [drillRow, setDrillRow] = React.useState<ProfitRow | null>(null);
 
@@ -1383,42 +1393,42 @@ function ProfitabilityReport({
       <div className="dmk-enter-stagger grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net Revenue</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.netRevenue")}</span>
             <ArrowUpRight className="h-4 w-4 text-dmk-success" />
           </div>
           <span className="font-money text-[20px] font-semibold text-dmk-success block mt-2">{formatINR(totals.revenue)}</span>
-          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">{totals.products} SKUs sold · returns netted</span>
+          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">{t("rep.skuSoldSub", { n: totals.products })}</span>
         </div>
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">COGS @ WAC</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.cogsWac")}</span>
             <Scale className="h-4 w-4 text-dmk-info" />
           </div>
           <span className="font-money text-[20px] font-semibold text-dmk-info block mt-2">{formatINR(totals.cogs)}</span>
-          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">Weighted average cost basis</span>
+          <span className="text-[11px] text-dmk-text-muted mt-1.5 block">{t("rep.wacBasis")}</span>
         </div>
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Gross Profit</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.grossProfit")}</span>
             <TrendingUp className="h-4 w-4 text-dmk-gold" />
           </div>
           <span className={cn("font-money text-[20px] font-semibold block mt-2", totals.grossProfit >= 0 ? "text-dmk-gold" : "text-dmk-danger")}>
             {formatINR(totals.grossProfit)}
           </span>
           <span className="text-[11px] text-dmk-text-muted mt-1.5 block font-money">
-            Margin {totals.marginPct.toFixed(1)}%{best ? ` · best ${best.name.split(" ").slice(0, 2).join(" ")}` : ""}
+            {best ? t("rep.marginBest", { pct: totals.marginPct.toFixed(1), name: best.name.split(" ").slice(0, 2).join(" ") }) : t("rep.marginOnly", { pct: totals.marginPct.toFixed(1) })}
           </span>
         </div>
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Loss Makers</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.lossMakers")}</span>
             <ArrowDownRight className={cn("h-4 w-4", totals.lossMakers > 0 ? "text-dmk-danger" : "text-dmk-text-muted")} />
           </div>
           <span className={cn("font-money text-[20px] font-semibold block mt-2", totals.lossMakers > 0 ? "text-dmk-danger" : "text-dmk-success")}>
             {totals.lossMakers}
           </span>
           <span className="text-[11px] text-dmk-text-muted mt-1.5 block">
-            {totals.lossMakers > 0 ? "Review pricing / cost on these" : "Every SKU is profitable"}
+            {totals.lossMakers > 0 ? t("rep.lossReview") : t("rep.allProfitable")}
           </span>
         </div>
       </div>
@@ -1427,7 +1437,7 @@ function ProfitabilityReport({
       <div className="dmk-well px-3.5 py-2.5 flex items-center gap-2">
         <TrendingUp className="h-3.5 w-3.5 text-dmk-info shrink-0" />
         <p className="text-[11.5px] text-dmk-text-secondary">
-          <span className="font-semibold text-dmk-text-primary">Basis:</span> {method ?? "COGS at weighted average cost from confirmed receipts; sales returns netted."}
+          <span className="font-semibold text-dmk-text-primary">{t("rep.basisLabel")}</span> {method ?? t("rep.basisFallback")}
         </p>
       </div>
 
@@ -1436,10 +1446,10 @@ function ProfitabilityReport({
         <div className="dmk-card p-4">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h2 className="text-[15px] font-semibold text-dmk-text-primary">Top Products by Gross Profit</h2>
-              <p className="text-[11px] text-dmk-text-muted">Top {chartData.length} SKUs · taxable revenue minus WAC cost of net quantity</p>
+              <h2 className="text-[15px] font-semibold text-dmk-text-primary">{t("rep.topProducts")}</h2>
+              <p className="text-[11px] text-dmk-text-muted">{t("rep.topSkusSub", { n: chartData.length })}</p>
             </div>
-            <Badge tone="gold">PROFIT</Badge>
+            <Badge tone="gold">{t("rep.badgeProfit")}</Badge>
           </div>
           <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -1467,7 +1477,7 @@ function ProfitabilityReport({
                   formatter={(value) => formatINR(Number(value))}
                   cursor={{ fill: "rgba(245,158,11,0.06)" }}
                 />
-                <Bar dataKey="profit" name="Gross profit" radius={[0, 4, 4, 0]} maxBarSize={20}>
+                <Bar dataKey="profit" name={t("rep.chartGrossProfit")} radius={[0, 4, 4, 0]} maxBarSize={20}>
                   {chartData.map((d) => (
                     <Cell key={d.name} fill={d.negative ? CHART_RED : CHART_GREEN} />
                   ))}
@@ -1481,7 +1491,7 @@ function ProfitabilityReport({
       {/* Per-product table */}
       <div className="dmk-card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-dmk-border-subtle">
-          <h2 className="text-[13px] font-semibold text-dmk-text-primary">Per-product profitability</h2>
+          <h2 className="text-[13px] font-semibold text-dmk-text-primary">{t("rep.perProduct")}</h2>
           <div className="flex items-center gap-1">
             {(["profit", "margin", "revenue", "qty"] as const).map((k) => (
               <button
@@ -1495,30 +1505,30 @@ function ProfitabilityReport({
                     : "border-dmk-border-subtle bg-dmk-input-well text-dmk-text-muted hover:bg-dmk-hover hover:text-dmk-text-secondary"
                 )}
               >
-                {k === "qty" ? "Quantity" : k}
+                {k === "profit" ? t("rep.sortProfit") : k === "margin" ? t("rep.sortMargin") : k === "revenue" ? t("rep.sortRevenue") : t("rep.sortQty")}
               </button>
             ))}
           </div>
         </div>
         {rows.length === 0 ? (
-          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">No sales in this window.</p>
+          <p className="text-[12px] text-dmk-text-muted px-4 py-6 text-center">{t("rep.noSalesWindow")}</p>
         ) : (
           <div className="overflow-x-auto max-h-[max(420px,calc(100vh-560px))] overflow-y-auto">
             <table className="dmk-table">
               <thead>
                 <tr>
-                  <th>SKU</th>
-                  <th>Product</th>
-                  <th className="num text-right">Sold</th>
-                  <th className="num text-right hidden md:table-cell">Returned</th>
-                  <th className="num text-right">Net Qty</th>
-                  <th className="num text-right">Net Revenue (₹)</th>
-                  <th className="num text-right hidden lg:table-cell">WAC (₹)</th>
-                  <th className="num text-right">COGS (₹)</th>
-                  <th className="num text-right">Profit (₹)</th>
-                  <th className="num text-right">Margin</th>
-                  <th className="num text-right hidden lg:table-cell">Invoices</th>
-                  <th className="w-8"><span className="sr-only">Drill through</span></th>
+                  <th>{t("cmn.sku")}</th>
+                  <th>{t("cmn.product")}</th>
+                  <th className="num text-right">{t("rep.colSold")}</th>
+                  <th className="num text-right hidden md:table-cell">{t("rep.colReturned")}</th>
+                  <th className="num text-right">{t("rep.colNetQty")}</th>
+                  <th className="num text-right">{t("rep.colNetRevenueRs")}</th>
+                  <th className="num text-right hidden lg:table-cell">{t("rep.colWacRs")}</th>
+                  <th className="num text-right">{t("rep.colCogsRs")}</th>
+                  <th className="num text-right">{t("rep.colProfitRs")}</th>
+                  <th className="num text-right">{t("rep.colMargin")}</th>
+                  <th className="num text-right hidden lg:table-cell">{t("rep.invoices")}</th>
+                  <th className="w-8"><span className="sr-only">{t("rep.srDrill")}</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -1527,8 +1537,8 @@ function ProfitabilityReport({
                     key={r.sku}
                     tabIndex={0}
                     role="button"
-                    aria-label={`Drill into ${r.sku} — view contributing invoice lines`}
-                    title="Click to view the invoice lines behind this row"
+                    aria-label={t("rep.ariaDrill", { sku: r.sku })}
+                    title={t("rep.titleDrill")}
                     onClick={() => openDrill(r)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
@@ -1579,7 +1589,7 @@ function ProfitabilityReport({
               <tfoot>
                 <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
                   <td colSpan={5} className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">
-                    Totals — {totals.products} SKUs
+                    {t("rep.totalsSkus", { n: totals.products })}
                   </td>
                   <td className="num text-right font-money font-bold text-dmk-text-primary">{formatINR(totals.revenue)}</td>
                   <td className="hidden lg:table-cell" />
@@ -1597,7 +1607,7 @@ function ProfitabilityReport({
         )}
         {rows.length > 0 && (
           <p className="px-4 py-2 text-[10.5px] text-dmk-text-muted border-t border-dmk-border-subtle">
-            Click a row to drill into the invoice lines and returns behind its profit number.
+            {t("rep.drillHint")}
           </p>
         )}
       </div>
@@ -1685,6 +1695,7 @@ function SkuDrillDialog({
   dateTo: string;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useT();
   const [drill, setDrill] = React.useState<DrillPayload | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -1708,7 +1719,7 @@ function SkuDrillDialog({
         if (alive) setDrill(res.drill);
       })
       .catch((e) => {
-        if (alive) setError(e instanceof Error ? e.message : "Drill-through failed");
+        if (alive) setError(e instanceof Error ? e.message : t("rep.drillFailed"));
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -1718,7 +1729,7 @@ function SkuDrillDialog({
     };
   }, [sku, firmId, dateFrom, dateTo]);
 
-  const t = drill?.totals ?? null;
+  const dt = drill?.totals ?? null;
 
   return (
     <Dialog open={row !== null} onOpenChange={onOpenChange}>
@@ -1730,82 +1741,81 @@ function SkuDrillDialog({
               {drill?.productName ?? row?.name}
             </span>
             <span className="dmk-badge font-money bg-dmk-info/15 text-dmk-info">
-              WAC {formatINR(drill?.wac ?? row?.wac ?? 0)}
+              {t("rep.wacBadge", { amt: formatINR(drill?.wac ?? row?.wac ?? 0) })}
             </span>
           </DialogTitle>
           <DialogDescription className="text-[12px] text-dmk-text-muted">
-            Contributing invoice lines · {dateFrom} → {dateTo}
+            {t("rep.drillDesc", { from: dateFrom, to: dateTo })}
           </DialogDescription>
         </DialogHeader>
 
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-10 text-[12.5px] text-dmk-text-muted">
             <Loader2 className="h-4 w-4 animate-spin text-dmk-gold" />
-            Fetching invoice lines…
+            {t("rep.fetching")}
           </div>
         ) : error ? (
           <ErrorText>{error}</ErrorText>
-        ) : drill && t ? (
+        ) : drill && dt ? (
           <div className="space-y-3.5">
             {/* KPI strip */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <div className="dmk-well p-3">
-                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">Sold qty</span>
-                <span className="font-money text-[17px] font-semibold text-dmk-text-primary">{t.qty}</span>
+                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.soldQty")}</span>
+                <span className="font-money text-[17px] font-semibold text-dmk-text-primary">{dt.qty}</span>
                 <span className="block text-[10.5px] text-dmk-text-muted mt-0.5">
-                  {t.invoices} invoice{t.invoices === 1 ? "" : "s"} · {t.returnsQty} returned
+                  {t("rep.soldQtySub", { n: dt.invoices, m: dt.returnsQty })}
                 </span>
               </div>
               <div className="dmk-well p-3">
-                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net revenue</span>
-                <span className="font-money text-[17px] font-semibold text-dmk-text-primary">{formatINR(t.netRevenue)}</span>
+                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.kpiNetRevenue")}</span>
+                <span className="font-money text-[17px] font-semibold text-dmk-text-primary">{formatINR(dt.netRevenue)}</span>
                 <span className="block text-[10.5px] text-dmk-text-muted mt-0.5 font-money">
-                  gross {formatINR(t.revenue)}
-                  {t.returnsAmount > 0 ? ` − ${formatINR(t.returnsAmount)} ret` : ""}
+                  {dt.returnsAmount > 0 ? t("rep.grossMinusRet", { gross: formatINR(dt.revenue), ret: formatINR(dt.returnsAmount) }) : t("rep.grossOnly", { amt: formatINR(dt.revenue) })}
                 </span>
               </div>
               <div className="dmk-well p-3">
-                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">COGS @ WAC</span>
-                <span className="font-money text-[17px] font-semibold text-dmk-info">{formatINR(t.netCogs)}</span>
-                <span className="block text-[10.5px] text-dmk-text-muted mt-0.5">Net of returned qty</span>
+                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.cogsWac")}</span>
+                <span className="font-money text-[17px] font-semibold text-dmk-info">{formatINR(dt.netCogs)}</span>
+                <span className="block text-[10.5px] text-dmk-text-muted mt-0.5">{t("rep.netOfReturns")}</span>
               </div>
               <div className="dmk-well p-3">
-                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net profit</span>
+                <span className="block text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("rep.netProfit")}</span>
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className={cn("font-money text-[17px] font-semibold", t.netProfit >= 0 ? "text-dmk-success" : "text-dmk-danger")}>
-                    {t.netProfit >= 0 ? "" : "−"}{formatINR(Math.abs(t.netProfit))}
+                  <span className={cn("font-money text-[17px] font-semibold", dt.netProfit >= 0 ? "text-dmk-success" : "text-dmk-danger")}>
+                    {dt.netProfit >= 0 ? "" : "−"}{formatINR(Math.abs(dt.netProfit))}
                   </span>
-                  <span className={cn("dmk-badge font-money", marginBadgeCls(t.marginPct))}>
-                    {t.marginPct.toFixed(1)}%
+                  <span className={cn("dmk-badge font-money", marginBadgeCls(dt.marginPct))}>
+                    {dt.marginPct.toFixed(1)}%
                   </span>
                 </div>
-                <span className="block text-[10.5px] text-dmk-text-muted mt-0.5">Reconciles with the row above</span>
+                <span className="block text-[10.5px] text-dmk-text-muted mt-0.5">{t("rep.reconcilesRow")}</span>
               </div>
             </div>
 
             {/* Sales lines */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-dmk-text-secondary">Sales lines</h3>
-                <span className="text-[10.5px] text-dmk-text-muted">{drill.lines.length} line{drill.lines.length === 1 ? "" : "s"}</span>
+                <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-dmk-text-secondary">{t("rep.salesLines")}</h3>
+                <span className="text-[10.5px] text-dmk-text-muted">{t("rep.linesCount", { n: drill.lines.length })}</span>
               </div>
               {drill.lines.length === 0 ? (
                 <p className="dmk-well px-3 py-4 text-[12px] text-dmk-text-muted text-center">
-                  No sale lines for this SKU in the window.
+                  {t("rep.noSaleLines")}
                 </p>
               ) : (
                 <div className="max-h-80 overflow-y-auto overflow-x-auto rounded-md border border-dmk-border-subtle">
                   <table className="dmk-table">
                     <thead>
                       <tr>
-                        <th>Invoice #</th>
-                        <th>Date</th>
-                        <th>Customer</th>
-                        <th className="num text-right">Qty</th>
-                        <th className="num text-right">Unit ₹</th>
-                        <th className="num text-right">Taxable ₹</th>
-                        <th className="num text-right hidden sm:table-cell">COGS ₹</th>
-                        <th className="num text-right">Profit ₹</th>
+                        <th>{t("g2b.colInvoiceNo")}</th>
+                        <th>{t("cmn.date")}</th>
+                        <th>{t("cmn.customer")}</th>
+                        <th className="num text-right">{t("rep.colQty")}</th>
+                        <th className="num text-right">{t("rep.colUnitRs")}</th>
+                        <th className="num text-right">{t("rep.colTaxablePlain")}</th>
+                        <th className="num text-right hidden sm:table-cell">{t("rep.colCogsPlain")}</th>
+                        <th className="num text-right">{t("rep.colProfitPlain")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1829,14 +1839,14 @@ function SkuDrillDialog({
                     <tfoot>
                       <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
                         <td colSpan={3} className="text-[10.5px] font-bold uppercase tracking-wider text-dmk-text-muted">
-                          Totals
+                          {t("rep.totals")}
                         </td>
-                        <td className="num text-right font-money font-bold text-dmk-text-primary">{t.qty}</td>
+                        <td className="num text-right font-money font-bold text-dmk-text-primary">{dt.qty}</td>
                         <td className="num text-right text-dmk-text-muted" />
-                        <td className="num text-right font-money font-bold text-dmk-text-primary">{formatINR(t.revenue)}</td>
-                        <td className="num text-right font-money font-bold text-dmk-info hidden sm:table-cell">{formatINR(t.cogs)}</td>
-                        <td className={cn("num text-right font-money font-bold", t.profit >= 0 ? "text-dmk-success" : "text-dmk-danger")}>
-                          {formatINR(t.profit)}
+                        <td className="num text-right font-money font-bold text-dmk-text-primary">{formatINR(dt.revenue)}</td>
+                        <td className="num text-right font-money font-bold text-dmk-info hidden sm:table-cell">{formatINR(dt.cogs)}</td>
+                        <td className={cn("num text-right font-money font-bold", dt.profit >= 0 ? "text-dmk-success" : "text-dmk-danger")}>
+                          {formatINR(dt.profit)}
                         </td>
                       </tr>
                     </tfoot>
@@ -1848,25 +1858,25 @@ function SkuDrillDialog({
             {/* Returns in window */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-dmk-text-secondary">Returns in window</h3>
+                <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-dmk-text-secondary">{t("rep.returnsInWindow")}</h3>
                 <span className="text-[10.5px] text-dmk-text-muted font-money">
-                  {drill.returns.length > 0 ? `− ${formatINR(t.returnsAmount)}` : "—"}
+                  {drill.returns.length > 0 ? `− ${formatINR(dt.returnsAmount)}` : "—"}
                 </span>
               </div>
               {drill.returns.length === 0 ? (
                 <p className="dmk-well px-3 py-3 text-[12px] text-dmk-text-muted text-center">
-                  No returns in this window — clean margin story for this SKU.
+                  {t("rep.noReturns")}
                 </p>
               ) : (
                 <div className="max-h-56 overflow-y-auto rounded-md border border-dmk-border-subtle">
                   <table className="dmk-table">
                     <thead>
                       <tr>
-                        <th>Credit note</th>
-                        <th>Date</th>
-                        <th>Customer</th>
-                        <th className="num text-right">Qty</th>
-                        <th className="num text-right">Amount ₹</th>
+                        <th>{t("rep.colCreditNote")}</th>
+                        <th>{t("cmn.date")}</th>
+                        <th>{t("cmn.customer")}</th>
+                        <th className="num text-right">{t("rep.colQty")}</th>
+                        <th className="num text-right">{t("rep.colAmountRs")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1889,7 +1899,7 @@ function SkuDrillDialog({
 
             <div className="dmk-well px-3 py-2">
               <p className="text-[10.5px] leading-relaxed text-dmk-text-muted">
-                <span className="font-semibold text-dmk-text-secondary">Basis:</span> {drill.basis}
+                <span className="font-semibold text-dmk-text-secondary">{t("rep.basisLabel")}</span> {drill.basis}
               </p>
             </div>
           </div>

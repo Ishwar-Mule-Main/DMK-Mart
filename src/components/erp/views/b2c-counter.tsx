@@ -142,7 +142,7 @@ export default function B2CCounterView() {
       setBuyerOpen(false);
       return;
     }
-    const t = setTimeout(async () => {
+    const buyerTimer = setTimeout(async () => {
       try {
         setBuyerSearching(true);
         const res = await apiGet<Customer[]>("/api/v1/customers", { firmId: activeFirmId, type: "B2C_COUNTER", search: q });
@@ -150,12 +150,12 @@ export default function B2CCounterView() {
         // No match → keep the dropdown open so the inline "create buyer" affordance shows
         setBuyerOpen(true);
       } catch (e) {
-        if (e instanceof ApiError) toast({ variant: "destructive", title: "Buyer search failed", description: e.message });
+        if (e instanceof ApiError) toast({ variant: "destructive", title: t("b2c.buyerSearchFailed"), description: e.message });
       } finally {
         setBuyerSearching(false);
       }
     }, 220);
-    return () => clearTimeout(t);
+    return () => clearTimeout(buyerTimer);
   }, [buyerQuery, activeFirmId]);
 
   // ── Product typeahead (debounced) ────────────────────────────
@@ -167,7 +167,7 @@ export default function B2CCounterView() {
       setProdOpen(false);
       return;
     }
-    const t = setTimeout(async () => {
+    const prodTimer = setTimeout(async () => {
       try {
         setProdSearching(true);
         const res = await apiGet<Product[] | { products: Product[] }>("/api/v1/products", { firmId: activeFirmId, search: q, activeOnly: "true" });
@@ -176,12 +176,12 @@ export default function B2CCounterView() {
         setProdOpen(list.length > 0);
         setProdHi(0);
       } catch (e) {
-        if (e instanceof ApiError) toast({ variant: "destructive", title: "Product search failed", description: e.message });
+        if (e instanceof ApiError) toast({ variant: "destructive", title: t("b2c.prodSearchFailed"), description: e.message });
       } finally {
         setProdSearching(false);
       }
     }, 220);
-    return () => clearTimeout(t);
+    return () => clearTimeout(prodTimer);
   }, [prodQuery, activeFirmId]);
 
   function addProduct(p: Product) {
@@ -267,49 +267,49 @@ export default function B2CCounterView() {
       setWalkInPhone("");
       toast({ title: `Receipt ${inv.invoiceNumber}`, description: `${formatINR(inv.grandTotal)} · ${paymentMode}` });
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Something went wrong while posting the counter sale.";
+      const msg = e instanceof ApiError ? e.message : t("b2c.errPost");
       const code = e instanceof ApiError ? e.code : "ERR_UNKNOWN";
-      toast({ variant: "destructive", title: "Counter sale failed", description: `${msg} (${code})` });
+      toast({ variant: "destructive", title: t("b2c.postFailed"), description: `${msg} (${code})` });
     } finally {
       setSubmitting(false);
     }
   }
 
   if (!activeFirmId) {
-    return <EmptyState icon={Store} title="No active firm" hint="Select a firm from the header switcher to use the counter." />;
+    return <EmptyState icon={Store} title={t("b2c.noFirm")} hint={t("b2c.noFirmHint")} />;
   }
 
   return (
     <div className="space-y-4">
-      <PageHeader title="B2C Counter POS" subtitle="Walk-in & counter billing · Retailer pricing · registered buyers bill on credit too (auto ₹1,00,000 limit)" icon={Store} />
+      <PageHeader title={t("b2c.posTitle")} subtitle={t("b2c.posSubtitle")} icon={Store} />
 
       {/* Today's counter chips */}
       <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 max-w-md">
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Counter sales today</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("b2c.kpiCounterToday")}</span>
             <ReceiptText className="h-4 w-4 text-dmk-text-muted" />
           </div>
           <span className="font-money text-[20px] font-semibold leading-none text-dmk-text-primary">{todayStats.count}</span>
-          <span className="text-[11px] text-dmk-text-muted">receipts</span>
+          <span className="text-[11px] text-dmk-text-muted">{t("b2c.kpiReceipts")}</span>
         </div>
         <div className="dmk-kpi p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Amount today</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("b2c.kpiAmountToday")}</span>
             <Coins className="h-4 w-4 text-dmk-text-muted" />
           </div>
           <span className="font-money text-[20px] font-semibold leading-none text-dmk-success">{formatINR(todayStats.amount)}</span>
-          <span className="text-[11px] text-dmk-text-muted">cash + UPI + card + on-account</span>
+          <span className="text-[11px] text-dmk-text-muted">{t("b2c.kpiModes")}</span>
         </div>
       </div>
 
       <Tabs defaultValue="pos" className="gap-4">
         <TabsList className="bg-dmk-input-well border border-dmk-border-subtle">
           <TabsTrigger value="pos" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
-            <ShoppingCart className="h-4 w-4" /> Counter POS
+            <ShoppingCart className="h-4 w-4" /> {t("b2c.tabPos")}
           </TabsTrigger>
           <TabsTrigger value="buyers" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
-            <Store className="h-4 w-4" /> Buyers List
+            <Store className="h-4 w-4" /> {t("b2c.tabBuyers")}
           </TabsTrigger>
         </TabsList>
 
@@ -320,9 +320,9 @@ export default function B2CCounterView() {
               {/* Buyer picker */}
               <div className="dmk-card p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Buyer (optional — walk-in allowed)</span>
+                  <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("b2c.buyerOptional")}</span>
                   <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setNewBuyerOpen(true)}>
-                    <UserPlus className="h-3.5 w-3.5" /> New Buyer
+                    <UserPlus className="h-3.5 w-3.5" /> {t("b2c.newBuyer")}
                   </Button>
                 </div>
                 {buyer ? (
@@ -349,7 +349,7 @@ export default function B2CCounterView() {
                 ) : (
                   <>
                     <div className="relative">
-                      <SearchInput value={buyerQuery} onChange={setBuyerQuery} placeholder="Search buyer by name or phone…" className="pl-9" />
+                      <SearchInput value={buyerQuery} onChange={setBuyerQuery} placeholder={t("b2c.phBuyerSearch")} className="pl-9" />
                       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
                       {buyerOpen && buyerResults.length > 0 && (
                         <div className="absolute z-30 mt-1 w-full dmk-elevated overflow-hidden max-h-64 overflow-y-auto">
@@ -395,11 +395,11 @@ export default function B2CCounterView() {
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      <Field label="Walk-in name">
-                        <Input value={walkInName} onChange={(e) => setWalkInName(e.target.value)} placeholder="Anonymous" className={inputCls} />
+                      <Field label={t("b2c.walkInName")}>
+                        <Input value={walkInName} onChange={(e) => setWalkInName(e.target.value)} placeholder={t("b2c.phAnonymous")} className={inputCls} />
                       </Field>
-                      <Field label="Walk-in phone">
-                        <Input value={walkInPhone} onChange={(e) => setWalkInPhone(e.target.value)} placeholder="optional" className={cn(inputCls, "font-money")} />
+                      <Field label={t("b2c.walkInPhone")}>
+                        <Input value={walkInPhone} onChange={(e) => setWalkInPhone(e.target.value)} placeholder={t("b2c.phOptional")} className={cn(inputCls, "font-money")} />
                       </Field>
                     </div>
                   </>
@@ -408,7 +408,7 @@ export default function B2CCounterView() {
 
               {/* Product typeahead */}
               <div className="dmk-card p-4 space-y-3">
-                <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Add products (Retailer price)</span>
+                <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("b2c.addProductsRetail")}</span>
                 <div className="relative">
                   <Input
                     value={prodQuery}
@@ -427,9 +427,9 @@ export default function B2CCounterView() {
                         setProdOpen(false);
                       }
                     }}
-                    placeholder="Type SKU / name, Enter adds first match…"
+                    placeholder={t("b2c.phProduct")}
                     className={cn(inputCls, "h-10 pl-9")}
-                    aria-label="Product search"
+                    aria-label={t("b2c.productSearch")}
                   />
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
                   {prodSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted animate-spin" />}
@@ -462,7 +462,7 @@ export default function B2CCounterView() {
               <div className="dmk-card overflow-hidden">
                 <div className="overflow-x-auto">
                   {lines.length === 0 ? (
-                    <EmptyState icon={ShoppingCart} title="Counter cart is empty" hint="Search a product above and press Enter — bulk packaging discounts apply automatically by quantity." />
+                    <EmptyState icon={ShoppingCart} title={t("b2c.cartEmpty")} hint={t("b2c.cartEmptyHint")} />
                   ) : (
                     <table className="dmk-table min-w-[680px]">
                       <thead>
@@ -470,7 +470,7 @@ export default function B2CCounterView() {
                           <th>SKU</th>
                           <th>Product</th>
                           <th className="text-right">Qty</th>
-                          <th className="text-right">Retailer price</th>
+                          <th className="text-right">{t("b2c.colRetail")}</th>
                           <th>Pack</th>
                           <th className="text-right">Eff. price</th>
                           <th className="text-right">Taxable</th>
@@ -524,15 +524,15 @@ export default function B2CCounterView() {
             {/* Summary — instant payment only (stretches to match the POS column on desktop) */}
             <div className="space-y-4 min-w-0 lg:h-full lg:flex lg:flex-col">
               <div className="dmk-elevated p-5 space-y-4 lg:flex-1 lg:flex lg:flex-col">
-                <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Receipt summary</span>
+                <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("b2c.receiptSummary")}</span>
                 <div className="space-y-2">
                   <div className="flex justify-between text-[13px]">
-                    <span className="text-dmk-text-secondary">Taxable value</span>
+                    <span className="text-dmk-text-secondary">{t("b2c.taxableValueLbl")}</span>
                     <span className="font-money text-dmk-text-primary">{formatINR(totals.taxable)}</span>
                   </div>
                   {totals.savings > 0 && (
                     <div className="flex justify-between text-[13px]">
-                      <span className="text-dmk-text-secondary">Bulk discount</span>
+                      <span className="text-dmk-text-secondary">{t("b2c.bulkDiscountLbl")}</span>
                       <span className="font-money text-dmk-gold">−{formatINR(totals.savings)}</span>
                     </div>
                   )}
@@ -560,15 +560,15 @@ export default function B2CCounterView() {
                 </div>
 
                 <div className="border-t border-dmk-border-medium pt-3 flex items-end justify-between">
-                  <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">Pay now</span>
+                  <span className="text-[12px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("b2c.payNow")}</span>
                   <span className="font-money text-[28px] font-bold leading-none text-dmk-yellow">{formatINR(totals.grand)}</span>
                 </div>
                 <p className="text-[11.5px] italic text-dmk-text-muted">{amountInWords(totals.grand)}</p>
 
                 {/* Payment pills — CASH/UPI/CARD always, + CREDIT for registered buyers */}
                 <div>
-                  <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted block mb-2">Payment mode</span>
-                  <div className={cn("grid gap-2", pills.length === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4")} role="radiogroup" aria-label="Payment mode">
+                  <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted block mb-2">{t("bill.paymentMode")}</span>
+                  <div className={cn("grid gap-2", pills.length === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4")} role="radiogroup" aria-label={t("bill.paymentMode")}>
                     {pills.map((m) => (
                       <button
                         key={m}
@@ -612,7 +612,7 @@ export default function B2CCounterView() {
                   disabled={lines.length === 0 || submitting}
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                  {submitting ? "Posting…" : "Confirm Counter Sale"}
+                  {submitting ? t("b2c.posting") : t("b2c.confirmSale")}
                 </Button>
               </div>
             </div>
@@ -631,26 +631,26 @@ export default function B2CCounterView() {
           <DialogHeader>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-dmk-success" />
-              <DialogTitle className="text-dmk-text-primary">Counter sale complete</DialogTitle>
+              <DialogTitle className="text-dmk-text-primary">{t("b2c.completeTitle")}</DialogTitle>
             </div>
-            <DialogDescription className="text-dmk-text-muted">Stock and books updated instantly.</DialogDescription>
+            <DialogDescription className="text-dmk-text-muted">{t("b2c.completeDesc")}</DialogDescription>
           </DialogHeader>
           {lastInvoice && (
             <div className="dmk-well p-4 space-y-2 text-[13px]">
               <div className="flex justify-between">
-                <span className="text-dmk-text-muted">Receipt #</span>
+                <span className="text-dmk-text-muted">{t("b2c.receiptNo")}</span>
                 <span className="font-money text-dmk-text-primary">{lastInvoice.invoiceNumber}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-dmk-text-muted">Buyer</span>
+                <span className="text-dmk-text-muted">{t("b2c.buyerLbl")}</span>
                 <span className="text-dmk-text-secondary">{lastInvoice.customer?.partyName || lastInvoice.walkInName || "Walk-in"}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-dmk-text-muted">Paid via</span>
+                <span className="text-dmk-text-muted">{t("b2c.paidVia")}</span>
                 <Badge tone="success">{lastInvoice.paymentMode}</Badge>
               </div>
               <div className="flex justify-between border-t border-dmk-border-subtle pt-2">
-                <span className="text-dmk-text-muted">Amount</span>
+                <span className="text-dmk-text-muted">{t("b2c.amountLbl")}</span>
                 <span className="font-money text-[16px] text-dmk-yellow">{formatINR(lastInvoice.grandTotal)}</span>
               </div>
             </div>
@@ -681,6 +681,7 @@ export default function B2CCounterView() {
 // ═══════════════════════════════════════════════════════════════
 function BuyersDirectory({ onNew }: { onNew: () => void }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const [query, setQuery] = React.useState("");
   const [rows, setRows] = React.useState<Customer[] | null>(null);
@@ -689,20 +690,20 @@ function BuyersDirectory({ onNew }: { onNew: () => void }) {
   React.useEffect(() => {
     if (!activeFirmId) return;
     let alive = true;
-    const t = setTimeout(async () => {
+    const dirTimer = setTimeout(async () => {
       try {
         const res = await apiGet<Customer[]>("/api/v1/customers", { firmId: activeFirmId, type: "B2C_COUNTER", search: query.trim() });
         if (alive) setRows(res);
       } catch (e) {
         if (alive) {
           setRows([]);
-          if (e instanceof ApiError) toast({ variant: "destructive", title: "Could not load buyers", description: e.message });
+          if (e instanceof ApiError) toast({ variant: "destructive", title: t("b2c.loadBuyersFailed"), description: e.message });
         }
       }
     }, 220);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(dirTimer);
     };
   }, [query, activeFirmId]);
 
@@ -710,28 +711,28 @@ function BuyersDirectory({ onNew }: { onNew: () => void }) {
     <div className="dmk-card overflow-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 border-b border-dmk-border-subtle">
         <div className="relative flex-1">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search buyers by name or phone…" className="pl-9" />
+          <SearchInput value={query} onChange={setQuery} placeholder={t("b2c.dirSearchPh")} className="pl-9" />
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
         </div>
         <Button size="sm" className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={onNew}>
-          <UserPlus className="h-4 w-4" /> New Buyer
+          <UserPlus className="h-4 w-4" /> {t("b2c.newBuyer")}
         </Button>
       </div>
       <div className="overflow-x-auto max-h-[calc(100vh-380px)] overflow-y-auto">
         {rows === null ? (
           <LoadingRows />
         ) : rows.length === 0 ? (
-          <EmptyState icon={Store} title="No counter buyers yet" hint="Buyers are created at the counter with just a name and phone — each gets a ₹1,00,000 credit limit automatically (credit works like B2B)." />
+          <EmptyState icon={Store} title={t("b2c.noBuyers")} hint={t("b2c.noBuyersHint")} />
         ) : (
           <table className="dmk-table min-w-[860px]">
             <thead>
               <tr>
-                <th>Buyer name</th>
-                <th>Phone</th>
-                <th className="text-right">Visits</th>
-                <th className="text-right">Lifetime spend</th>
-                <th className="text-right">Credit limit</th>
-                <th className="text-right">Credit available</th>
+                <th>{t("b2c.colBuyerName")}</th>
+                <th>{t("cmn.phone")}</th>
+                <th className="text-right">{t("cust.colVisits")}</th>
+                <th className="text-right">{t("cust.colLifetime")}</th>
+                <th className="text-right">{t("cust.colCreditLimit")}</th>
+                <th className="text-right">{t("cust.colCreditAvail")}</th>
                 <th />
               </tr>
             </thead>
@@ -765,6 +766,7 @@ function BuyersDirectory({ onNew }: { onNew: () => void }) {
 
 function BuyerHistoryDialog({ buyer, onClose }: { buyer: Customer | null; onClose: () => void }) {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const { t } = useT();
   const [invoices, setInvoices] = React.useState<Invoice[] | null>(null);
 
   React.useEffect(() => {
@@ -785,10 +787,10 @@ function BuyerHistoryDialog({ buyer, onClose }: { buyer: Customer | null; onClos
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">{buyer?.partyName}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted font-money">
-            {buyer?.phone || "—"} · {buyer?.visitCount ?? 0} visits · lifetime {formatINR(Number(buyer?.lifetimeSpend ?? 0))}
+            {t("b2c.historySub", { phone: buyer?.phone || "—", n: buyer?.visitCount ?? 0, amt: formatINR(Number(buyer?.lifetimeSpend ?? 0)) })}
             <br />
-            <span className="text-dmk-gold">Credit {formatINR(Number(buyer?.creditLimit ?? 0))}</span>
-            {" · available "}
+            <span className="text-dmk-gold">{t("b2c.creditShort")} {formatINR(Number(buyer?.creditLimit ?? 0))}</span>
+            {" · "}{t("b2c.availShort")} 
             {formatINR(buyer ? availableCredit(buyer) : 0)}
           </DialogDescription>
         </DialogHeader>
@@ -796,16 +798,16 @@ function BuyerHistoryDialog({ buyer, onClose }: { buyer: Customer | null; onClos
           {invoices === null ? (
             <LoadingRows rows={3} />
           ) : invoices.length === 0 ? (
-            <EmptyState icon={ReceiptText} title="No purchases yet" />
+            <EmptyState icon={ReceiptText} title={t("b2c.noPurchases")} />
           ) : (
             <div className="dmk-well overflow-hidden">
               <table className="dmk-table">
                 <thead>
                   <tr>
-                    <th>Receipt #</th>
-                    <th>Date</th>
-                    <th>Mode</th>
-                    <th className="text-right">Amount</th>
+                    <th>{t("b2c.receiptNo")}</th>
+                    <th>{t("cmn.date")}</th>
+                    <th>{t("bill.paymentMode")}</th>
+                    <th className="text-right">{t("b2c.amountLbl")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -854,7 +856,7 @@ function NewBuyerDialog({
   async function submit() {
     if (!activeFirmId) return;
     if (!name.trim()) {
-      toast({ variant: "destructive", title: "Name required", description: "Enter the buyer's name to add them to the counter directory." });
+      toast({ variant: "destructive", title: t("b2c.nameRequired"), description: t("b2c.nameRequiredDesc") });
       return;
     }
     setSaving(true);
@@ -874,8 +876,8 @@ function NewBuyerDialog({
       setName("");
       setPhone("");
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not create buyer.";
-      toast({ variant: "destructive", title: "Create failed", description: msg });
+      const msg = e instanceof ApiError ? e.message : t("b2c.errCreateBuyer");
+      toast({ variant: "destructive", title: t("b2c.createFailed"), description: msg });
     } finally {
       setSaving(false);
     }
@@ -885,21 +887,21 @@ function NewBuyerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
-          <DialogTitle className="text-dmk-text-primary">New counter buyer</DialogTitle>
+          <DialogTitle className="text-dmk-text-primary">{t("cust.newBuyerTitle")}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">{t("b2c.newBuyerDesc")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <Field label="Buyer name *">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Sunita Pawar" className={inputCls} autoFocus />
+          <Field label={t("b2c.buyerNameLbl")}>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("b2c.phExampleName")} className={inputCls} autoFocus />
           </Field>
-          <Field label="Phone">
+          <Field label={t("cmn.phone")}>
             <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="98…" className={cn(inputCls, "font-money")} />
           </Field>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">{t("cmn.cancel")}</Button>
           <Button onClick={submit} disabled={saving} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add buyer
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} {t("b2c.addBuyer")}
           </Button>
         </DialogFooter>
       </DialogContent>

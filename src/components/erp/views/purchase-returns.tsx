@@ -365,6 +365,7 @@ interface PoLite {
   id: string;
   poNumber: string;
   poDate: string;
+  createdAt?: string;
   grandTotal: number;
   vendorId: string;
   items: Array<{ productId: string; sku: string; productName: string; quantity: number; unitCost: number }>;
@@ -442,7 +443,8 @@ function NewDebitNotePanel({
     arr.sort((a, b) => {
       const da = new Date(a.poDate).getTime() || 0;
       const dbb = new Date(b.poDate).getTime() || 0;
-      return dbb - da;
+      if (dbb !== da) return dbb - da; // newest first, then most recently created first
+      return (b.createdAt ? new Date(b.createdAt).getTime() : 0) - (a.createdAt ? new Date(a.createdAt).getTime() : 0);
     });
     return arr;
   }, [poOptions]);

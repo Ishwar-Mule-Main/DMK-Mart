@@ -19,6 +19,7 @@ import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import type { RecurringTemplate } from "@/types/erp";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 
 /** Local HH:MM:SS label for heartbeat stamps (format lib has no time formatter). */
 function formatTime(iso: string): string {
@@ -56,6 +57,7 @@ interface SchedulerStatus {
 
 export function AutomationCard() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const [status, setStatus] = React.useState<SchedulerStatus | null>(null);
   const [templates, setTemplates] = React.useState<RecurringTemplate[] | null>(null);
@@ -73,8 +75,8 @@ export function AutomationCard() {
   React.useEffect(() => {
     void load();
     // gentle heartbeat refresh while Settings is open
-    const t = setInterval(() => void load(), 20000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => void load(), 20000);
+    return () => clearInterval(timer);
   }, [load]);
 
   React.useEffect(() => {
@@ -98,21 +100,21 @@ export function AutomationCard() {
       const res = await apiPost<{ pass: SchedulerPass }>("/api/v1/recurring/scheduler", { action: "run-now" });
       await load();
       toast({
-        title: "Scheduler pass complete",
-        description: `${res.pass.generated} invoice(s) auto-posted · ${res.pass.failed} failed · ${res.pass.skipped} skipped.`,
+        title: t("seta.toastDone"),
+        description: t("seta.toastDoneDesc", { g: res.pass.generated, f: res.pass.failed, s: res.pass.skipped }),
       });
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Pass failed",
-        description: e instanceof ApiError ? e.message : "Could not run the scheduler pass.",
+        title: t("seta.toastFail"),
+        description: e instanceof ApiError ? e.message : t("seta.errRun"),
       });
     } finally {
       setRunning(false);
     }
   }
 
-  const autoTemplates = (templates ?? []).filter((t) => t.autoPost !== false && t.isActive);
+  const autoTemplates = (templates ?? []).filter((tp) => tp.autoPost !== false && tp.isActive);
   const last = status?.recent?.[0];
   const lastError = status?.lastError;
 
@@ -120,14 +122,14 @@ export function AutomationCard() {
     <div className="dmk-card p-5 dmk-enter" data-testid="automation-card">
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <Bot className="h-4 w-4 text-dmk-success" />
-        <h2 className="text-[15px] font-semibold text-dmk-text-primary">Automation — Recurring Auto-Post</h2>
+        <h2 className="text-[15px] font-semibold text-dmk-text-primary">{t("seta.title")}</h2>
         {status?.alive ? (
           <Badge tone="success">
             <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-dmk-success align-middle" />
-            SCHEDULER ALIVE
+            {t("seta.aliveBadge")}
           </Badge>
         ) : (
-          <Badge tone="warning">SCHEDULER IDLE</Badge>
+          <Badge tone="warning">{t("seta.idleBadge")}</Badge>
         )}
         <Button
           size="sm"
@@ -137,7 +139,7 @@ export function AutomationCard() {
           className="ml-auto h-8 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12px] hover:bg-dmk-hover"
         >
           {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlayCircle className="h-3.5 w-3.5" />}
-          Run a pass now
+          {t("seta.runNow")}
         </Button>
       </div>
 
@@ -145,36 +147,36 @@ export function AutomationCard() {
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         <div className="dmk-well px-3 py-2.5">
           <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-            <Activity className="h-3 w-3" /> Heartbeat
+            <Activity className="h-3 w-3" /> {t("seta.heartbeat")}
           </div>
           <p className="mt-1 font-money text-[12.5px] font-semibold text-dmk-text-primary">
             {status?.lastHeartbeat ? formatTime(status.lastHeartbeat) : "—"}
           </p>
           <p className="text-[10px] text-dmk-text-muted">
-            {status?.lastHeartbeat ? formatDate(status.lastHeartbeat) : "no pass yet"}
+            {status?.lastHeartbeat ? formatDate(status.lastHeartbeat) : t("seta.noPassYet")}
           </p>
         </div>
         <div className="dmk-well px-3 py-2.5">
           <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-            <Timer className="h-3 w-3" /> Cadence
+            <Timer className="h-3 w-3" /> {t("seta.cadence")}
           </div>
           <p className="mt-1 font-money text-[12.5px] font-semibold text-dmk-text-primary">
-            every {status?.intervalMinutes ?? 5} min
+            {t("seta.everyMin", { n: status?.intervalMinutes ?? 5 })}
           </p>
-          <p className="text-[10px] text-dmk-text-muted">{status?.passes ?? 0} passes this boot</p>
+          <p className="text-[10px] text-dmk-text-muted">{t("seta.passesBoot", { n: status?.passes ?? 0 })}</p>
         </div>
         <div className="dmk-well px-3 py-2.5">
           <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-            <Zap className="h-3 w-3" /> Auto-posting here
+            <Zap className="h-3 w-3" /> {t("seta.autoHere")}
           </div>
           <p className="mt-1 font-money text-[12.5px] font-semibold text-dmk-text-primary">
-            {templates ? `${autoTemplates.length} template${autoTemplates.length === 1 ? "" : "s"}` : "…"}
+            {templates ? t("seta.templates", { n: autoTemplates.length }) : "…"}
           </p>
-          <p className="text-[10px] text-dmk-text-muted">active · AUTO flag on</p>
+          <p className="text-[10px] text-dmk-text-muted">{t("seta.autoFlag")}</p>
         </div>
         <div className="dmk-well px-3 py-2.5">
           <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-            <CheckCircle2 className="h-3 w-3" /> Last pass
+            <CheckCircle2 className="h-3 w-3" /> {t("seta.lastPass")}
           </div>
           <p
             className={cn(
@@ -182,24 +184,24 @@ export function AutomationCard() {
               last ? (last.failed > 0 ? "text-dmk-warning" : "text-dmk-success") : "text-dmk-text-primary"
             )}
           >
-            {last ? `${last.generated} billed` : "—"}
+            {last ? t("seta.billed", { n: last.generated }) : "—"}
           </p>
           <p className="text-[10px] text-dmk-text-muted">
-            {last ? `${last.failed} failed · ${last.skipped} skipped` : "awaiting first pass"}
+            {last ? t("seta.failSkip", { f: last.failed, s: last.skipped }) : t("seta.awaitFirst")}
           </p>
         </div>
       </div>
 
       {lastError && (
         <div className="mt-3">
-          <ErrorText>Last scheduler error: {lastError}</ErrorText>
+          <ErrorText>{t("seta.lastError", { err: lastError })}</ErrorText>
         </div>
       )}
 
       {/* recent auto-posted invoices */}
       <div className="mt-4">
         <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-          Recently auto-posted invoices
+          {t("seta.recentTitle")}
         </p>
         {last && last.autoPosted.length > 0 ? (
           <ul className="space-y-1.5">
@@ -221,9 +223,9 @@ export function AutomationCard() {
           <p className="rounded-md border border-dashed border-dmk-border-subtle px-3 py-3 text-[11.5px] text-dmk-text-muted">
             {last
               ? last.failed > 0
-                ? "Nothing auto-posted in the last pass — check the error above."
-                : "Nothing was due in the last pass — templates bill on their own schedule."
-              : "The scheduler posts invoices automatically when a template's cycle falls due — stamped invoices appear here."}
+                ? t("seta.emptyFail")
+                : t("seta.emptyNone")
+              : t("seta.emptyIntro")}
           </p>
         )}
       </div>

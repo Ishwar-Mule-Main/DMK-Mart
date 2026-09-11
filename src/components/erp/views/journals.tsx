@@ -52,6 +52,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { downloadCSV, formatINR, toISODate } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -130,6 +131,7 @@ interface DraftLine {
 export default function JournalsView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const { toast } = useToast();
+  const { t } = useT();
 
   const [type, setType] = React.useState<string>("ALL");
   const [dateFrom, setDateFrom] = React.useState("");
@@ -146,7 +148,7 @@ export default function JournalsView() {
   React.useEffect(() => {
     if (!activeFirmId) return;
     let alive = true;
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       setLoading(true);
       setError(null);
       try {
@@ -160,7 +162,7 @@ export default function JournalsView() {
         if (alive) setRows(data);
       } catch (e) {
         if (alive) {
-          setError(e instanceof Error ? e.message : "Failed to load journals");
+          setError(e instanceof Error ? e.message : t("jrnl.errLoad"));
           setRows([]);
         }
       } finally {
@@ -169,7 +171,7 @@ export default function JournalsView() {
     }, search ? 250 : 0);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [activeFirmId, type, dateFrom, dateTo, search, refreshKey]);
 
@@ -184,7 +186,7 @@ export default function JournalsView() {
 
   function exportCsv() {
     const out: (string | number)[][] = [
-      ["Date", "Voucher #", "Type", "Narration", "Total Debit", "Total Credit"],
+      [t("cmn.date"), t("dbook.voucherNo"), t("cmn.type"), t("dbook.narration"), t("jrnl.totalDebit"), t("jrnl.totalCredit")],
     ];
     for (const j of rows ?? []) {
       out.push([
@@ -207,14 +209,14 @@ export default function JournalsView() {
       }
     }
     downloadCSV(`journals-${toISODate(new Date())}.csv`, out);
-    toast({ title: "Exported", description: "Journal register downloaded as CSV." });
+    toast({ title: t("jrnl.toastExported"), description: t("jrnl.toastExportedDesc") });
   }
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Journal Register"
-        subtitle="Every monetary event posts a balanced double-entry voucher (R6)"
+        title={t("jrnl.title")}
+        subtitle={t("jrnl.subtitle")}
         icon={BookOpenCheck}
         actions={
           <>
@@ -225,7 +227,7 @@ export default function JournalsView() {
               disabled={!rows || rows.length === 0}
               className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
             >
-              <Download className="h-3.5 w-3.5" /> Export CSV
+              <Download className="h-3.5 w-3.5" /> {t("jrnl.exportCsv")}
             </Button>
             <Button
               size="sm"
@@ -233,7 +235,7 @@ export default function JournalsView() {
               disabled={!activeFirmId}
               className="h-9 gap-2 bg-dmk-yellow text-[12.5px] font-semibold text-[#0A0F1D] hover:bg-dmk-yellow/85"
             >
-              <Plus className="h-4 w-4" /> New Journal
+              <Plus className="h-4 w-4" /> {t("jrnl.newJournal")}
             </Button>
           </>
         }
@@ -241,21 +243,21 @@ export default function JournalsView() {
 
       {/* ── Filters ─────────────────────────────────────── */}
       <div className="dmk-card p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <Field label="Voucher Type">
+        <Field label={t("jrnl.voucherType")}>
           <Select value={type} onValueChange={setType}>
             <SelectTrigger className={cn(inputCls, "w-full")}>
-              <SelectValue placeholder="All types" />
+              <SelectValue placeholder={t("jrnl.allTypes")} />
             </SelectTrigger>
             <SelectContent className="bg-dmk-bg-tertiary border-dmk-border-medium">
               {VOUCHER_TYPES.map((v) => (
                 <SelectItem key={v} value={v} className="text-[13px]">
-                  {v === "ALL" ? "All Types" : (TYPE_LABEL[v] ?? v)}
+                  {v === "ALL" ? t("jrnl.allTypes") : (TYPE_LABEL[v] ?? v)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </Field>
-        <Field label="Date From">
+        <Field label={t("jrnl.dateFrom")}>
           <Input
             type="date"
             value={dateFrom}
@@ -263,7 +265,7 @@ export default function JournalsView() {
             className={cn(inputCls, "[color-scheme:dark]")}
           />
         </Field>
-        <Field label="Date To">
+        <Field label={t("jrnl.dateTo")}>
           <Input
             type="date"
             value={dateTo}
@@ -271,11 +273,11 @@ export default function JournalsView() {
             className={cn(inputCls, "[color-scheme:dark]")}
           />
         </Field>
-        <Field label="Search">
+        <Field label={t("jrnl.search")}>
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Narration or voucher #…"
+            placeholder={t("jrnl.searchPh")}
           />
         </Field>
       </div>
@@ -288,15 +290,15 @@ export default function JournalsView() {
       ) : !rows || rows.length === 0 ? (
         <EmptyState
           icon={BookOpenCheck}
-          title="No journal vouchers found"
-          hint="Adjust filters, or post a manual JOURNAL / CONTRA entry."
+          title={t("jrnl.none")}
+          hint={t("jrnl.noneHint")}
           action={
             <Button
               size="sm"
               onClick={() => setDialogOpen(true)}
               className="h-9 gap-2 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/85"
             >
-              <Plus className="h-4 w-4" /> New Journal
+              <Plus className="h-4 w-4" /> {t("jrnl.newJournal")}
             </Button>
           }
         />
@@ -305,12 +307,12 @@ export default function JournalsView() {
           <thead>
             <tr>
               <th className="w-8" />
-              <th>Voucher #</th>
-              <th>Date</th>
-              <th>Type</th>
-              <th>Narration</th>
-              <th className="num text-right">Debit (₹)</th>
-              <th className="num text-right">Credit (₹)</th>
+              <th>{t("dbook.voucherNo")}</th>
+              <th>{t("cmn.date")}</th>
+              <th>{t("cmn.type")}</th>
+              <th>{t("dbook.narration")}</th>
+              <th className="num text-right">{t("dbook.debit")}</th>
+              <th className="num text-right">{t("dbook.credit")}</th>
             </tr>
           </thead>
           <tbody>
@@ -356,10 +358,10 @@ export default function JournalsView() {
                             <table className="dmk-table">
                               <thead>
                                 <tr>
-                                  <th>Account</th>
-                                  <th>Line Narration</th>
-                                  <th className="num text-right">Debit (₹)</th>
-                                  <th className="num text-right">Credit (₹)</th>
+                                  <th>{t("dbook.account")}</th>
+                                  <th>{t("jrnl.lineNarration")}</th>
+                                  <th className="num text-right">{t("dbook.debit")}</th>
+                                  <th className="num text-right">{t("dbook.credit")}</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -386,7 +388,7 @@ export default function JournalsView() {
                                 ))}
                                 <tr>
                                   <td colSpan={2} className="text-right font-semibold text-dmk-text-secondary">
-                                    Voucher Total
+                                    {t("jrnl.voucherTotal")}
                                   </td>
                                   <td className="num text-right text-dmk-yellow font-bold">
                                     {formatINR(j.totalDebit)}
@@ -410,7 +412,7 @@ export default function JournalsView() {
       )}
 
       <p className="text-[11px] text-dmk-text-muted">
-        Showing {rows?.length ?? 0} voucher{((rows?.length ?? 0) !== 1) ? "s" : ""} · click a row to expand line detail
+        {t("jrnl.showing", { n: rows?.length ?? 0 })}
       </p>
 
       <NewJournalDialog
@@ -437,6 +439,7 @@ function NewJournalDialog({
 }) {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const { toast } = useToast();
+  const { t } = useT();
 
   const [accounts, setAccounts] = React.useState<TbAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = React.useState(false);
@@ -523,16 +526,16 @@ function NewJournalDialog({
           })),
       });
       toast({
-        title: "Journal posted",
-        description: `${voucherType} voucher for ${formatINR(totalDebit)} posted to the books.`,
+        title: t("jrnl.toastPosted"),
+        description: t("jrnl.toastPostedDesc", { type: voucherType, amt: formatINR(totalDebit) }),
       });
       resetForm();
       onOpenChange(false);
       onSaved();
     } catch (e) {
-      const msg = e instanceof ApiError ? `${e.message}${e.code ? ` (${e.code})` : ""}` : "Failed to post journal";
+      const msg = e instanceof ApiError ? `${e.message}${e.code ? ` (${e.code})` : ""}` : t("jrnl.errPost");
       setFormError(msg);
-      toast({ variant: "destructive", title: "Could not post journal", description: msg });
+      toast({ variant: "destructive", title: t("jrnl.toastPostFail"), description: msg });
     } finally {
       setSaving(false);
     }
@@ -543,16 +546,15 @@ function NewJournalDialog({
       <DialogContent className="bg-dmk-bg-secondary border-dmk-border-medium max-h-[90vh] overflow-y-auto sm:w-[680px]">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary flex items-center gap-2">
-            <Scale className="h-4 w-4 text-dmk-yellow" /> New Manual Voucher
+            <Scale className="h-4 w-4 text-dmk-yellow" /> {t("jrnl.dialogTitle")}
           </DialogTitle>
           <DialogDescription className="text-dmk-text-muted text-[12px]">
-            Manual entries accept JOURNAL (adjustments) and CONTRA (cash ⇄ bank) only.
-            Auto vouchers post through documents. Σ Dr must equal Σ Cr (R6).
+            {t("jrnl.dialogDesc")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Field label="Voucher Type">
+          <Field label={t("jrnl.voucherType")}>
             <Select value={voucherType} onValueChange={(v) => setVoucherType(v as "JOURNAL" | "CONTRA")}>
               <SelectTrigger className={cn(inputCls, "w-full")}>
                 <SelectValue />
@@ -563,7 +565,7 @@ function NewJournalDialog({
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Posting Date">
+          <Field label={t("jrnl.postingDate")}>
             <Input
               type="date"
               value={postingDate}
@@ -571,11 +573,11 @@ function NewJournalDialog({
               className={cn(inputCls, "[color-scheme:dark]")}
             />
           </Field>
-          <Field label="Narration">
+          <Field label={t("dbook.narration")}>
             <Input
               value={narration}
               onChange={(e) => setNarration(e.target.value)}
-              placeholder="e.g. Depreciation for the month"
+              placeholder={t("jrnl.narrPh")}
               className={inputCls}
             />
           </Field>
@@ -585,11 +587,11 @@ function NewJournalDialog({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-              Journal Lines
+              {t("jrnl.lines")}
             </Label>
             {accountsLoading && (
               <span className="flex items-center gap-1.5 text-[11px] text-dmk-text-muted">
-                <Loader2 className="h-3 w-3 animate-spin" /> loading accounts…
+                <Loader2 className="h-3 w-3 animate-spin" /> {t("jrnl.loadingAccounts")}
               </span>
             )}
           </div>
@@ -601,7 +603,7 @@ function NewJournalDialog({
                 onValueChange={(v) => updateLine(idx, { accountCode: v })}
               >
                 <SelectTrigger className={cn(inputCls, "w-full")}>
-                  <SelectValue placeholder="Select account…" />
+                  <SelectValue placeholder={t("jrnl.selectAccount")} />
                 </SelectTrigger>
                 <SelectContent className="bg-dmk-bg-tertiary border-dmk-border-medium max-h-64">
                   {accounts.map((a) => (
@@ -640,7 +642,7 @@ function NewJournalDialog({
                 onClick={() => removeLine(idx)}
                 disabled={lines.length <= 2}
                 className="h-9 w-9 text-dmk-text-muted hover:text-dmk-danger hover:bg-transparent"
-                aria-label={`Remove line ${idx + 1}`}
+                aria-label={t("jrnl.removeLine", { n: idx + 1 })}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -653,7 +655,7 @@ function NewJournalDialog({
             onClick={addLine}
             className="h-8 gap-1.5 border-dmk-border-subtle bg-transparent text-[12px] hover:bg-dmk-hover"
           >
-            <Plus className="h-3.5 w-3.5" /> Add Line
+            <Plus className="h-3.5 w-3.5" /> {t("jrnl.addLine")}
           </Button>
         </div>
 
@@ -668,10 +670,12 @@ function NewJournalDialog({
             </span>
           </div>
           {balanced ? (
-            <span className="dmk-badge dmk-badge-success">Balanced ✓</span>
+            <span className="dmk-badge dmk-badge-success">{t("jrnl.balanced")}</span>
           ) : (
             <span className="dmk-badge dmk-badge-danger">
-              Difference {formatINR(Math.abs(difference))} {difference > 0 ? "(Cr short)" : "(Dr short)"}
+              {difference > 0
+                ? t("jrnl.diffCrShort", { v: formatINR(Math.abs(difference)) })
+                : t("jrnl.diffDrShort", { v: formatINR(Math.abs(difference)) })}
             </span>
           )}
         </div>
@@ -684,7 +688,7 @@ function NewJournalDialog({
             onClick={() => { resetForm(); onOpenChange(false); }}
             className="h-9 border-dmk-border-subtle bg-transparent hover:bg-dmk-hover"
           >
-            Cancel
+            {t("cmn.cancel")}
           </Button>
           <Button
             onClick={save}
@@ -692,7 +696,7 @@ function NewJournalDialog({
             className="h-9 gap-2 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/85 disabled:opacity-40"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            Post Voucher
+            {t("jrnl.postVoucher")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
         firmId: staff.firmId, // never leak another firm's runs
         status: { in: [...TRIP_ACTIVE_STATUSES] },
       },
-      orderBy: { dispatchedAt: "desc" },
+      orderBy: [{ dispatchedAt: "desc" }, { createdAt: "desc" }],
       select: { id: true },
     });
 

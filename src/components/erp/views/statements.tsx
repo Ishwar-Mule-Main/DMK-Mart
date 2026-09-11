@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiGet } from "@/lib/api-client";
 import { downloadCSV, formatINR, toISODate } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -89,6 +90,7 @@ function fyAsOfISO(fy: string): string {
 }
 
 function VerdictBanner({ balanced, drText, crText }: { balanced: boolean; drText: string; crText: string }) {
+  const { t } = useT();
   return (
     <div
       className={cn(
@@ -99,7 +101,7 @@ function VerdictBanner({ balanced, drText, crText }: { balanced: boolean; drText
       )}
     >
       <span className={cn("text-[13px] font-semibold", balanced ? "text-dmk-success" : "text-dmk-danger")}>
-        {balanced ? "Σ Dr = Σ Cr — Books Balanced ✓" : "Books do not balance — investigate before filing"}
+        {balanced ? t("stmt.booksBalanced") : t("stmt.booksNotBalanced")}
       </span>
       <span className="text-[12px] text-dmk-text-secondary font-money">
         {drText} · {crText}
@@ -109,23 +111,24 @@ function VerdictBanner({ balanced, drText, crText }: { balanced: boolean; drText
 }
 
 export default function StatementsView() {
+  const { t } = useT();
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Financial Statements"
-        subtitle="Trial balance, trading account and financial position — live from posted vouchers"
+        title={t("stmt.title")}
+        subtitle={t("stmt.subtitle")}
         icon={FileSpreadsheet}
       />
       <Tabs defaultValue="tb" className="gap-4">
         <TabsList className="bg-dmk-input-well border border-dmk-border-subtle">
           <TabsTrigger value="tb" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
-            <Scale className="h-4 w-4" /> Trial Balance
+            <Scale className="h-4 w-4" /> {t("stmt.tabTb")}
           </TabsTrigger>
           <TabsTrigger value="pnl" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
-            <BarChart3 className="h-4 w-4" /> Profit &amp; Loss
+            <BarChart3 className="h-4 w-4" /> {t("stmt.tabPnl")}
           </TabsTrigger>
           <TabsTrigger value="bs" className="data-[state=active]:bg-dmk-hover data-[state=active]:text-dmk-text-primary">
-            <Scale className="h-4 w-4" /> Balance Sheet
+            <Scale className="h-4 w-4" /> {t("stmt.tabBs")}
           </TabsTrigger>
         </TabsList>
         <TabsContent value="tb" className="mt-0"><TrialBalanceTab /></TabsContent>
@@ -144,6 +147,7 @@ function TrialBalanceTab() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const financialYear = useErpStore((s) => s.financialYear);
   const { toast } = useToast();
+  const { t } = useT();
   // Cumulative books as of the SELECTED year's 31 Mar (today for the current year)
   const [asOf, setAsOf] = React.useState(() => fyAsOfISO(financialYear || "2026-27"));
   const [data, setData] = React.useState<TbResponse | null>(null);
@@ -161,7 +165,7 @@ function TrialBalanceTab() {
       })
       .catch((e) => {
         if (alive) {
-          setError(e instanceof Error ? e.message : "Failed to load trial balance");
+          setError(e instanceof Error ? e.message : t("stmt.errTb"));
           setData(null);
         }
       })
@@ -176,22 +180,22 @@ function TrialBalanceTab() {
   function exportCsv() {
     if (!data) return;
     const out: (string | number)[][] = [
-      ["Trial Balance", `As of ${asOf}`],
-      ["Code", "Account", "Class", "Debit", "Credit"],
+      [t("stmt.tabTb"), t("stmt.asOf", { date: asOf })],
+      [t("coa.code"), t("dbook.account"), t("stmt.class"), t("stmt.csvDebit"), t("stmt.csvCredit")],
     ];
     for (const r of data.rows) {
       out.push([r.accountCode, r.accountName, r.accountClass, r.debit, r.credit]);
     }
-    out.push(["", "TOTAL", "", data.totalDebit, data.totalCredit]);
+    out.push(["", t("stmt.total"), "", data.totalDebit, data.totalCredit]);
     downloadCSV(`trial-balance-${asOf}.csv`, out);
-    toast({ title: "Exported", description: "Trial balance downloaded as CSV." });
+    toast({ title: t("jrnl.toastExported"), description: t("stmt.toastTbDesc") });
   }
 
   return (
     <div className="space-y-4">
       <div className="dmk-card p-3 flex flex-wrap items-end gap-3">
         <div className="w-44">
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">As of Date</label>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">{t("stmt.asOfDate")}</label>
           <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className={cn(inputCls, "[color-scheme:dark]")} />
         </div>
         {data && (
@@ -202,7 +206,7 @@ function TrialBalanceTab() {
             <span className="text-dmk-text-secondary">
               Σ Cr <span className="font-money font-semibold text-dmk-info">{formatINR(data.totalCredit)}</span>
             </span>
-            <Badge tone={data.balanced ? "success" : "danger"}>{data.balanced ? "BALANCED" : "OUT OF BALANCE"}</Badge>
+            <Badge tone={data.balanced ? "success" : "danger"}>{data.balanced ? t("stmt.balanced") : t("coa.outOfBalance")}</Badge>
           </div>
         )}
         <Button
@@ -212,7 +216,7 @@ function TrialBalanceTab() {
           disabled={!data || data.rows.length === 0}
           className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover sm:ml-auto"
         >
-          <Download className="h-3.5 w-3.5" /> Export CSV
+          <Download className="h-3.5 w-3.5" /> {t("jrnl.exportCsv")}
         </Button>
       </div>
 
@@ -221,7 +225,7 @@ function TrialBalanceTab() {
       {loading && !data ? (
         <LoadingRows rows={8} />
       ) : !data || data.rows.length === 0 ? (
-        <EmptyState icon={Scale} title="No balances as of this date" hint="Post vouchers or pick a later as-of date." />
+        <EmptyState icon={Scale} title={t("stmt.emptyTb")} hint={t("stmt.emptyTbHint")} />
       ) : (
         <>
           <div className="dmk-card overflow-hidden">
@@ -229,11 +233,11 @@ function TrialBalanceTab() {
               <table className="dmk-table">
                 <thead>
                   <tr>
-                    <th className="w-24">Code</th>
-                    <th>Account</th>
-                    <th className="hidden sm:table-cell">Class</th>
-                    <th className="num text-right">Debit (₹)</th>
-                    <th className="num text-right">Credit (₹)</th>
+                    <th className="w-24">{t("coa.code")}</th>
+                    <th>{t("dbook.account")}</th>
+                    <th className="hidden sm:table-cell">{t("stmt.class")}</th>
+                    <th className="num text-right">{t("dbook.debit")}</th>
+                    <th className="num text-right">{t("dbook.credit")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -249,7 +253,7 @@ function TrialBalanceTab() {
                     </tr>
                   ))}
                   <tr className="bg-dmk-hover/70 border-t-2 border-dmk-border-medium">
-                    <td colSpan={3} className="font-bold text-dmk-text-primary">TOTAL</td>
+                    <td colSpan={3} className="font-bold text-dmk-text-primary">{t("stmt.total")}</td>
                     <td className="num text-right font-money font-bold text-dmk-yellow">{formatINR(data.totalDebit)}</td>
                     <td className="num text-right font-money font-bold text-dmk-info">{formatINR(data.totalCredit)}</td>
                   </tr>
@@ -325,6 +329,7 @@ function PnlTab() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const financialYear = useErpStore((s) => s.financialYear);
   const { toast } = useToast();
+  const { t } = useT();
   // The P&L window follows the FY selected in the header (falls back to the
   // firm's default when the store hasn't hydrated) and re-anchors when the
   // selection changes. Hand-edited dates still win until the next FY switch.
@@ -352,7 +357,7 @@ function PnlTab() {
       })
       .catch((e) => {
         if (alive) {
-          setError(e instanceof Error ? e.message : "Failed to load P&L");
+          setError(e instanceof Error ? e.message : t("stmt.errPnl"));
           setData(null);
         }
       })
@@ -367,34 +372,34 @@ function PnlTab() {
   function exportCsv() {
     if (!data) return;
     const out: (string | number)[][] = [
-      ["Profit & Loss", `${dateFrom} → ${dateTo}`],
-      ["Particulars", "Amount"],
-      ["Revenue", data.revenue],
-      ["Less: Sales Returns", -data.salesReturns],
-      ["Net Revenue", data.netRevenue],
-      ["Less: Cost of Goods Sold", -data.cogs],
-      ["Gross Profit", data.grossProfit],
+      [t("stmt.tabPnl"), `${dateFrom} → ${dateTo}`],
+      [t("stmt.particulars"), t("cmn.amount")],
+      [t("stmt.revenue"), data.revenue],
+      [t("stmt.lessSalesReturns"), -data.salesReturns],
+      [t("stmt.netRevenue"), data.netRevenue],
+      [t("stmt.lessCogs"), -data.cogs],
+      [t("stmt.grossProfit"), data.grossProfit],
     ];
     for (const e of data.expenses) out.push([`  ${e.name}`, -e.amount]);
-    out.push(["Total Expenses", -data.totalExpenses]);
-    out.push(["Net Profit", data.netProfit]);
+    out.push([t("stmt.totalExpenses"), -data.totalExpenses]);
+    out.push([t("stmt.netProfit"), data.netProfit]);
     downloadCSV(`pnl-${dateFrom}-to-${dateTo}.csv`, out);
-    toast({ title: "Exported", description: "P&L statement downloaded as CSV." });
+    toast({ title: t("jrnl.toastExported"), description: t("stmt.toastPnlDesc") });
   }
 
   return (
     <div className="space-y-4">
       <div className="dmk-card p-3 flex flex-wrap items-end gap-3">
         <div className="w-44">
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">Period From</label>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">{t("stmt.periodFrom")}</label>
           <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={cn(inputCls, "[color-scheme:dark]")} />
         </div>
         <div className="w-44">
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">Period To</label>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">{t("stmt.periodTo")}</label>
           <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={cn(inputCls, "[color-scheme:dark]")} />
         </div>
         <p className="text-[11px] text-dmk-text-muted pb-1 hidden sm:block">
-          Defaults to the active firm&apos;s financial year (Apr–Mar, R17)
+          {t("stmt.fyNote")}
         </p>
         <Button
           variant="outline"
@@ -403,7 +408,7 @@ function PnlTab() {
           disabled={!data}
           className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover sm:ml-auto"
         >
-          <Download className="h-3.5 w-3.5" /> Export CSV
+          <Download className="h-3.5 w-3.5" /> {t("jrnl.exportCsv")}
         </Button>
       </div>
 
@@ -412,42 +417,42 @@ function PnlTab() {
       {loading && !data ? (
         <LoadingRows rows={7} />
       ) : !data ? (
-        <EmptyState icon={BarChart3} title="P&L unavailable" hint="Adjust the period and try again." />
+        <EmptyState icon={BarChart3} title={t("stmt.emptyPnl")} hint={t("stmt.emptyPnlHint")} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 lg:items-stretch">
           {/* Vertical statement */}
           <div className="dmk-card p-5 space-y-0.5">
             <div className="flex items-center justify-between pb-3 border-b border-dmk-border-subtle">
-              <h2 className="text-[15px] font-bold text-dmk-text-primary">Trading &amp; Profit &amp; Loss</h2>
+              <h2 className="text-[15px] font-bold text-dmk-text-primary">{t("stmt.pnlHeading")}</h2>
               <span className="text-[11.5px] text-dmk-text-muted font-money">
                 {dateFrom} → {dateTo}
               </span>
             </div>
-            <PnlRow label="Revenue (Sales + Other Income)" amount={data.revenue} />
-            <PnlRow label="Less: Sales Returns" amount={-data.salesReturns} indent={1} tone="orange" muted />
-            <PnlRow label="Net Revenue" amount={data.netRevenue} bold />
-            <PnlRow label="Less: Cost of Goods Sold" amount={-data.cogs} indent={1} tone="orange" muted />
+            <PnlRow label={t("stmt.revenueFull")} amount={data.revenue} />
+            <PnlRow label={t("stmt.lessSalesReturns")} amount={-data.salesReturns} indent={1} tone="orange" muted />
+            <PnlRow label={t("stmt.netRevenue")} amount={data.netRevenue} bold />
+            <PnlRow label={t("stmt.lessCogs")} amount={-data.cogs} indent={1} tone="orange" muted />
 
             {/* Gross profit highlight */}
             <div className="dmk-well border-[rgba(37,99,235,0.4)] px-3 py-2.5 my-2 flex items-center justify-between">
-              <span className="text-[13px] font-semibold text-dmk-text-primary">Gross Profit</span>
+              <span className="text-[13px] font-semibold text-dmk-text-primary">{t("stmt.grossProfit")}</span>
               <span className={cn("font-money text-[15px] font-bold", data.grossProfit >= 0 ? "text-dmk-info" : "text-dmk-danger")}>
                 {formatINR(data.grossProfit)}
               </span>
             </div>
 
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted pt-2">Indirect Expenses</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted pt-2">{t("stmt.indirectExpenses")}</p>
             {data.expenses.length === 0 ? (
-              <p className="text-[12px] text-dmk-text-muted py-1.5">No indirect expenses booked this period.</p>
+              <p className="text-[12px] text-dmk-text-muted py-1.5">{t("stmt.noExpenses")}</p>
             ) : (
               data.expenses.map((e) => <PnlRow key={e.code} label={e.name} amount={-e.amount} indent={1} tone="orange" muted />)
             )}
-            <PnlRow label="Total Expenses" amount={-data.totalExpenses} bold tone="orange" />
+            <PnlRow label={t("stmt.totalExpenses")} amount={-data.totalExpenses} bold tone="orange" />
           </div>
 
           {/* Net profit card */}
           <div className="dmk-elevated p-6 flex flex-col items-center justify-center gap-3">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">Net Profit</span>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">{t("stmt.netProfit")}</span>
             <span
               className={cn(
                 "font-money text-[30px] font-bold leading-none tabular-nums",
@@ -457,17 +462,17 @@ function PnlTab() {
               {formatINR(data.netProfit)}
             </span>
             <Badge tone={data.netProfit > 0.005 ? "success" : data.netProfit < -0.005 ? "danger" : "neutral"}>
-              {data.netProfit > 0.005 ? "PROFITABLE PERIOD" : data.netProfit < -0.005 ? "LOSS-MAKING PERIOD" : "BREAK-EVEN"}
+              {data.netProfit > 0.005 ? t("stmt.profitable") : data.netProfit < -0.005 ? t("stmt.lossMaking") : t("stmt.breakEven")}
             </Badge>
             <div className="w-full space-y-1.5 mt-2 text-[11.5px]">
               <div className="flex justify-between">
-                <span className="text-dmk-text-muted">Gross margin</span>
+                <span className="text-dmk-text-muted">{t("stmt.grossMargin")}</span>
                 <span className="font-money text-dmk-text-secondary">
                   {data.netRevenue !== 0 ? `${((data.grossProfit / data.netRevenue) * 100).toFixed(1)}%` : "—"}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-dmk-text-muted">Net margin</span>
+                <span className="text-dmk-text-muted">{t("stmt.netMargin")}</span>
                 <span className="font-money text-dmk-text-secondary">
                   {data.netRevenue !== 0 ? `${((data.netProfit / data.netRevenue) * 100).toFixed(1)}%` : "—"}
                 </span>
@@ -486,6 +491,7 @@ function PnlTab() {
 
 // Balance-sheet section card — hoisted (static component, react-compiler safe)
 function BsSection({ title, rows, total, tone, className }: { title: string; rows: BsRow[]; total: number; tone: string; className?: string }) {
+  const { t } = useT();
   return (
     <div className={cn("dmk-card p-4", className)}>
       <h3 className="text-[13px] font-bold uppercase tracking-wider text-dmk-text-secondary pb-2.5 border-b border-dmk-border-subtle">
@@ -493,7 +499,7 @@ function BsSection({ title, rows, total, tone, className }: { title: string; row
       </h3>
       <div className="divide-y divide-dmk-border-subtle/60">
         {rows.length === 0 ? (
-          <p className="text-[12px] text-dmk-text-muted py-3">No balances.</p>
+          <p className="text-[12px] text-dmk-text-muted py-3">{t("stmt.noBalances")}</p>
         ) : (
           rows.map((r) => (
             <div key={r.accountCode} className="flex items-center justify-between gap-3 py-2">
@@ -509,7 +515,7 @@ function BsSection({ title, rows, total, tone, className }: { title: string; row
         )}
       </div>
       <div className="flex items-center justify-between gap-3 pt-2.5 mt-1 border-t border-dmk-border-medium">
-        <span className="text-[13px] font-semibold text-dmk-text-primary">Total {title}</span>
+        <span className="text-[13px] font-semibold text-dmk-text-primary">{t("stmt.totalOf", { section: title })}</span>
         <span className={cn("font-money text-[14px] font-bold tabular-nums", tone)}>{formatINR(total)}</span>
       </div>
     </div>
@@ -520,6 +526,7 @@ function BalanceSheetTab() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const financialYearBS = useErpStore((s) => s.financialYear);
   const { toast } = useToast();
+  const { t } = useT();
   const [asOf, setAsOf] = React.useState(() => fyAsOfISO(financialYearBS || "2026-27"));
   const [data, setData] = React.useState<BsResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -537,7 +544,7 @@ function BalanceSheetTab() {
       })
       .catch((e) => {
         if (alive) {
-          setError(e instanceof Error ? e.message : "Failed to load balance sheet");
+          setError(e instanceof Error ? e.message : t("stmt.errBs"));
           setData(null);
         }
       })
@@ -552,28 +559,28 @@ function BalanceSheetTab() {
   function exportCsv() {
     if (!data) return;
     const out: (string | number)[][] = [
-      ["Balance Sheet", `As of ${asOf}`],
+      [t("stmt.tabBs"), t("stmt.asOf", { date: asOf })],
       [],
-      ["ASSETS", "Amount"],
+      [t("stmt.csvAssets"), t("cmn.amount")],
     ];
     for (const r of data.assets) out.push([r.accountName, r.amount]);
-    out.push(["Total Assets", data.totals.assets], []);
-    out.push(["LIABILITIES", "Amount"]);
+    out.push([t("stmt.totalOf", { section: t("stmt.assets") }), data.totals.assets], []);
+    out.push([t("stmt.csvLiabilities"), t("cmn.amount")]);
     for (const r of data.liabilities) out.push([r.accountName, r.amount]);
-    out.push(["Total Liabilities", data.totals.liabilities], []);
-    out.push(["EQUITY", "Amount"]);
+    out.push([t("stmt.totalOf", { section: t("stmt.liabilities") }), data.totals.liabilities], []);
+    out.push([t("stmt.csvEquity"), t("cmn.amount")]);
     for (const r of data.equity) out.push([r.accountName, r.amount]);
-    out.push(["Total Equity", data.totals.equity]);
-    out.push(["Liabilities + Equity", data.totals.equityPlusProfit]);
+    out.push([t("stmt.totalOf", { section: t("stmt.equity") }), data.totals.equity]);
+    out.push([t("stmt.liabPlusEquity"), data.totals.equityPlusProfit]);
     downloadCSV(`balance-sheet-${asOf}.csv`, out);
-    toast({ title: "Exported", description: "Balance sheet downloaded as CSV." });
+    toast({ title: t("jrnl.toastExported"), description: t("stmt.toastBsDesc") });
   }
 
   return (
     <div className="space-y-4">
       <div className="dmk-card p-3 flex flex-wrap items-end gap-3">
         <div className="w-44">
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">As of Date</label>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted block mb-1.5">{t("stmt.asOfDate")}</label>
           <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className={cn(inputCls, "[color-scheme:dark]")} />
         </div>
         <Button
@@ -583,7 +590,7 @@ function BalanceSheetTab() {
           disabled={loading}
           className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover"
         >
-          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
+          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> {t("cmn.refresh")}
         </Button>
         <Button
           variant="outline"
@@ -592,7 +599,7 @@ function BalanceSheetTab() {
           disabled={!data}
           className="h-9 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12.5px] hover:bg-dmk-hover sm:ml-auto"
         >
-          <Download className="h-3.5 w-3.5" /> Export CSV
+          <Download className="h-3.5 w-3.5" /> {t("jrnl.exportCsv")}
         </Button>
       </div>
 
@@ -601,34 +608,34 @@ function BalanceSheetTab() {
       {loading && !data ? (
         <LoadingRows rows={7} />
       ) : !data ? (
-        <EmptyState icon={Scale} title="Balance sheet unavailable" hint="Adjust the as-of date and try again." />
+        <EmptyState icon={Scale} title={t("stmt.emptyBs")} hint={t("stmt.emptyBsHint")} />
       ) : (
         <>
           {/* Two-column responsive: stacks on mobile · stretches level on desktop */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:items-stretch">
-            <BsSection title="Assets" rows={data.assets} total={data.totals.assets} tone="text-dmk-yellow" />
+            <BsSection title={t("stmt.assets")} rows={data.assets} total={data.totals.assets} tone="text-dmk-yellow" />
             <div className="flex flex-col gap-4">
-              <BsSection title="Liabilities" rows={data.liabilities} total={data.totals.liabilities} tone="text-dmk-info" />
-              <BsSection title="Equity" rows={data.equity} total={data.totals.equity} tone="text-dmk-success" className="lg:flex-1" />
+              <BsSection title={t("stmt.liabilities")} rows={data.liabilities} total={data.totals.liabilities} tone="text-dmk-info" />
+              <BsSection title={t("stmt.equity")} rows={data.equity} total={data.totals.equity} tone="text-dmk-success" className="lg:flex-1" />
             </div>
           </div>
 
           <div className="dmk-well p-3 flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
             <span className="text-dmk-text-secondary">
-              Assets <span className="font-money font-semibold text-dmk-yellow">{formatINR(data.totals.assets)}</span>
+              {t("stmt.assets")} <span className="font-money font-semibold text-dmk-yellow">{formatINR(data.totals.assets)}</span>
               <span className="mx-2 text-dmk-text-muted">=</span>
-              Liabilities + Equity{" "}
+              {t("stmt.liabPlusEquity")}{" "}
               <span className="font-money font-semibold text-dmk-info">{formatINR(data.totals.equityPlusProfit)}</span>
             </span>
             <span className="text-dmk-text-muted">
-              (incl. Current Period Profit {formatINR(data.totals.equity)})
+              {t("stmt.inclProfit", { amt: formatINR(data.totals.equity) })}
             </span>
           </div>
 
           <VerdictBanner
             balanced={data.totals.balanced}
-            drText={`Assets ${formatINR(data.totals.assets)}`}
-            crText={`L + E ${formatINR(data.totals.equityPlusProfit)}`}
+            drText={t("stmt.drAssets", { amt: formatINR(data.totals.assets) })}
+            crText={t("stmt.crLE", { amt: formatINR(data.totals.equityPlusProfit) })}
           />
         </>
       )}

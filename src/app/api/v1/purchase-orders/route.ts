@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
         vendor: { select: { id: true, vendorName: true, vendorType: true, brand: true } },
         items: true,
       },
-      orderBy: { poDate: "desc" },
+      orderBy: [{ poDate: "desc" }, { createdAt: "desc" }],
       take: 200,
     });
 

@@ -222,7 +222,7 @@ async function creditors(firmId: string, partyId?: string) {
   // Last payment per vendor (payments are few — pick first per vendor).
   const payments = await db.vendorPayment.findMany({
     where: { firmId, ...(partyId ? { vendorId: partyId } : {}) },
-    orderBy: { paymentDate: "desc" },
+    orderBy: [{ paymentDate: "desc" }, { createdAt: "desc" }],
     take: 500,
   });
   const lastPaymentByVendor = new Map<string, { date: string; amount: number; mode: string }>();

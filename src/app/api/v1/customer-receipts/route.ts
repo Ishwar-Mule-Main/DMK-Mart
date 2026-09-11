@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
           include: { invoice: { select: { id: true, invoiceNumber: true } } },
         },
       },
-      orderBy: { receiptDate: "desc" },
+      orderBy: [{ receiptDate: "desc" }, { createdAt: "desc" }],
       take: 200,
     });
     return ok(

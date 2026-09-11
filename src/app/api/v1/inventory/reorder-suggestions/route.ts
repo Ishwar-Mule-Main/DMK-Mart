@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
           vendor: { select: { id: true, vendorName: true } },
           items: { select: { productId: true } },
         },
-        orderBy: { poDate: "desc" },
+        orderBy: [{ poDate: "desc" }, { createdAt: "desc" }],
         take: 2000,
       }),
     ]);

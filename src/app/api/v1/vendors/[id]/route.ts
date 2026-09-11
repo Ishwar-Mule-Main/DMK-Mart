@@ -29,7 +29,7 @@ export async function GET(
 
     const rows = await db.ledgerEntry.findMany({
       where: { firmId: vendor.firmId, vendorId: id },
-      orderBy: { entryDate: "desc" },
+      orderBy: [{ entryDate: "desc" }, { createdAt: "desc" }],
       take: 100,
     });
     const ledger = rows.reverse();

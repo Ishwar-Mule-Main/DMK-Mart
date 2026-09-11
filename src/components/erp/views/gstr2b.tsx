@@ -25,6 +25,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useErpStore } from "@/store/erp-store";
+import { useT, type TFn } from "@/lib/i18n";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { formatINR, formatDate, downloadCSV } from "@/lib/format";
 import type { Gstr2bResponse, Gstr2bRecordRow } from "@/types/erp";
@@ -55,26 +56,26 @@ function shiftPeriod(period: string, months: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-/** "Sep 2026" style label for a YYYY-MM period. */
-function periodLabel(period: string): string {
+/** "Sep 2026" style label for a YYYY-MM period (locale-aware). */
+function periodLabel(period: string, locale: string): string {
   const [y, m] = period.split("-").map(Number);
   if (!y || !m) return period;
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(locale, { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
-function statusBadge(s: Gstr2bRecordRow["status"]) {
-  if (s === "MATCHED") return <Badge tone="success">MATCHED</Badge>;
-  if (s === "AMOUNT_MISMATCH") return <Badge tone="warning">AMOUNT MISMATCH</Badge>;
-  return <Badge tone="danger">MISSING IN BOOKS</Badge>;
+function statusBadge(s: Gstr2bRecordRow["status"], t: TFn) {
+  if (s === "MATCHED") return <Badge tone="success">{t("g2b.stMatched")}</Badge>;
+  if (s === "AMOUNT_MISMATCH") return <Badge tone="warning">{t("g2b.stAmountMismatch")}</Badge>;
+  return <Badge tone="danger">{t("g2b.stMissingBooks")}</Badge>;
 }
 
 /** How the row was matched — bill number (exact) vs GSTIN + amount (best-fit). */
-function basisBadge(basis: Gstr2bRecordRow["matchBasis"]) {
+function basisBadge(basis: Gstr2bRecordRow["matchBasis"], t: TFn) {
   if (basis === "BILL_NO")
     return (
       <span
         className="dmk-badge bg-dmk-gold/15 text-dmk-gold"
-        title="Matched by the vendor bill number captured on the PO — exact identity"
+        title={t("g2b.basisBillTitle")}
       >
         BILL NO
       </span>
@@ -83,7 +84,7 @@ function basisBadge(basis: Gstr2bRecordRow["matchBasis"]) {
     return (
       <span
         className="dmk-badge bg-dmk-info/15 text-dmk-info"
-        title="Matched by supplier GSTIN + amount proximity — verify manually if unsure"
+        title={t("g2b.basisAmountTitle")}
       >
         AMOUNT
       </span>
@@ -97,6 +98,7 @@ const SAMPLE_CSV = `GSTIN,TradeName,InvoiceNo,InvoiceDate,TaxableValue,IGST,CGST
 27AAFCS2222J1Z6,Supreme Polymers Industries,SP-77123,18/08/2026,9800.00,0.00,882.00,882.00,YES,27`;
 
 export default function Gstr2bView() {
+  const { t, speechTag } = useT();
   const { toast } = useToast();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const [period, setPeriod] = React.useState(currentPeriod());
@@ -117,7 +119,7 @@ export default function Gstr2bView() {
       })
       .catch((e) => {
         if (alive) {
-          setError(e instanceof Error ? e.message : "Failed to load reconciliation");
+          setError(e instanceof Error ? e.message : t("g2b.errLoad"));
           setData(null);
         }
       })
@@ -135,8 +137,8 @@ export default function Gstr2bView() {
   function exportCsv() {
     if (!data) return;
     const out: (string | number)[][] = [
-      [`GSTR-2B Reconciliation · ${data.period}`, `Firm ${data.firmName} (${data.firmGstin})`],
-      ["Source", "GSTIN", "Trade Name", "Invoice #", "Date", "Taxable", "IGST", "CGST", "SGST", "Grand", "ITC", "Status", "Match Basis", "Matched PO"],
+      [t("g2b.csvTitle", { period: data.period }), t("g2b.csvFirm", { name: data.firmName, gstin: data.firmGstin })],
+      [t("g2b.colSource"), "GSTIN", t("g2b.colTradeName"), t("g2b.colInvoiceNo"), t("cmn.date"), t("g2b.colTaxable"), "IGST", "CGST", "SGST", t("g2b.colGrand"), "ITC", t("cmn.status"), t("g2b.colMatchBasis"), t("g2b.colMatchedPo")],
       ...data.records.map((r) => [
         "2B",
         r.gstin,
@@ -171,7 +173,7 @@ export default function Gstr2bView() {
       ]),
     ];
     downloadCSV(`gstr2b-recon-${data.period}.csv`, out);
-    toast({ title: "Exported", description: `Reconciliation for ${data.period} written to CSV.` });
+    toast({ title: t("jrnl.toastExported"), description: t("g2b.toastCsvDesc", { period: data.period }) });
   }
 
   const s = data?.summary;
@@ -179,8 +181,8 @@ export default function Gstr2bView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="GSTR-2B Reconciliation"
-        subtitle="Import supplier-reported ITC and match it against confirmed purchases — catch missing bills before filing"
+        title={t("g2b.title")}
+        subtitle={t("g2b.subtitle")}
         icon={GitCompareArrows}
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -188,24 +190,24 @@ export default function Gstr2bView() {
               <button
                 type="button"
                 onClick={() => setPeriod((p) => shiftPeriod(p, -1))}
-                title="Previous return period"
-                aria-label="Previous return period"
+                title={t("g2b.prevPeriod")}
+                aria-label={t("g2b.prevPeriod")}
                 className="flex h-9 w-8 items-center justify-center text-dmk-text-secondary transition-colors hover:bg-dmk-hover hover:text-dmk-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-dmk-blue/60"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <span
                 className="flex h-9 min-w-[96px] items-center justify-center gap-1.5 border-x border-dmk-border-subtle px-2 font-money text-[12.5px] font-semibold text-dmk-text-primary"
-                title={`Return period ${period}`}
+                title={t("g2b.periodTitle", { period })}
               >
                 <CalendarDays className="h-3.5 w-3.5 text-dmk-blue" />
-                {periodLabel(period)}
+                {periodLabel(period, speechTag)}
               </span>
               <button
                 type="button"
                 onClick={() => setPeriod((p) => shiftPeriod(p, 1))}
-                title="Next return period"
-                aria-label="Next return period"
+                title={t("g2b.nextPeriod")}
+                aria-label={t("g2b.nextPeriod")}
                 className="flex h-9 w-8 items-center justify-center text-dmk-text-secondary transition-colors hover:bg-dmk-hover hover:text-dmk-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-dmk-blue/60"
               >
                 <ChevronRight className="h-4 w-4" />
@@ -216,7 +218,7 @@ export default function Gstr2bView() {
               value={period}
               onChange={(e) => setPeriod(e.target.value || currentPeriod())}
               className={cn(inputCls, "w-[150px] font-money")}
-              aria-label="Return period"
+              aria-label={t("g2b.returnPeriod")}
             />
             {period !== currentPeriod() && (
               <Button
@@ -224,9 +226,9 @@ export default function Gstr2bView() {
                 variant="outline"
                 className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[12px] hover:bg-dmk-hover"
                 onClick={() => setPeriod(currentPeriod())}
-                title="Jump back to the current return period"
+                title={t("g2b.jumpCurrent")}
               >
-                Current
+                {t("g2b.current")}
               </Button>
             )}
             <Button
@@ -234,7 +236,7 @@ export default function Gstr2bView() {
               className="h-9 bg-dmk-gold text-[#0A0F1D] hover:bg-dmk-gold/90 font-semibold"
               onClick={() => setImportOpen(true)}
             >
-              <Upload className="h-4 w-4" /> Import 2B CSV
+              <Upload className="h-4 w-4" /> {t("g2b.importBtn")}
             </Button>
           </div>
         }
@@ -245,29 +247,27 @@ export default function Gstr2bView() {
       {loading && !data ? (
         <LoadingRows rows={7} />
       ) : !data ? (
-        <EmptyState icon={GitCompareArrows} title="Reconciliation unavailable" hint="Refresh once the firm data is loaded." />
+        <EmptyState icon={GitCompareArrows} title={t("g2b.unavailable")} hint={t("g2b.refreshHint")} />
       ) : (
         <>
           {/* KPI row */}
           <div className="dmk-enter-stagger grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-            <KpiCard label="2B Records" value={String(s!.records2b)} tone="blue" icon={GitCompareArrows} sub={`${s!.matched} matched · ${s!.billMatched} by bill no.`} />
-            <KpiCard label="ITC as per 2B" value={formatINR(s!.itc2b)} tone="info" icon={Download} sub="Supplier-reported tax credits" />
-            <KpiCard label="ITC as per Books" value={formatINR(s!.itcBooks)} tone="default" icon={Scale} sub={`${data.booksTotal} confirmed bill(s) in period`} />
-            <KpiCard label="Matched ITC" value={formatINR(s!.matchedItc)} tone="success" icon={CheckCircle2} sub="Safe to claim in GST return" />
-            <KpiCard label="ITC at Risk" value={formatINR(s!.missingItc)} tone="orange" icon={AlertTriangle} sub={`${s!.missingInBooks + s!.mismatches} 2B row(s) unresolved`} />
-            <KpiCard label="Net ITC Risk" value={formatINR(s!.netItcRisk)} tone={s!.netItcRisk > 0.009 ? "danger" : "success"} icon={FileWarning} sub="2B risk − books-only tax" />
+            <KpiCard label={t("g2b.kpiRecords")} value={String(s!.records2b)} tone="blue" icon={GitCompareArrows} sub={t("g2b.kpiRecordsSub", { matched: s!.matched, n: s!.billMatched })} />
+            <KpiCard label={t("g2b.kpiItc2b")} value={formatINR(s!.itc2b)} tone="info" icon={Download} sub={t("g2b.kpiItc2bSub")} />
+            <KpiCard label={t("g2b.kpiItcBooks")} value={formatINR(s!.itcBooks)} tone="default" icon={Scale} sub={t("g2b.kpiItcBooksSub", { n: data.booksTotal })} />
+            <KpiCard label={t("g2b.kpiMatched")} value={formatINR(s!.matchedItc)} tone="success" icon={CheckCircle2} sub={t("g2b.kpiMatchedSub")} />
+            <KpiCard label={t("g2b.kpiRisk")} value={formatINR(s!.missingItc)} tone="orange" icon={AlertTriangle} sub={t("g2b.kpiRiskSub", { n: s!.missingInBooks + s!.mismatches })} />
+            <KpiCard label={t("g2b.kpiNetRisk")} value={formatINR(s!.netItcRisk)} tone={s!.netItcRisk > 0.009 ? "danger" : "success"} icon={FileWarning} sub={t("g2b.kpiNetRiskSub")} />
           </div>
 
           {/* Guidance strip */}
           <div className="dmk-well px-3 py-2.5 flex items-start gap-2.5">
             <HelpCircle className="h-4 w-4 text-dmk-info mt-0.5 shrink-0" />
             <p className="text-[12px] text-dmk-text-secondary">
-              <span className="font-semibold text-dmk-text-primary">How matching works:</span> when a PO carries the supplier's
-              bill number it is matched <Badge tone="success">BILL NO</Badge> first — exact identity, immune to amount tweaks.
-              Remaining rows match by <Badge tone="info">AMOUNT</Badge> — supplier GSTIN plus ±₹1/±0.5% proximity on grand or
-              taxable value. A GSTIN match with no amount fit flags an <Badge tone="warning">AMOUNT MISMATCH</Badge> (period
-              cuts — bill in Aug, GRN in Sep — are the usual culprit). Rows with a GSTIN absent from books flag{" "}
-              <Badge tone="danger">MISSING IN BOOKS</Badge>. Books-only bills appear under <Badge tone="info">MISSING IN 2B</Badge>.
+              <span className="font-semibold text-dmk-text-primary">{t("g2b.howMatch")}</span> {t("g2b.matchSegA")}{" "}
+              <Badge tone="success">BILL NO</Badge> {t("g2b.matchSegB")} <Badge tone="info">AMOUNT</Badge> {t("g2b.matchSegC")}{" "}
+              <Badge tone="warning">{t("g2b.stAmountMismatch")}</Badge> {t("g2b.matchSegD")}{" "}
+              <Badge tone="danger">{t("g2b.stMissingBooks")}</Badge> {t("g2b.matchSegE")} <Badge tone="info">{t("g2b.stMissing2b")}</Badge>.
             </p>
           </div>
 
@@ -275,11 +275,11 @@ export default function Gstr2bView() {
             <div className="dmk-card">
               <EmptyState
                 icon={GitCompareArrows}
-                title={`No 2B data imported for ${period}`}
-                hint="Import the GSTR-2B CSV downloaded from the GST portal to reconcile ITC."
+                title={t("g2b.noData", { period })}
+                hint={t("g2b.noDataHint")}
                 action={
                   <Button size="sm" className="bg-dmk-gold text-[#0A0F1D] hover:bg-dmk-gold/90 font-semibold" onClick={() => setImportOpen(true)}>
-                    <Upload className="h-4 w-4" /> Import 2B CSV
+                    <Upload className="h-4 w-4" /> {t("g2b.importBtn")}
                   </Button>
                 }
               />
@@ -290,7 +290,7 @@ export default function Gstr2bView() {
               <div className="dmk-card overflow-hidden">
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 px-4 py-2.5 border-b border-dmk-border-subtle">
                   <span className="text-[12.5px] font-semibold text-dmk-text-primary">
-                    Supplier rows (GSTR-2B) — {period}
+                    {t("g2b.supplierRows", { period })}
                   </span>
                   <Button
                     variant="outline"
@@ -299,27 +299,27 @@ export default function Gstr2bView() {
                     disabled={records.length === 0 && data.books.length === 0}
                     className="h-8 gap-2 border-dmk-border-subtle bg-dmk-input-well text-[12px] hover:bg-dmk-hover"
                   >
-                    <Download className="h-3.5 w-3.5" /> Export CSV
+                    <Download className="h-3.5 w-3.5" /> {t("jrnl.exportCsv")}
                   </Button>
                 </div>
                 <div className="overflow-x-auto min-h-[200px] max-h-[calc(100vh-560px)] overflow-y-auto">
                   {records.length === 0 ? (
                     <EmptyState
                       icon={GitCompareArrows}
-                      title="No 2B rows for this period"
-                      hint="Import the portal CSV or pick another period."
+                      title={t("g2b.noRows")}
+                      hint={t("g2b.noRowsHint")}
                     />
                   ) : (
                     <table className="dmk-table min-w-[1080px]">
                       <thead>
                         <tr>
-                          <th>Status</th>
-                          <th>Supplier</th>
-                          <th>Invoice</th>
-                          <th className="num text-right">Taxable (₹)</th>
-                          <th className="num text-right">IGST (₹)</th>
-                          <th className="num text-right">CGST+SGST (₹)</th>
-                          <th className="num text-right">Total (₹)</th>
+                          <th>{t("cmn.status")}</th>
+                          <th>{t("g2b.colSupplier")}</th>
+                          <th>{t("g2b.colInvoice")}</th>
+                          <th className="num text-right">{t("g2b.colTaxableRs")}</th>
+                          <th className="num text-right">{t("g2b.colIgstRs")}</th>
+                          <th className="num text-right">{t("g2b.colCgstSgstRs")}</th>
+                          <th className="num text-right">{t("g2b.colTotalRs")}</th>
                           <th>ITC</th>
                         </tr>
                       </thead>
@@ -334,8 +334,8 @@ export default function Gstr2bView() {
                           >
                             <td>
                               <div className="flex flex-col gap-1 items-start">
-                                {statusBadge(r.status)}
-                                {basisBadge(r.matchBasis)}
+                                {statusBadge(r.status, t)}
+                                {basisBadge(r.matchBasis, t)}
                                 {r.matchedPoNumber && (
                                   <span className="font-money text-[10px] text-dmk-text-muted">{r.matchedPoNumber}</span>
                                 )}
@@ -359,7 +359,7 @@ export default function Gstr2bView() {
                               {r.itcAvailable ? (
                                 <Badge tone="success">YES</Badge>
                               ) : (
-                                <Badge tone="neutral">RESTRICTED</Badge>
+                                <Badge tone="neutral">{t("g2b.restricted")}</Badge>
                               )}
                             </td>
                           </tr>
@@ -374,7 +374,7 @@ export default function Gstr2bView() {
               <div className="dmk-card overflow-hidden">
                 <div className="px-4 py-2.5 border-b border-dmk-border-subtle">
                   <span className="text-[12.5px] font-semibold text-dmk-text-primary">
-                    In books, missing in 2B — {data.books.length} of {data.booksTotal} bill{data.booksTotal !== 1 ? "s" : ""}
+                    {t("g2b.booksMissing", { n: data.books.length, total: data.booksTotal })}
                   </span>
                 </div>
                 <div className="overflow-x-auto max-h-72 overflow-y-auto">
@@ -382,21 +382,21 @@ export default function Gstr2bView() {
                     <div className="px-4 py-6 text-center">
                       <CheckCircle2 className="h-8 w-8 text-dmk-success mx-auto" />
                       <p className="text-[12.5px] text-dmk-text-secondary mt-2">
-                        Every confirmed bill in {period} is reported by suppliers in 2B — clean period.
+                        {t("g2b.cleanPeriod", { period })}
                       </p>
                     </div>
                   ) : (
                     <table className="dmk-table min-w-[860px]">
                       <thead>
                         <tr>
-                          <th>PO #</th>
-                          <th>Vendor</th>
+                          <th>{t("g2b.colPoNo")}</th>
+                          <th>{t("cmn.vendor")}</th>
                           <th>GSTIN</th>
-                          <th>Vendor Bill</th>
-                          <th className="num text-right">Taxable (₹)</th>
-                          <th className="num text-right">Tax (₹)</th>
-                          <th className="num text-right">Grand (₹)</th>
-                          <th>Status</th>
+                          <th>{t("g2b.colVendorBill")}</th>
+                          <th className="num text-right">{t("g2b.colTaxableRs")}</th>
+                          <th className="num text-right">{t("g2b.colTaxRs")}</th>
+                          <th className="num text-right">{t("g2b.colGrandRs")}</th>
+                          <th>{t("cmn.status")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -405,7 +405,7 @@ export default function Gstr2bView() {
                             <td className="font-money text-[12px] font-semibold text-dmk-text-primary">
                               {b.poNumber}
                               {b.vendorBillNo && (
-                                <span className="block text-[10px] font-normal text-dmk-text-muted">Bill {b.vendorBillNo}</span>
+                                <span className="block text-[10px] font-normal text-dmk-text-muted">{t("g2b.billNo", { no: b.vendorBillNo })}</span>
                               )}
                             </td>
                             <td className="text-[13px] max-w-[220px] truncate">{b.vendorName}</td>
@@ -414,7 +414,7 @@ export default function Gstr2bView() {
                             <td className="num text-right font-money text-dmk-text-secondary">{formatINR(b.taxable)}</td>
                             <td className="num text-right font-money text-dmk-text-secondary">{formatINR(b.igst + b.cgst + b.sgst)}</td>
                             <td className="num text-right font-money font-semibold text-dmk-text-primary">{formatINR(b.grand)}</td>
-                            <td><Badge tone="info">MISSING IN 2B</Badge></td>
+                            <td><Badge tone="info">{t("g2b.stMissing2b")}</Badge></td>
                           </tr>
                         ))}
                       </tbody>
@@ -451,6 +451,7 @@ function ImportDialog({
   period: string;
   onImported: () => void;
 }) {
+  const { t } = useT();
   const { toast } = useToast();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const [csv, setCsv] = React.useState("");
@@ -471,13 +472,13 @@ function ImportDialog({
     const text = await f.text();
     setCsv(text);
     if (fileRef.current) fileRef.current.value = "";
-    toast({ title: "File loaded", description: `${f.name} — review the preview below and import.` });
+    toast({ title: t("g2b.toastFileLoaded"), description: t("g2b.toastFileLoadedDesc", { name: f.name }) });
   }
 
   async function submit() {
     if (!activeFirmId) return;
     if (!csv.trim()) {
-      toast({ variant: "destructive", title: "Nothing to import", description: "Paste CSV text, upload a file, or load the sample." });
+      toast({ variant: "destructive", title: t("g2b.toastNothing"), description: t("g2b.toastNothingDesc") });
       return;
     }
     setSaving(true);
@@ -488,16 +489,16 @@ function ImportDialog({
         csv,
       });
       toast({
-        title: "GSTR-2B imported",
-        description: `${res.imported} supplier row(s) recorded for ${res.period} — existing rows for the period were replaced.`,
+        title: t("g2b.toastImported"),
+        description: t("g2b.toastImportedDesc", { n: res.imported, period: res.period }),
       });
       onImported();
       onOpenChange(false);
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Import failed",
-        description: e instanceof ApiError ? e.message : "Could not import the CSV.",
+        title: t("g2b.toastFailed"),
+        description: e instanceof ApiError ? e.message : t("g2b.toastFailedDesc"),
       });
     } finally {
       setSaving(false);
@@ -513,14 +514,14 @@ function ImportDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="dmk-elevated border-dmk-border-medium max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-dmk-text-primary">Import GSTR-2B CSV</DialogTitle>
+          <DialogTitle className="text-dmk-text-primary">{t("g2b.importTitle")}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
-            Download B2B invoices from the GST portal, then paste or upload them here. Importing a period replaces its rows.
+            {t("g2b.importDesc")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          <Field label="Return period *" hint="Month the supplier invoices were reported in">
+          <Field label={t("g2b.periodFieldLabel")} hint={t("g2b.periodFieldHint")}>
             <Input
               type="month"
               value={importPeriod}
@@ -537,9 +538,9 @@ function ImportDialog({
               className="h-8 gap-1.5 border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover"
               onClick={() => fileRef.current?.click()}
             >
-              <Upload className="h-3.5 w-3.5" /> Upload .csv
+              <Upload className="h-3.5 w-3.5" /> {t("g2b.uploadCsv")}
             </Button>
-            <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} aria-label="Upload GSTR-2B CSV file" />
+            <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} aria-label={t("g2b.uploadAria")} />
             <Button
               type="button"
               size="sm"
@@ -547,11 +548,11 @@ function ImportDialog({
               className="h-8 gap-1.5 border-dmk-border-medium text-dmk-info hover:bg-dmk-hover"
               onClick={() => setCsv(SAMPLE_CSV)}
             >
-              <Loader2 className="hidden" /> Load sample rows
+              <Loader2 className="hidden" /> {t("g2b.loadSample")}
             </Button>
           </div>
 
-          <Field label="CSV text *" hint="Columns: GSTIN, TradeName, InvoiceNo, InvoiceDate (dd/mm/yyyy), TaxableValue, IGST, CGST, SGST, ITC (YES/NO), PlaceOfSupply">
+          <Field label={t("g2b.csvFieldLabel")} hint={t("g2b.csvFieldHint")}>
             <Textarea
               value={csv}
               onChange={(e) => setCsv(e.target.value)}
@@ -563,7 +564,7 @@ function ImportDialog({
 
           {previewRows.length > 0 && (
             <div className="rounded-md border border-dmk-border-subtle bg-dmk-bg-tertiary/60 px-3 py-2 overflow-x-auto">
-              <p className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted mb-1">Preview (first rows)</p>
+              <p className="text-[10.5px] uppercase tracking-wider font-semibold text-dmk-text-muted mb-1">{t("g2b.preview")}</p>
               {previewRows.map((line, i) => (
                 <p key={i} className="font-money text-[10.5px] text-dmk-text-secondary whitespace-nowrap">
                   {line}
@@ -573,17 +574,16 @@ function ImportDialog({
           )}
 
           <div className="dmk-well px-3 py-2.5 text-[11.5px] text-dmk-text-muted">
-            Matching is read-only — importing never changes books. Unmatched rows simply surface as exceptions for follow-up
-            (e.g. vendor not booked, amount drift, or period cut).
+            {t("g2b.readonlyNote")}
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">
-            Cancel
+            {t("cmn.cancel")}
           </Button>
           <Button onClick={submit} disabled={saving || !csv.trim()} className="bg-dmk-gold text-[#0A0F1D] hover:bg-dmk-gold/90 font-semibold">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Import
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {t("g2b.import")}
           </Button>
         </DialogFooter>
       </DialogContent>

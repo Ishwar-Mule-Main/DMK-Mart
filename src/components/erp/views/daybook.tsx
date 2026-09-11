@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiGet } from "@/lib/api-client";
 import { formatINR, toISODate } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { useErpStore } from "@/store/erp-store";
 import { cn } from "@/lib/utils";
 
@@ -115,21 +116,22 @@ function shiftDate(iso: string, days: number): string {
 }
 
 function FlowStrip({ icon: Icon, label, flow }: { icon: LucideIcon; label: string; flow: Flow }) {
+  const { t } = useT();
   const steps = [
-    { key: "Opening", value: flow.opening, cls: "text-dmk-text-primary" },
-    { key: "In", value: flow.in, cls: "text-dmk-success" },
-    { key: "Out", value: flow.out, cls: "text-dmk-danger" },
-    { key: "Closing", value: flow.closing, cls: "text-dmk-gold" },
+    { id: "opening", label: t("dbook.opening"), value: flow.opening, cls: "text-dmk-text-primary" },
+    { id: "in", label: t("dbook.in"), value: flow.in, cls: "text-dmk-success" },
+    { id: "out", label: t("dbook.out"), value: flow.out, cls: "text-dmk-danger" },
+    { id: "closing", label: t("dbook.closing"), value: flow.closing, cls: "text-dmk-gold" },
   ];
   return (
     <div className="dmk-card p-3">
       <div className="flex items-center gap-2 mb-2.5">
         <Icon className="h-4 w-4 text-dmk-text-muted" />
-        <span className="text-[12px] font-semibold uppercase tracking-wider text-dmk-text-secondary">{label} Flow</span>
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-dmk-text-secondary">{t("dbook.flowLabel", { label })}</span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {steps.map((s, i) => (
-          <div key={s.key} className="relative">
+          <div key={s.id} className="relative">
             {i > 0 && (
               <ChevronRight
                 className="hidden sm:block absolute -left-[15px] top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-dmk-text-muted"
@@ -137,7 +139,7 @@ function FlowStrip({ icon: Icon, label, flow }: { icon: LucideIcon; label: strin
               />
             )}
             <div className="dmk-well px-2.5 py-2">
-              <p className="text-[10px] uppercase tracking-wider text-dmk-text-muted font-semibold">{s.key}</p>
+              <p className="text-[10px] uppercase tracking-wider text-dmk-text-muted font-semibold">{s.label}</p>
               <p className={cn("font-money text-[13.5px] font-semibold tabular-nums truncate", s.cls)} title={formatINR(s.value)}>
                 {formatINR(s.value)}
               </p>
@@ -151,6 +153,7 @@ function FlowStrip({ icon: Icon, label, flow }: { icon: LucideIcon; label: strin
 
 export default function DaybookView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
+  const { t } = useT();
   const [date, setDate] = React.useState(() => toISODate(new Date()));
   const [data, setData] = React.useState<DayBookResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -171,7 +174,7 @@ export default function DaybookView() {
       })
       .catch((e) => {
         if (alive) {
-          setError(e instanceof Error ? e.message : "Failed to load day book");
+          setError(e instanceof Error ? e.message : t("dbook.errLoad"));
           setData(null);
         }
       })
@@ -206,8 +209,8 @@ export default function DaybookView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Day Book"
-        subtitle="Chronological vouchers of the day with cash & bank movement"
+        title={t("dbook.title")}
+        subtitle={t("dbook.subtitle")}
         icon={NotebookTabs}
         actions={
           <div className="flex items-center gap-1.5">
@@ -216,7 +219,7 @@ export default function DaybookView() {
               size="icon"
               onClick={() => setDate((d) => shiftDate(d, -1))}
               className="h-9 w-9 border-dmk-border-subtle bg-dmk-input-well hover:bg-dmk-hover"
-              aria-label="Previous day"
+              aria-label={t("dbook.prevDay")}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -225,14 +228,14 @@ export default function DaybookView() {
               value={date}
               onChange={(e) => e.target.value && setDate(e.target.value)}
               className={cn("h-9 w-40 bg-dmk-input-well border-dmk-border-subtle text-[12.5px] dmk-input [color-scheme:dark]")}
-              aria-label="Day book date"
+              aria-label={t("dbook.dateAria")}
             />
             <Button
               variant="outline"
               size="icon"
               onClick={() => setDate((d) => shiftDate(d, 1))}
               className="h-9 w-9 border-dmk-border-subtle bg-dmk-input-well hover:bg-dmk-hover"
-              aria-label="Next day"
+              aria-label={t("dbook.nextDay")}
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
@@ -242,7 +245,7 @@ export default function DaybookView() {
               onClick={() => setDate(toISODate(new Date()))}
               className="h-9 gap-1.5 border-dmk-border-subtle bg-dmk-input-well text-[12px] hover:bg-dmk-hover"
             >
-              <CalendarDays className="h-3.5 w-3.5" /> Today
+              <CalendarDays className="h-3.5 w-3.5" /> {t("cmn.today")}
             </Button>
           </div>
         }
@@ -253,13 +256,13 @@ export default function DaybookView() {
       {loading && !data ? (
         <LoadingRows rows={6} />
       ) : !data ? (
-        <EmptyState icon={NotebookTabs} title="Day book unavailable" hint="Try another date." />
+        <EmptyState icon={NotebookTabs} title={t("dbook.unavailable")} hint={t("dbook.tryAnotherDate")} />
       ) : (
         <>
           {/* Cash & Bank flow strips */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <FlowStrip icon={Wallet} label="Cash" flow={data.cash} />
-            <FlowStrip icon={Banknote} label="Bank" flow={data.bank} />
+            <FlowStrip icon={Wallet} label={t("dbook.cash")} flow={data.cash} />
+            <FlowStrip icon={Banknote} label={t("dbook.bank")} flow={data.bank} />
           </div>
 
           {/* Cash-flow movement trend (last 14 days ending on selected date) */}
@@ -269,8 +272,8 @@ export default function DaybookView() {
           {data.journals.length === 0 ? (
             <EmptyState
               icon={CalendarDays}
-              title="No vouchers posted on this day"
-              hint="Pick another date with the arrows, or post sales/purchases to see them here."
+              title={t("dbook.noVouchers")}
+              hint={t("dbook.noVouchersHint")}
             />
           ) : (
             <div className="space-y-4">
@@ -280,7 +283,7 @@ export default function DaybookView() {
                     <div className="flex items-center gap-2.5">
                       <Badge tone={TYPE_TONE[type] ?? "neutral"}>{TYPE_LABEL[type] ?? type}</Badge>
                       <span className="text-[12px] text-dmk-text-muted">
-                        {journals.length} voucher{journals.length !== 1 ? "s" : ""}
+                        {t("dbook.voucherCount", { n: journals.length })}
                       </span>
                     </div>
                     <span className="font-money text-[12.5px] text-dmk-text-secondary">
@@ -292,11 +295,11 @@ export default function DaybookView() {
                       <thead>
                         <tr>
                           <th className="w-8" />
-                          <th>Voucher #</th>
-                          <th>Time</th>
-                          <th>Narration</th>
-                          <th className="num text-right">Debit (₹)</th>
-                          <th className="num text-right">Credit (₹)</th>
+                          <th>{t("dbook.voucherNo")}</th>
+                          <th>{t("dbook.time")}</th>
+                          <th>{t("dbook.narration")}</th>
+                          <th className="num text-right">{t("dbook.debit")}</th>
+                          <th className="num text-right">{t("dbook.credit")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -333,9 +336,9 @@ export default function DaybookView() {
                                         <table className="dmk-table">
                                           <thead>
                                             <tr>
-                                              <th>Account</th>
-                                              <th className="num text-right">Debit (₹)</th>
-                                              <th className="num text-right">Credit (₹)</th>
+                                              <th>{t("dbook.account")}</th>
+                                              <th className="num text-right">{t("dbook.debit")}</th>
+                                              <th className="num text-right">{t("dbook.credit")}</th>
                                             </tr>
                                           </thead>
                                           <tbody>
@@ -405,31 +408,36 @@ function compactINR(v: number): string {
 }
 
 function FlowTrendChart({ trend, selectedDate }: { trend: TrendDay[]; selectedDate: string }) {
-  const totalIn = trend.reduce((s, t) => s + t.in, 0);
-  const totalOut = trend.reduce((s, t) => s + t.out, 0);
+  const { t } = useT();
+  const totalIn = trend.reduce((s, d) => s + d.in, 0);
+  const totalOut = trend.reduce((s, d) => s + d.out, 0);
   const net = Math.round((totalIn - totalOut) * 100) / 100;
-  const activeDays = trend.filter((t) => t.in > 0 || t.out > 0).length;
+  const activeDays = trend.filter((d) => d.in > 0 || d.out > 0).length;
 
   return (
     <div className="dmk-card p-4 dmk-enter">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div>
-          <h2 className="text-[15px] font-semibold text-dmk-text-primary">Cash &amp; Bank Movement</h2>
+          <h2 className="text-[15px] font-semibold text-dmk-text-primary">{t("dbook.trendTitle")}</h2>
           <p className="text-[11px] text-dmk-text-muted">
-            Last {trend.length} days ending {new Date(`${selectedDate}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} · {activeDays} active day{activeDays === 1 ? "" : "s"}
+            {t("dbook.trendSub", {
+              n: trend.length,
+              date: new Date(`${selectedDate}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+              active: activeDays,
+            })}
           </p>
         </div>
         <div className="flex items-center gap-2 text-[11px] font-money">
-          <span className="dmk-badge bg-dmk-success/10 text-dmk-success">IN {compactINR(totalIn)}</span>
-          <span className="dmk-badge bg-dmk-danger/10 text-dmk-danger">OUT {compactINR(totalOut)}</span>
+          <span className="dmk-badge bg-dmk-success/10 text-dmk-success">{t("dbook.totalIn", { v: compactINR(totalIn) })}</span>
+          <span className="dmk-badge bg-dmk-danger/10 text-dmk-danger">{t("dbook.totalOut", { v: compactINR(totalOut) })}</span>
           <span className={cn("dmk-badge font-semibold", net >= 0 ? "bg-dmk-gold/15 text-dmk-gold" : "bg-dmk-warning/15 text-dmk-warning")}>
-            NET {net >= 0 ? "+" : "−"}{compactINR(Math.abs(net))}
+            {t("dbook.totalNet", { v: `${net >= 0 ? "+" : "−"}${compactINR(Math.abs(net))}` })}
           </span>
         </div>
       </div>
       {activeDays === 0 ? (
         <p className="text-[12px] text-dmk-text-muted py-8 text-center">
-          No money movement in the last {trend.length} days.
+          {t("dbook.noMovement", { n: trend.length })}
         </p>
       ) : (
         <div className="h-[190px]">
@@ -462,12 +470,12 @@ function FlowTrendChart({ trend, selectedDate }: { trend: TrendDay[]; selectedDa
                 wrapperStyle={{ fontSize: 11, paddingTop: 6 }}
                 formatter={(value) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
               />
-              <Bar dataKey="in" name="Money in" fill={TREND_GREEN} radius={[3, 3, 0, 0]} maxBarSize={14} />
-              <Bar dataKey="out" name="Money out" fill={TREND_RED} radius={[3, 3, 0, 0]} maxBarSize={14} />
+              <Bar dataKey="in" name={t("dbook.seriesIn")} fill={TREND_GREEN} radius={[3, 3, 0, 0]} maxBarSize={14} />
+              <Bar dataKey="out" name={t("dbook.seriesOut")} fill={TREND_RED} radius={[3, 3, 0, 0]} maxBarSize={14} />
               <Line
                 type="monotone"
                 dataKey="net"
-                name="Net flow"
+                name={t("dbook.seriesNet")}
                 stroke={TREND_GOLD}
                 strokeWidth={2}
                 dot={{ r: 2.5, fill: TREND_GOLD, strokeWidth: 0 }}

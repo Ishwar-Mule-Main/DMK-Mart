@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
         status: true,
         customer: { select: { partyName: true } },
       },
-      orderBy: [{ invoiceDate: "desc" }, { invoiceNumber: "desc" }],
+      orderBy: [{ invoiceDate: "desc" }, { createdAt: "desc" }],
     });
 
     const posted = runs.filter((r) => r.status === "POSTED");

@@ -57,6 +57,7 @@ import {
 } from "@/components/erp/shared";
 import { filterByQuery } from "@/lib/search-rank";
 import { cn } from "@/lib/utils";
+import { useT, type TFn } from "@/lib/i18n";
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -111,14 +112,15 @@ interface StaffRow {
   _count: { verifications: number; submissions: number };
 }
 
-const V_LABEL: Record<string, { label: string; tone: "warning" | "info" | "success" | "neutral" }> = {
-  AWAITING_VERIFICATION: { label: "AT TEAM", tone: "warning" },
-  SUBMITTED: { label: "TO REVIEW", tone: "info" },
-  OWNER_ACCEPTED: { label: "ACCEPTED", tone: "success" },
-};
+function vMeta(t: TFn, status: string): { label: string; tone: "warning" | "info" | "success" | "neutral" } {
+  if (status === "AWAITING_VERIFICATION") return { label: t("ver.stAtTeam"), tone: "warning" };
+  if (status === "SUBMITTED") return { label: t("ver.stToReview"), tone: "info" };
+  if (status === "OWNER_ACCEPTED") return { label: t("ver.stAccepted"), tone: "success" };
+  return { label: status, tone: "neutral" };
+}
 
-function VerifyStatusBadge({ status }: { status: string }) {
-  const v = V_LABEL[status] ?? { label: status, tone: "neutral" as const };
+function VerifyStatusBadge({ status, t }: { status: string; t: TFn }) {
+  const v = vMeta(t, status);
   return <Badge tone={v.tone}>{v.label}</Badge>;
 }
 
@@ -129,6 +131,7 @@ export default function PurchaseVerificationView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const setView = useErpStore((s) => s.setView);
   const { toast } = useToast();
+  const { t } = useT();
   const { connected, tick } = useVerificationBus(activeFirmId);
 
   const [rows, setRows] = React.useState<VerificationRow[] | null>(null);
@@ -149,10 +152,10 @@ export default function PurchaseVerificationView() {
       setStaff(team ?? []);
     } catch (e) {
       if (e instanceof ApiError) {
-        toast({ variant: "destructive", title: "Could not load verifications", description: e.message });
+        toast({ variant: "destructive", title: t("ver.toastLoadFail"), description: e.message });
       }
     }
-  }, [activeFirmId, toast]);
+  }, [activeFirmId, toast, t]);
 
   React.useEffect(() => {
     load();
@@ -162,8 +165,8 @@ export default function PurchaseVerificationView() {
   React.useEffect(() => {
     if (!activeFirmId) return;
     if (tick > 0) load();
-    const t = setInterval(load, 15000);
-    return () => clearInterval(t);
+    const timer = setInterval(load, 15000);
+    return () => clearInterval(timer);
   }, [tick, activeFirmId, load]);
 
   const list = rows ?? [];
@@ -188,8 +191,8 @@ export default function PurchaseVerificationView() {
     <div className="space-y-4 dmk-enter-stagger">
       <PageHeader
         icon={ClipboardCheck}
-        title="PO Verification"
-        subtitle="Owner ↔ verification team · goods are counted at the warehouse, money books only on your acceptance"
+        title={t("ver.title")}
+        subtitle={t("ver.subtitle")}
         actions={
           <>
             <span
@@ -197,13 +200,13 @@ export default function PurchaseVerificationView() {
                 "dmk-badge h-9 px-3 gap-1.5",
                 connected ? "bg-dmk-success/15 text-dmk-success" : "bg-dmk-warning/15 text-dmk-warning"
               )}
-              title={connected ? "Live link with team portal" : "Polling fallback active — data still syncs every 15s"}
+              title={connected ? t("ver.liveTitle") : t("ver.pollTitle")}
             >
               {connected ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-              {connected ? "TEAM LINK LIVE" : "POLLING SYNC"}
+              {connected ? t("ver.liveBadge") : t("ver.pollBadge")}
             </span>
             <Button onClick={() => setStaffDialog({ mode: "create" })} className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-semibold">
-              <UserPlus className="h-4 w-4" /> <span className="hidden sm:inline">Add team account</span>
+              <UserPlus className="h-4 w-4" /> <span className="hidden sm:inline">{t("ver.addAccount")}</span>
             </Button>
           </>
         }
@@ -211,22 +214,22 @@ export default function PurchaseVerificationView() {
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard label="At verification team" value={String(awaiting.length)} sub="POs with the warehouse team" icon={PackageSearch} />
-        <KpiCard label="Waiting on you" value={String(submitted.length)} sub="verified submissions to accept" icon={ShieldCheck} tone="gold" />
-        <KpiCard label="Accepted → Finance" value={formatINR(acceptedValue)} sub={`${accepted.length} POs booked`} icon={IndianRupee} tone="success" />
-        <KpiCard label="Damaged units found" value={String(Math.round(damagedUnits))} sub="quarantined on acceptance" icon={PackageX} tone="danger" />
+        <KpiCard label={t("ver.kpiAtTeam")} value={String(awaiting.length)} sub={t("ver.kpiAtTeamSub")} icon={PackageSearch} />
+        <KpiCard label={t("ver.kpiWaiting")} value={String(submitted.length)} sub={t("ver.kpiWaitingSub")} icon={ShieldCheck} tone="gold" />
+        <KpiCard label={t("ver.kpiAccepted")} value={formatINR(acceptedValue)} sub={t("ver.kpiAcceptedSub", { n: accepted.length })} icon={IndianRupee} tone="success" />
+        <KpiCard label={t("ver.kpiDamaged")} value={String(Math.round(damagedUnits))} sub={t("ver.kpiDamagedSub")} icon={PackageX} tone="danger" />
       </div>
 
       <Tabs defaultValue="queue" className="space-y-4">
         <TabsList className="bg-dmk-input-well border border-dmk-border-subtle h-10">
           <TabsTrigger value="queue" className="text-[12.5px] gap-1.5 data-[state=active]:bg-dmk-yellow data-[state=active]:text-[#0A0F1D]">
-            <ClipboardCheck className="h-4 w-4" /> Verification queue
+            <ClipboardCheck className="h-4 w-4" /> {t("ver.tabQueue")}
             {submitted.length > 0 && (
               <span className="ml-1 rounded-full bg-dmk-danger px-1.5 text-[10px] font-bold text-white">{submitted.length}</span>
             )}
           </TabsTrigger>
           <TabsTrigger value="team" className="text-[12.5px] gap-1.5 data-[state=active]:bg-dmk-yellow data-[state=active]:text-[#0A0F1D]">
-            <Users className="h-4 w-4" /> Team accounts
+            <Users className="h-4 w-4" /> {t("ver.tabTeam")}
             <span className="ml-1 rounded-full bg-dmk-input-well px-1.5 text-[10px] font-bold text-dmk-text-secondary">{activeStaff.length}</span>
           </TabsTrigger>
         </TabsList>
@@ -236,13 +239,13 @@ export default function PurchaseVerificationView() {
           <SectionGrid
             list={
               <RegisterCard
-                title="Verification requests"
+                title={t("ver.requestsTitle")}
                 icon={ShieldCheck}
                 count={filtered.length}
-                countLabel="requests"
+                countLabel={t("ver.countRequests")}
                 filters={
                   <>
-                    <SearchInput value={search} onChange={setSearch} placeholder="Search PO # or vendor…" className="flex-1" />
+                    <SearchInput value={search} onChange={setSearch} placeholder={t("ver.searchPh")} className="flex-1" />
                     <div className="flex gap-1 overflow-x-auto pb-0.5">
                       {["ALL", "AWAITING_VERIFICATION", "SUBMITTED", "OWNER_ACCEPTED"].map((s) => (
                         <button
@@ -255,7 +258,7 @@ export default function PurchaseVerificationView() {
                               : "bg-dmk-input-well text-dmk-text-secondary border-dmk-border-subtle hover:bg-dmk-hover"
                           )}
                         >
-                          {s === "ALL" ? "All" : V_LABEL[s]?.label ?? s}
+                          {s === "ALL" ? t("cmn.all") : vMeta(t, s).label}
                         </button>
                       ))}
                     </div>
@@ -264,9 +267,9 @@ export default function PurchaseVerificationView() {
                 footer={
                   <>
                     <span className="flex items-center gap-1.5">
-                      <Radio className="h-3 w-3 text-dmk-success" /> Live — team submissions appear instantly
+                      <Radio className="h-3 w-3 text-dmk-success" /> {t("ver.footerLive")}
                     </span>
-                    <span>Acceptance posts stock + payable + PURCHASE journal</span>
+                    <span>{t("ver.footerPost")}</span>
                   </>
                 }
               >
@@ -275,8 +278,8 @@ export default function PurchaseVerificationView() {
                 ) : filtered.length === 0 ? (
                   <EmptyState
                     icon={ClipboardCheck}
-                    title="No verification requests here"
-                    hint="Raise a purchase order — it lands on the team portal automatically for goods verification."
+                    title={t("ver.emptyTitle")}
+                    hint={t("ver.emptyHint")}
                   />
                 ) : (
                   filtered.map((r) => (
@@ -285,27 +288,29 @@ export default function PurchaseVerificationView() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-money text-[13px] font-bold text-dmk-gold">{r.po.poNumber}</span>
-                            <VerifyStatusBadge status={r.status} />
-                            {r.po.status === "CANCELLED" && <Badge tone="danger">PO CANCELLED</Badge>}
+                            <VerifyStatusBadge status={r.status} t={t} />
+                            {r.po.status === "CANCELLED" && <Badge tone="danger">{t("ver.poCancelled")}</Badge>}
                           </div>
                           <p className="text-[12px] text-dmk-text-secondary truncate mt-0.5">
-                            {r.po.vendor.vendorName} · {r.items.length} item{r.items.length !== 1 ? "s" : ""} · raised {formatDate(r.po.poDate)}
+                            {r.po.vendor.vendorName} · {t("ver.rowMeta", { n: r.items.length, date: formatDate(r.po.poDate) })}
                           </p>
                           {r.status === "SUBMITTED" && (
                             <p className="text-[11px] text-dmk-info mt-0.5">
-                              Verified by {r.submittedBy?.name ?? "team"} ·{" "}
-                              {r.items.reduce((s, i) => s + (i.sellableQty ?? 0), 0)} sellable /{" "}
-                              {r.items.reduce((s, i) => s + (i.damagedQty ?? 0), 0)} damaged
+                              {t("ver.rowVerified", {
+                                name: r.submittedBy?.name ?? t("ver.teamWord"),
+                                s: r.items.reduce((s, i) => s + (i.sellableQty ?? 0), 0),
+                                d: r.items.reduce((s, i) => s + (i.damagedQty ?? 0), 0),
+                              })}
                             </p>
                           )}
                           {r.status === "AWAITING_VERIFICATION" && r.returnReason && (
-                            <p className="text-[11px] text-dmk-warning mt-0.5 truncate">Sent back: {r.returnReason}</p>
+                            <p className="text-[11px] text-dmk-warning mt-0.5 truncate">{t("ver.sentBack", { reason: r.returnReason })}</p>
                           )}
                         </div>
                         <div className="text-right shrink-0">
                           <p className="font-money text-[13px] font-semibold text-dmk-text-primary">{formatINR(r.po.grandTotal)}</p>
                           <p className="text-[10.5px] text-dmk-text-muted flex items-center justify-end gap-1 mt-0.5">
-                            <Eye className="h-3 w-3" /> review
+                            <Eye className="h-3 w-3" /> {t("ver.review")}
                           </p>
                         </div>
                       </div>
@@ -316,13 +321,13 @@ export default function PurchaseVerificationView() {
             }
             aside={
               <>
-                <AsideCard title="How the gate works" icon={FileCheck2} iconClass="text-dmk-yellow">
+                <AsideCard title={t("ver.gateTitle")} icon={FileCheck2} iconClass="text-dmk-yellow">
                   <ol className="space-y-2.5 text-[12px] text-dmk-text-secondary">
                     {[
-                      "You raise a PO — it lands on the team portal instantly (names + ordered qty only).",
-                      "Vendor delivers; the team counts actual SELLABLE and DAMAGED units.",
-                      "Their submission appears here — you review every count.",
-                      "Your acceptance is the money moment: stock in, vendor payable, PURCHASE journal.",
+                      t("ver.gate1"),
+                      t("ver.gate2"),
+                      t("ver.gate3"),
+                      t("ver.gate4"),
                     ].map((s, i) => (
                       <li key={i} className="flex gap-2.5">
                         <span className="h-5 w-5 shrink-0 rounded-full bg-dmk-yellow/15 text-dmk-yellow text-[10.5px] font-bold flex items-center justify-center">
@@ -335,20 +340,20 @@ export default function PurchaseVerificationView() {
                 </AsideCard>
 
                 <AsideCard
-                  title="Team on duty"
+                  title={t("ver.onDuty")}
                   icon={Users}
                   iconClass="text-dmk-blue"
                   footnote={
                     activeStaff.length === 0
-                      ? "No active team accounts — create one so POs can be verified."
-                      : "Accounts sign in through the Verification Team door on the login screen."
+                      ? t("ver.dutyFootNone")
+                      : t("ver.dutyFootSignin")
                   }
                 >
                   {staff === null ? (
                     <LoadingRows rows={2} />
                   ) : activeStaff.length === 0 ? (
                     <p className="text-[12px] text-dmk-warning flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> No verification team yet.
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> {t("ver.noTeamYet")}
                     </p>
                   ) : (
                     <div className="space-y-2">
@@ -357,16 +362,16 @@ export default function PurchaseVerificationView() {
                           <span className="truncate text-dmk-text-primary">
                             {s.name} <span className="text-dmk-text-muted">· {s.username}</span>
                           </span>
-                          <Badge tone="neutral">{s._count.submissions} checks</Badge>
+                          <Badge tone="neutral">{t("ver.checks", { n: s._count.submissions })}</Badge>
                         </div>
                       ))}
                     </div>
                   )}
                 </AsideCard>
 
-                <AsideCard title="Damage watch" icon={PackageX} iconClass="text-dmk-danger">
+                <AsideCard title={t("ver.damageWatch")} icon={PackageX} iconClass="text-dmk-danger">
                   {damagedUnits <= 0 ? (
-                    <p className="text-[12px] text-dmk-text-muted">No damaged units reported — clean receipts so far.</p>
+                    <p className="text-[12px] text-dmk-text-muted">{t("ver.damageClean")}</p>
                   ) : (
                     <div className="space-y-2">
                       {list
@@ -392,27 +397,27 @@ export default function PurchaseVerificationView() {
         {/* ── TEAM TAB ── */}
         <TabsContent value="team" className="mt-0">
           <RegisterCard
-            title="Verification team accounts"
+            title={t("ver.teamTitle")}
             icon={Users}
             count={(staff ?? []).length}
-            countLabel="accounts"
+            countLabel={t("ver.countAccounts")}
             filters={
               <Button onClick={() => setStaffDialog({ mode: "create" })} className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-semibold">
-                <UserPlus className="h-4 w-4" /> Create team account
+                <UserPlus className="h-4 w-4" /> {t("ver.createAccount")}
               </Button>
             }
-            footer={<span>Deactivated accounts keep their history but can no longer sign in.</span>}
+            footer={<span>{t("ver.teamFoot")}</span>}
           >
             {staff === null ? (
               <LoadingRows />
             ) : (staff ?? []).length === 0 ? (
               <EmptyState
                 icon={Users}
-                title="No team accounts yet"
-                hint="Create one account per warehouse verifier — they sign in on the team portal with username + password."
+                title={t("ver.teamEmptyTitle")}
+                hint={t("ver.teamEmptyHint")}
                 action={
                   <Button onClick={() => setStaffDialog({ mode: "create" })} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-semibold">
-                    <UserPlus className="h-4 w-4" /> Create the first account
+                    <UserPlus className="h-4 w-4" /> {t("ver.firstAccount")}
                   </Button>
                 }
               />
@@ -424,18 +429,18 @@ export default function PurchaseVerificationView() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[13px] font-semibold text-dmk-text-primary">{s.name}</span>
                         <Badge tone="neutral">{s.role}</Badge>
-                        {s.isActive ? <Badge tone="success">ACTIVE</Badge> : <Badge tone="danger">DISABLED</Badge>}
+                        {s.isActive ? <Badge tone="success">{t("ver.badgeActive")}</Badge> : <Badge tone="danger">{t("ver.badgeDisabled")}</Badge>}
                       </div>
                       <p className="text-[11.5px] text-dmk-text-muted mt-0.5 truncate">
-                        @{s.username} · {s.phone || "no phone"} · {s._count.submissions} submissions · {s._count.verifications} assignments
+                        @{s.username} · {s.phone || t("ver.noPhone")} · {t("ver.subsAsn", { sub: s._count.submissions, asn: s._count.verifications })}
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <Button variant="outline" size="sm" className="h-8 text-[12px] border-dmk-border-subtle" onClick={() => setStaffDialog({ mode: "edit", staff: s })}>
-                        <Pencil className="h-3.5 w-3.5" /> Edit
+                        <Pencil className="h-3.5 w-3.5" /> {t("cmn.edit")}
                       </Button>
                       <Button variant="outline" size="sm" className="h-8 text-[12px] border-dmk-border-subtle" onClick={() => setStaffDialog({ mode: "reset", staff: s })}>
-                        <KeyRound className="h-3.5 w-3.5" /> Password
+                        <KeyRound className="h-3.5 w-3.5" /> {t("ver.passwordBtn")}
                       </Button>
                       <Button
                         variant="outline"
@@ -444,14 +449,14 @@ export default function PurchaseVerificationView() {
                         onClick={async () => {
                           try {
                             await apiPatch(`/api/v1/verification/staff/${s.id}`, { isActive: !s.isActive });
-                            toast({ title: s.isActive ? `${s.name} deactivated` : `${s.name} reactivated` });
+                            toast({ title: t(s.isActive ? "ver.toastDeactivated" : "ver.toastReactivated", { name: s.name }) });
                             load();
                           } catch (e) {
-                            toast({ variant: "destructive", title: "Update failed", description: e instanceof ApiError ? e.message : "Try again" });
+                            toast({ variant: "destructive", title: t("ver.toastUpdateFail"), description: e instanceof ApiError ? e.message : t("ver.tryAgain") });
                           }
                         }}
                       >
-                        {s.isActive ? "Disable" : "Enable"}
+                        {s.isActive ? t("ver.disable") : t("ver.enable")}
                       </Button>
                     </div>
                   </div>
@@ -495,6 +500,7 @@ export default function PurchaseVerificationView() {
 
 function ReviewDialog({ row, onClose, onDone }: { row: VerificationRow; onClose: () => void; onDone: () => void }) {
   const { toast } = useToast();
+  const { t } = useT();
   // Owner override: unverified lines prefill to ordered qty (all good),
   // team-verified lines prefill with exactly what the team counted.
   const [items, setItems] = React.useState<VerifyItem[]>(
@@ -532,28 +538,28 @@ function ReviewDialog({ row, onClose, onDone }: { row: VerificationRow; onClose:
         })),
       });
       toast({
-        title: `PO ${row.po.poNumber} accepted`,
-        description: `Stock IN · vendor payable ${formatINR(row.po.grandTotal)} · PURCHASE journal posted to Finance & Accounting.`,
+        title: t("ver.toastAccepted", { po: row.po.poNumber }),
+        description: t("ver.toastAcceptedDesc", { amt: formatINR(row.po.grandTotal) }),
       });
       onDone();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Acceptance failed.");
+      setError(e instanceof ApiError ? e.message : t("ver.errAccept"));
     } finally {
       setBusy("none");
     }
   }
 
   async function sendBack() {
-    const reason = window.prompt("Reason for sending back to the team?", "Counts look off — please recount.");
+    const reason = window.prompt(t("ver.rejectPrompt"), t("ver.rejectDefault"));
     if (!reason) return;
     setBusy("reject");
     setError(null);
     try {
       await apiPost(`/api/v1/verification/${row.id}/reject`, { reason });
-      toast({ title: "Sent back to team", description: `${row.po.poNumber} — ${reason}` });
+      toast({ title: t("ver.toastSentBack"), description: `${row.po.poNumber} — ${reason}` });
       onDone();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not send back.");
+      setError(e instanceof ApiError ? e.message : t("ver.errSendBack"));
     } finally {
       setBusy("none");
     }
@@ -564,11 +570,11 @@ function ReviewDialog({ row, onClose, onDone }: { row: VerificationRow; onClose:
       <DialogContent className="dmk-card sm:max-w-[760px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-[15px] font-bold text-dmk-text-primary">
-            {row.po.poNumber} <VerifyStatusBadge status={row.status} />
+            {row.po.poNumber} <VerifyStatusBadge status={row.status} t={t} />
           </DialogTitle>
           <DialogDescription className="text-[12px] text-dmk-text-muted">
-            {row.po.vendor.vendorName} · raised {formatDate(row.po.poDate)} · PO value {formatINR(row.po.grandTotal)}
-            {isSubmitted && row.submittedBy ? ` · verified by ${row.submittedBy.name}` : isAccepted ? " · booked to Finance" : " · not yet verified by team (owner override)"}
+            {row.po.vendor.vendorName} · {t("ver.dlgMeta", { date: formatDate(row.po.poDate), amt: formatINR(row.po.grandTotal) })}
+            {isSubmitted && row.submittedBy ? ` · ${t("ver.dlgVerifiedBy", { name: row.submittedBy.name })}` : isAccepted ? ` · ${t("ver.dlgBooked")}` : ` · ${t("ver.dlgNotVerified")}`}
           </DialogDescription>
         </DialogHeader>
 
@@ -577,48 +583,48 @@ function ReviewDialog({ row, onClose, onDone }: { row: VerificationRow; onClose:
             <div className="rounded-lg border border-dmk-success/30 bg-dmk-success/10 p-3 flex items-start gap-2.5">
               <CheckCircle2 className="h-5 w-5 text-dmk-success shrink-0 mt-0.5" />
               <div className="text-[12.5px] text-dmk-text-secondary leading-relaxed">
-                Accepted {row.acceptedAt ? formatDate(row.acceptedAt) : ""} — {formatINR(row.acceptedValue || row.po.grandTotal)} booked: inventory Dr, ITC Dr, vendor payable Cr.
-                {row.acceptedNote && <span className="block mt-1 text-dmk-text-muted">Note: {row.acceptedNote}</span>}
+                {t("ver.acceptedLine", { date: row.acceptedAt ? formatDate(row.acceptedAt) : "", amt: formatINR(row.acceptedValue || row.po.grandTotal) })}
+                {row.acceptedNote && <span className="block mt-1 text-dmk-text-muted">{t("ver.noteLabel", { note: row.acceptedNote })}</span>}
               </div>
             </div>
-            <ItemsTable items={items} orderedFirst readonly />
+            <ItemsTable items={items} orderedFirst readonly t={t} />
           </div>
         ) : (
           <>
-            <ItemsTable items={items} orderedFirst editable onQty={setQty} />
+            <ItemsTable items={items} orderedFirst editable onQty={setQty} t={t} />
             {isSubmitted && row.submittedNote && (
               <p className="text-[11.5px] text-dmk-info bg-dmk-info/10 border border-dmk-info/25 rounded-md px-3 py-2">
-                Team note: {row.submittedNote}
+                {t("ver.teamNote", { note: row.submittedNote })}
               </p>
             )}
             <div className="grid grid-cols-3 gap-3">
-              <Field label="Ordered">
+              <Field label={t("ver.ordered")}>
                 <div className="dmk-well h-9 flex items-center justify-end px-3 font-money text-[13px]">{totals.ordered}</div>
               </Field>
-              <Field label="Sellable total">
+              <Field label={t("ver.sellableTotal")}>
                 <div className="dmk-well h-9 flex items-center justify-end px-3 font-money text-[13px] text-dmk-success">{totals.sellable}</div>
               </Field>
-              <Field label="Damaged total">
+              <Field label={t("ver.damagedTotal")}>
                 <div className={cn("dmk-well h-9 flex items-center justify-end px-3 font-money text-[13px]", totals.damaged > 0 ? "text-dmk-danger" : "")}>{totals.damaged}</div>
               </Field>
             </div>
-            <Field label="GRN note (optional)">
-              <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. received against bill SB-2291" className={inputCls} />
+            <Field label={t("ver.grnNote")}>
+              <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("ver.grnNotePh")} className={inputCls} />
             </Field>
             {error && <ErrorText>{error}</ErrorText>}
             <div className="flex flex-col sm:flex-row gap-2 justify-end pt-1">
               {isSubmitted && (
                 <Button variant="outline" onClick={sendBack} disabled={busy !== "none"} className="h-10 border-dmk-border-medium text-dmk-warning hover:text-dmk-warning">
-                  <Undo2 className="h-4 w-4" /> Send back to team
+                  <Undo2 className="h-4 w-4" /> {t("ver.sendBack")}
                 </Button>
               )}
               <Button onClick={accept} disabled={busy !== "none"} className="h-10 bg-dmk-success text-white hover:bg-dmk-success/90 font-bold">
                 <CheckCircle2 className="h-4 w-4" />
-                {busy === "accept" ? "Posting…" : `Accept & post ${formatINR(row.po.grandTotal)} to Finance`}
+                {busy === "accept" ? t("ver.posting") : t("ver.acceptPost", { amt: formatINR(row.po.grandTotal) })}
               </Button>
             </div>
             <p className="text-[10.5px] text-dmk-text-muted leading-relaxed">
-              Acceptance runs the GRN pipeline: sellable units → sellable stock · damaged units → quarantined damaged stock · vendor payable Cr · balanced PURCHASE journal. Until then nothing is booked.
+              {t("ver.grnPipeline")}
             </p>
           </>
         )}
@@ -633,22 +639,24 @@ function ItemsTable({
   readonly,
   orderedFirst,
   onQty,
+  t,
 }: {
   items: VerifyItem[];
   editable?: boolean;
   readonly?: boolean;
   orderedFirst?: boolean;
   onQty?: (id: string, key: "sellableQty" | "damagedQty", v: number) => void;
+  t: TFn;
 }) {
   return (
     <div className="dmk-well overflow-x-auto [&>*]:min-w-0">
       <table className="dmk-table">
         <thead>
           <tr>
-            <th>Product</th>
-            <th className="text-right">Ordered</th>
-            <th className="text-right w-[118px]">Sellable</th>
-            <th className="text-right w-[118px]">Damaged</th>
+            <th>{t("cmn.product")}</th>
+            <th className="text-right">{t("ver.ordered")}</th>
+            <th className="text-right w-[118px]">{t("ver.colSellable")}</th>
+            <th className="text-right w-[118px]">{t("ver.colDamaged")}</th>
           </tr>
         </thead>
         <tbody>
@@ -671,7 +679,7 @@ function ItemsTable({
                         value={i.sellableQty ?? 0}
                         onChange={(e) => onQty?.(i.id, "sellableQty", Number(e.target.value))}
                         className="h-8 text-right font-money text-[12.5px] bg-dmk-input-well border-dmk-border-subtle"
-                        aria-label={`Sellable quantity for ${i.productName}`}
+                        aria-label={t("ver.qSellable", { name: i.productName })}
                       />
                     </td>
                     <td>
@@ -684,7 +692,7 @@ function ItemsTable({
                           "h-8 text-right font-money text-[12.5px] bg-dmk-input-well border-dmk-border-subtle",
                           over && "border-dmk-danger text-dmk-danger"
                         )}
-                        aria-label={`Damaged quantity for ${i.productName}`}
+                        aria-label={t("ver.qDamaged", { name: i.productName })}
                       />
                     </td>
                   </>
@@ -707,11 +715,13 @@ function ItemsTable({
 
 // Portal roles — DRIVER routes the account to the delivery trip screen
 // on the team portal instead of the goods-in checkpoint.
-const STAFF_ROLE_OPTIONS: { value: string; label: string }[] = [
-  { value: "VERIFIER", label: "Verifier" },
-  { value: "SUPERVISOR", label: "Supervisor" },
-  { value: "DRIVER", label: "Driver (delivery trips)" },
-];
+function staffRoleOptions(t: TFn): { value: string; label: string }[] {
+  return [
+    { value: "VERIFIER", label: t("ver.roleVerifier") },
+    { value: "SUPERVISOR", label: t("ver.roleSupervisor") },
+    { value: "DRIVER", label: t("ver.roleDriver") },
+  ];
+}
 
 function StaffDialog({
   staff,
@@ -724,6 +734,7 @@ function StaffDialog({
 }) {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const { toast } = useToast();
+  const { t } = useT();
   const [form, setForm] = React.useState({
     name: staff?.name ?? "",
     username: staff?.username ?? "",
@@ -749,14 +760,14 @@ function StaffDialog({
           role: form.role,
           ...(form.password ? { password: form.password } : {}),
         });
-        toast({ title: "Team account updated", description: `${form.name} · @${form.username}` });
+        toast({ title: t("ver.toastUpdated"), description: `${form.name} · @${form.username}` });
       } else {
         await apiPost("/api/v1/verification/staff", { ...form, firmId: activeFirmId });
-        toast({ title: "Team account created", description: `${form.name} can now sign in on the verification portal (@${form.username}).` });
+        toast({ title: t("ver.toastCreated"), description: t("ver.toastCreatedDesc", { name: form.name, username: form.username }) });
       }
       onSaved();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Save failed.");
+      setError(e instanceof ApiError ? e.message : t("ver.errSave"));
     } finally {
       setBusy(false);
     }
@@ -766,32 +777,32 @@ function StaffDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="dmk-card">
         <DialogHeader>
-          <DialogTitle className="text-[15px] font-bold text-dmk-text-primary">{staff ? "Edit team account" : "Create team account"}</DialogTitle>
+          <DialogTitle className="text-[15px] font-bold text-dmk-text-primary">{staff ? t("ver.editAccount") : t("ver.createAccount")}</DialogTitle>
           <DialogDescription className="text-[12px] text-dmk-text-muted">
-            {staff ? "Update the verifier's details." : "Each verifier gets their own username + password for the team portal."}
+            {staff ? t("ver.editDesc") : t("ver.createDesc")}
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Full name</Label>
+            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">{t("ver.fullName")}</Label>
             <Input value={form.name} onChange={set("name")} placeholder="Ravi Kulkarni" className={inputCls} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Username</Label>
+            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">{t("ver.username")}</Label>
             <Input value={form.username} onChange={set("username")} placeholder="ravi" className={cn(inputCls, "lowercase")} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">{staff ? "New password (optional)" : "Password"}</Label>
-            <Input type="password" value={form.password} onChange={set("password")} placeholder={staff ? "leave blank to keep" : "min 4 chars"} className={inputCls} />
+            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">{staff ? t("ver.newPwOpt") : t("ver.password")}</Label>
+            <Input type="password" value={form.password} onChange={set("password")} placeholder={staff ? t("ver.pwKeepPh") : t("ver.minChars")} className={inputCls} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Phone</Label>
+            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">{t("cmn.phone")}</Label>
             <Input value={form.phone} onChange={set("phone")} placeholder="+91 …" className={inputCls} />
           </div>
           <div className="col-span-2 space-y-1.5">
-            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">Role</Label>
+            <Label className="text-[11px] uppercase tracking-widest text-dmk-text-muted font-semibold">{t("ver.role")}</Label>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-1">
-              {STAFF_ROLE_OPTIONS.map((r) => (
+              {staffRoleOptions(t).map((r) => (
                 <label key={r.value} className="flex items-center gap-2 text-[12.5px] text-dmk-text-secondary cursor-pointer">
                   <Switch checked={form.role === r.value} onCheckedChange={() => setForm((f) => ({ ...f, role: r.value }))} />
                   {r.label}
@@ -806,7 +817,7 @@ function StaffDialog({
           disabled={busy || !form.name || !form.username || (!staff && form.password.length < 4)}
           className="w-full h-10 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-bold"
         >
-          {busy ? "Saving…" : staff ? "Save changes" : "Create account"}
+          {busy ? t("ver.saving") : staff ? t("cmn.saveChanges") : t("ver.createAccount")}
         </Button>
       </DialogContent>
     </Dialog>
@@ -815,6 +826,7 @@ function StaffDialog({
 
 function ResetPasswordDialog({ staff, onClose, onSaved }: { staff: StaffRow; onClose: () => void; onSaved: () => void }) {
   const { toast } = useToast();
+  const { t } = useT();
   const [pw, setPw] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -824,10 +836,10 @@ function ResetPasswordDialog({ staff, onClose, onSaved }: { staff: StaffRow; onC
     setError(null);
     try {
       await apiPatch(`/api/v1/verification/staff/${staff.id}`, { password: pw });
-      toast({ title: "Password reset", description: `${staff.name} can sign in with the new password.` });
+      toast({ title: t("ver.toastReset"), description: t("ver.toastResetDesc", { name: staff.name }) });
       onSaved();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Reset failed.");
+      setError(e instanceof ApiError ? e.message : t("ver.errReset"));
     } finally {
       setBusy(false);
     }
@@ -837,15 +849,15 @@ function ResetPasswordDialog({ staff, onClose, onSaved }: { staff: StaffRow; onC
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="dmk-card">
         <DialogHeader>
-          <DialogTitle className="text-[15px] font-bold text-dmk-text-primary">Reset password — {staff.name}</DialogTitle>
-          <DialogDescription className="text-[12px] text-dmk-text-muted">@{staff.username} signs in with this password on the team portal.</DialogDescription>
+          <DialogTitle className="text-[15px] font-bold text-dmk-text-primary">{t("ver.resetTitle", { name: staff.name })}</DialogTitle>
+          <DialogDescription className="text-[12px] text-dmk-text-muted">{t("ver.resetDesc", { username: staff.username })}</DialogDescription>
         </DialogHeader>
-        <Field label="New password">
-          <Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="min 4 chars" className={inputCls} />
+        <Field label={t("ver.newPw")}>
+          <Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={t("ver.minChars")} className={inputCls} />
         </Field>
         {error && <ErrorText>{error}</ErrorText>}
         <Button onClick={reset} disabled={busy || pw.length < 4} className="w-full h-10 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90 font-bold">
-          <KeyRound className="h-4 w-4" /> Reset password
+          <KeyRound className="h-4 w-4" /> {t("ver.resetBtn")}
         </Button>
       </DialogContent>
     </Dialog>

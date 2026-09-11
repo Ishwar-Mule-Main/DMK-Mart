@@ -95,6 +95,7 @@ export default function CustomersView() {
 // ═══════════════════════════════════════════════════════════════
 function B2BTab() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   const firmStateCode = firm?.stateCode ?? "27";
@@ -155,14 +156,14 @@ function B2BTab() {
             <table className="dmk-table min-w-[1020px]">
               <thead>
                 <tr>
-                  <th>Party Name</th>
-                  <th>City</th>
-                  <th>State</th>
+                  <th>{t("cust.colPartyName")}</th>
+                  <th>{t("cust.colCity")}</th>
+                  <th>{t("cust.colState")}</th>
                   <th>GSTIN</th>
-                  <th>Tier</th>
-                  <th className="text-right">Credit limit</th>
-                  <th className="text-right">Outstanding</th>
-                  <th className="text-right">Days</th>
+                  <th>{t("cust.colTier")}</th>
+                  <th className="text-right">{t("cust.colCreditLimit")}</th>
+                  <th className="text-right">{t("cust.colOutstanding")}</th>
+                  <th className="text-right">{t("cust.colDays")}</th>
                   <th />
                 </tr>
               </thead>
@@ -524,6 +525,7 @@ function LedgerDialog({ customer, onClose }: { customer: Customer | null; onClos
 // ═══════════════════════════════════════════════════════════════
 function B2CTab() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const [query, setQuery] = React.useState("");
   const [rows, setRows] = React.useState<Customer[] | null>(null);
@@ -573,12 +575,12 @@ function B2CTab() {
             <table className="dmk-table min-w-[860px]">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Phone</th>
-                  <th className="text-right">Visits</th>
-                  <th className="text-right">Lifetime spend</th>
-                  <th className="text-right">Credit limit</th>
-                  <th className="text-right">Credit available</th>
+                  <th>{t("cmn.name")}</th>
+                  <th>{t("cmn.phone")}</th>
+                  <th className="text-right">{t("cust.colVisits")}</th>
+                  <th className="text-right">{t("cust.colLifetime")}</th>
+                  <th className="text-right">{t("cust.colCreditLimit")}</th>
+                  <th className="text-right">{t("cust.colCreditAvail")}</th>
                   <th />
                 </tr>
               </thead>
@@ -669,7 +671,7 @@ function NewBuyerDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
-          <DialogTitle className="text-dmk-text-primary">New counter buyer</DialogTitle>
+          <DialogTitle className="text-dmk-text-primary">{t("cust.newBuyerTitle")}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">{t("b2c.newBuyerDesc")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

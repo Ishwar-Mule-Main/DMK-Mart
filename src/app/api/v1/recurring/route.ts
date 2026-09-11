@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
     const stamped = await db.invoice.findMany({
       where: { firmId, templateId: { not: null } },
       select: { templateId: true, invoiceNumber: true, grandTotal: true, invoiceDate: true },
-      orderBy: { invoiceDate: "desc" },
+      orderBy: [{ invoiceDate: "desc" }, { createdAt: "desc" }],
     });
     const runsByTemplate = new Map<string, { count: number; billed: number; lastInvoiceNo: string; month: number }>();
     const nowMonth = new Date();

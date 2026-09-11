@@ -58,6 +58,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useT, type TFn } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -97,6 +98,17 @@ function defectTone(d: string): "danger" | "warning" | "info" | "neutral" {
   }
 }
 
+/** Translated defect label — stored value stays the canonical code. */
+function defectLabel(t: TFn, d: string): string {
+  switch (d) {
+    case "Damaged": return t("sret.dfnDamaged");
+    case "Broken": return t("sret.dfnBroken");
+    case "Defective": return t("sret.dfnDefective");
+    case "Wrong Item": return t("sret.dfnWrong");
+    default: return d;
+  }
+}
+
 function previewGst(taxable: number, rate: number, seller: string, buyer: string) {
   const intra = seller && buyer && seller === buyer;
   if (intra) return { cgst: round2((taxable * rate) / 200), sgst: round2((taxable * rate) / 200), igst: 0 };
@@ -114,11 +126,16 @@ interface DraftItem {
 
 type RefundMode = "CREDIT" | "UPI_NEFT" | "CASH";
 
-const REFUND_MODES: Array<{ value: RefundMode; label: string; sub: string }> = [
-  { value: "CREDIT", label: "Add to customer credit", sub: "Amount stays as credit in the customer's account" },
-  { value: "UPI_NEFT", label: "Pay via UPI/NEFT", sub: "Refund the amount instantly via bank transfer" },
-  { value: "CASH", label: "Pay via Cash", sub: "Refund the amount instantly in cash" },
-];
+const REFUND_MODES: RefundMode[] = ["CREDIT", "UPI_NEFT", "CASH"];
+
+/** Translated refund-settlement copy (label + sub) for a refund mode. */
+function refundModeCopy(t: TFn, mode: RefundMode): { label: string; sub: string } {
+  switch (mode) {
+    case "CREDIT": return { label: t("sret.refundCredit"), sub: t("sret.refundCreditSub") };
+    case "UPI_NEFT": return { label: t("sret.refundBank"), sub: t("sret.refundBankSub") };
+    default: return { label: t("sret.refundCash"), sub: t("sret.refundCashSub") };
+  }
+}
 
 // Line shape returned by GET /api/v1/invoices/[id]
 interface InvoiceLineLite {
@@ -141,6 +158,7 @@ interface InvoiceDetail {
 
 export default function SalesReturnsView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   const navigate = useErpStore((s) => s.setView);
@@ -157,16 +175,16 @@ export default function SalesReturnsView() {
       setRows(res);
     } catch (e) {
       setRows([]);
-      if (e instanceof ApiError) toast({ variant: "destructive", title: "Could not load returns", description: e.message });
+      if (e instanceof ApiError) toast({ variant: "destructive", title: t("sret.errLoadReturns"), description: e.message });
     }
-  }, [activeFirmId, toast]);
+  }, [activeFirmId, toast, t]);
 
   React.useEffect(() => {
     load();
   }, [load]);
 
   if (!activeFirmId) {
-    return <EmptyState icon={RotateCcw} title="No active firm" hint="Select a firm from the header switcher." />;
+    return <EmptyState icon={RotateCcw} title={t("sale.noFirm")} hint={t("sale.noFirmHint")} />;
   }
 
   // ── Masonry summary stats (computed from the loaded rows) ──────
@@ -195,8 +213,8 @@ export default function SalesReturnsView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Sales Returns"
-        subtitle="Customer returns → credit notes · goods quarantined to Damaged Stock (R4)"
+        title={t("nav.salesReturns")}
+        subtitle={t("sret.subtitle")}
         icon={RotateCcw}
         actions={
           <div className="flex items-center gap-2">
@@ -206,9 +224,9 @@ export default function SalesReturnsView() {
               className="h-9 border-dmk-info/40 bg-dmk-info/10 text-dmk-info hover:bg-dmk-info/20 hover:text-dmk-info font-semibold"
               disabled={list.length === 0}
               onClick={() => setSendOpen(true)}
-              title="Pick exactly which returned lines to send to vendors — nothing is sent on its own"
+              title={t("sret.sendTooltip")}
             >
-              <ArrowRightLeft className="h-4 w-4" /> Send to Purchase Return
+              <ArrowRightLeft className="h-4 w-4" /> {t("sret.sendToPurchase")}
             </Button>
             <Button
               size="sm"
@@ -218,11 +236,11 @@ export default function SalesReturnsView() {
             >
               {newOpen ? (
                 <>
-                  <X className="h-4 w-4" /> Close form
+                  <X className="h-4 w-4" /> {t("sret.closeForm")}
                 </>
               ) : (
                 <>
-                  <Plus className="h-4 w-4" /> New Return
+                  <Plus className="h-4 w-4" /> {t("sret.newReturn")}
                 </>
               )}
             </Button>
@@ -242,22 +260,22 @@ export default function SalesReturnsView() {
       <SectionGrid
         list={
           <RegisterCard
-            title="Credit notes"
+            title={t("sret.creditNotes")}
             icon={RotateCcw}
             count={list.length}
-            countLabel="returns"
+            countLabel={t("sret.returns")}
             footer={
               <>
-                <span><span className="font-money text-dmk-text-secondary">{formatINR(totalValue)}</span> returned value</span>
-                <span><span className="font-money text-dmk-warning">{totalItems}</span> items quarantined</span>
-                <span className="hidden sm:inline">qty NEVER re-enters sellable stock</span>
+                <span>{t("sret.returnedValue", { amt: formatINR(totalValue) })}</span>
+                <span>{t("sret.itemsQuarantined", { n: totalItems })}</span>
+                <span className="hidden sm:inline">{t("sret.neverSellable")}</span>
               </>
             }
           >
             {rows === null ? (
               <LoadingRows rows={6} />
             ) : list.length === 0 ? (
-              <EmptyState icon={RotateCcw} title="No returns recorded" hint="Create a return from the button above — a credit note is generated and the customer ledger is credited." />
+              <EmptyState icon={RotateCcw} title={t("sret.empty")} hint={t("sret.emptyHint")} />
             ) : (
               list.map((r) => (
                 <RegisterRow key={r.id} onClick={() => setView(r)}>
@@ -265,17 +283,17 @@ export default function SalesReturnsView() {
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="font-money text-[12px] text-dmk-text-primary shrink-0">{r.creditNoteNo}</span>
                       <span className="text-[11px] text-dmk-text-muted shrink-0">{formatDate(r.returnDate)}</span>
-                      {r.invoiceRef && <span className="font-money text-[10.5px] text-dmk-text-muted truncate" title={`Against invoice ${r.invoiceRef}`}>ref {r.invoiceRef}</span>}
+                      {r.invoiceRef && <span className="font-money text-[10.5px] text-dmk-text-muted truncate" title={t("sret.againstInvoice", { no: r.invoiceRef })}>{t("sale.refShort", { no: r.invoiceRef })}</span>}
                     </div>
-                    <Badge tone="warning">CREDIT NOTE</Badge>
+                    <Badge tone="warning">{t("sale.creditNote")}</Badge>
                   </div>
                   <div className="mt-1 flex items-center justify-between gap-2">
                     <span className="text-[12px] text-dmk-text-secondary truncate">
                       {r.customer?.partyName ?? "—"}
-                      <span className="text-dmk-text-muted"> · {r.items.length} item{r.items.length === 1 ? "" : "s"}</span>
+                      <span className="text-dmk-text-muted"> · {t("sret.itemCount", { n: r.items.length })}</span>
                     </span>
                     <span className="flex items-baseline gap-2 shrink-0">
-                      <span className="text-[10.5px] text-dmk-text-muted hidden sm:inline">sub {formatINR(Number(r.subtotal))} · tax {formatINR(Number(r.totalTax))}</span>
+                      <span className="text-[10.5px] text-dmk-text-muted hidden sm:inline">{t("sret.subTax", { sub: formatINR(Number(r.subtotal)), tax: formatINR(Number(r.totalTax)) })}</span>
                       <span className="font-money text-[13px] font-semibold text-dmk-warning">{formatINR(Number(r.grandTotal))}</span>
                     </span>
                   </div>
@@ -287,35 +305,33 @@ export default function SalesReturnsView() {
         aside={
           <>
             <div className="grid grid-cols-2 gap-3">
-              <KpiCard label="Credit notes" value={String(list.length)} sub={`${totalItems} line items`} icon={RotateCcw} />
-              <KpiCard label="Returned value" value={formatINR(totalValue)} sub={`${formatINR(monthValue)} this month`} icon={IndianRupee} tone="gold" />
-              <KpiCard label="Quarantined qty" value={String(totalItems)} sub="sits in Damaged pool" icon={PackageX} tone="gold" />
-              <KpiCard label="This month" value={formatINR(monthValue)} sub="credit notes issued" icon={AlertTriangle} tone={monthValue > 0 ? "orange" : "default"} />
+              <KpiCard label={t("sret.creditNotes")} value={String(list.length)} sub={t("sret.kpiLineItems", { n: totalItems })} icon={RotateCcw} />
+              <KpiCard label={t("sret.kpiReturnedValue")} value={formatINR(totalValue)} sub={t("sret.kpiThisMonthSub", { amt: formatINR(monthValue) })} icon={IndianRupee} tone="gold" />
+              <KpiCard label={t("sret.kpiQuarantined")} value={String(totalItems)} sub={t("sret.kpiQuarantinedSub")} icon={PackageX} tone="gold" />
+              <KpiCard label={t("cmn.thisMonth")} value={formatINR(monthValue)} sub={t("sret.kpiIssued")} icon={AlertTriangle} tone={monthValue > 0 ? "orange" : "default"} />
             </div>
 
             <AsideCard
-              title="Quarantine policy"
+              title={t("sret.policyTitle")}
               icon={ShieldAlert}
               iconClass="text-dmk-warning"
-              footnote="Returned quantity can only leave the Damaged pool via a purchase return (debit note) to the vendor or a write-off — never via a sale."
+              footnote={t("sret.policyFoot")}
             >
               <p className="text-[12px] text-dmk-text-secondary leading-relaxed">
-                Every return posts a <span className="font-semibold text-dmk-warning">CREDIT NOTE</span> journal, credits the customer
-                ledger, and moves the qty into the product&apos;s <span className="font-semibold">Damaged (quarantine) stock</span> —
-                sellable inventory is never touched (R4).
+                {t("sret.policyBody")}
               </p>
             </AsideCard>
 
-            <AsideCard title="Defect mix" icon={PackageX} iconClass="text-dmk-danger" footnote="Grouped by the defect recorded on each returned line.">
+            <AsideCard title={t("sret.defectMix")} icon={PackageX} iconClass="text-dmk-danger" footnote={t("sret.defectFoot")}>
               <div className="space-y-2.5">
                 {defectRows.length === 0 ? (
-                  <p className="text-[12px] text-dmk-text-muted">No defective qty recorded yet.</p>
+                  <p className="text-[12px] text-dmk-text-muted">{t("sret.noDefects")}</p>
                 ) : (
                   defectRows.map(([d, v]) => (
                     <MixBar
                       key={d}
-                      label={<Badge tone={defectTone(d)}>{d}</Badge>}
-                      value={`${v.count} qty · ${formatINR(v.value)}`}
+                      label={<Badge tone={defectTone(d)}>{defectLabel(t, d)}</Badge>}
+                      value={t("sret.qtyValue", { n: v.count, amt: formatINR(v.value) })}
                       pct={(v.value / defectTotal) * 100}
                       barClass={defectToneBar[d] ?? "bg-dmk-yellow"}
                     />
@@ -325,21 +341,21 @@ export default function SalesReturnsView() {
             </AsideCard>
 
             <AsideCard
-              title="Recover from vendor"
+              title={t("sret.recoverTitle")}
               icon={ArrowRightLeft}
               iconClass="text-dmk-info"
-              footnote="Create a debit note in Purchase Returns — damaged stock and vendor payable reduce together."
+              footnote={t("sret.recoverFoot")}
             >
               <p className="text-[12px] text-dmk-text-secondary leading-relaxed">
-                Quarantined goods can be sent back to the supplier. Open{' '}
+                {t("sret.recoverBody1")}{" "}
                 <button
                   type="button"
                   onClick={() => navigate("purchase/returns")}
                   className="font-semibold text-dmk-info underline underline-offset-2 hover:text-dmk-text-primary"
                 >
-                  Purchase Returns
-                </button>{' '}
-                and raise a debit note against the same products.
+                  {t("sret.purchaseReturnsLink")}
+                </button>{" "}
+                {t("sret.recoverBody2")}
               </p>
             </AsideCard>
           </>
@@ -352,10 +368,10 @@ export default function SalesReturnsView() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-dmk-text-primary">
               <span className="font-money">{view?.creditNoteNo}</span>
-              <Badge tone="warning">CREDIT NOTE</Badge>
+              <Badge tone="warning">{t("sale.creditNote")}</Badge>
             </DialogTitle>
             <DialogDescription className="text-dmk-text-muted">
-              {view ? `${formatDate(view.returnDate)} · ${view.customer?.partyName ?? "—"}${view.invoiceRef ? ` · ref ${view.invoiceRef}` : ""}` : ""}
+              {view ? `${formatDate(view.returnDate)} · ${view.customer?.partyName ?? "—"}${view.invoiceRef ? ` · ${t("sale.refShort", { no: view.invoiceRef })}` : ""}` : ""}
             </DialogDescription>
           </DialogHeader>
           {view && (
@@ -366,12 +382,12 @@ export default function SalesReturnsView() {
                     <thead>
                       <tr>
                         <th>SKU</th>
-                        <th>Product</th>
-                        <th className="text-right">Qty</th>
-                        <th>Defect</th>
-                        <th className="text-right">Rate</th>
-                        <th className="text-right">Amount</th>
-                        <th className="text-right">To vendor</th>
+                        <th>{t("cmn.product")}</th>
+                        <th className="text-right">{t("sale.qty")}</th>
+                        <th>{t("sret.colDefect")}</th>
+                        <th className="text-right">{t("cmn.rate")}</th>
+                        <th className="text-right">{t("cmn.amount")}</th>
+                        <th className="text-right">{t("sret.colToVendor")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -383,12 +399,12 @@ export default function SalesReturnsView() {
                             <td className="font-money text-[11.5px] text-dmk-text-secondary">{it.product?.sku ?? "—"}</td>
                             <td className="max-w-[180px] truncate text-[12.5px]">{it.product?.name ?? "—"}</td>
                             <td className="num text-[12px]">{it.damagedQty}</td>
-                            <td><Badge tone={defectTone(it.defectType)}>{it.defectType}</Badge></td>
+                            <td><Badge tone={defectTone(it.defectType)}>{defectLabel(t, it.defectType)}</Badge></td>
                             <td className="num text-[12px]">{formatINR(Number(it.unitPrice))}</td>
                             <td className="num text-[12px]">{formatINR(Number(it.totalAmount))}</td>
                             <td className="num text-right">
                               {fully ? (
-                                <Badge tone="success">recovered</Badge>
+                                <Badge tone="success">{t("sret.recovered")}</Badge>
                               ) : (
                                 <span className="font-money text-[11.5px] text-dmk-text-muted">{sent} / {it.damagedQty}</span>
                               )}
@@ -401,13 +417,13 @@ export default function SalesReturnsView() {
                 </div>
               </div>
               <div className="flex justify-between items-center dmk-well px-3 py-2.5">
-                <span className="text-[12px] text-dmk-text-muted">Subtotal {formatINR(Number(view.subtotal))} + Tax {formatINR(Number(view.totalTax))} =</span>
+                <span className="text-[12px] text-dmk-text-muted">{t("sret.viewSubtotal", { sub: formatINR(Number(view.subtotal)), tax: formatINR(Number(view.totalTax)) })}</span>
                 <span className="font-money text-[16px] text-dmk-yellow">{formatINR(Number(view.grandTotal))}</span>
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setView(null)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Close</Button>
+            <Button variant="outline" onClick={() => setView(null)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">{t("cmn.close")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -433,6 +449,7 @@ function NewReturnPanel({
   firmStateCode: string;
 }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
 
   const [customers, setCustomers] = React.useState<Customer[]>([]);
@@ -468,13 +485,13 @@ function NewReturnPanel({
           setProducts(Array.isArray(p) ? p : (p.products ?? []));
         }
       } catch (e) {
-        if (alive && e instanceof ApiError) toast({ variant: "destructive", title: "Could not load data", description: e.message });
+        if (alive && e instanceof ApiError) toast({ variant: "destructive", title: t("sret.errLoadData"), description: e.message });
       }
     })();
     return () => {
       alive = false;
     };
-  }, [activeFirmId]);
+  }, [activeFirmId, t]);
 
   // Load the selected customer's invoices for the reference picker
   React.useEffect(() => {
@@ -503,7 +520,8 @@ function NewReturnPanel({
     arr.sort((a, b) => {
       const da = new Date(a.invoiceDate).getTime() || 0;
       const dbb = new Date(b.invoiceDate).getTime() || 0;
-      return dbb - da;
+      if (dbb !== da) return dbb - da; // newest first, then most recently created first
+      return (b.createdAt ? new Date(b.createdAt).getTime() : 0) - (a.createdAt ? new Date(a.createdAt).getTime() : 0);
     });
     return arr;
   }, [custInvoices]);
@@ -570,17 +588,17 @@ function NewReturnPanel({
     if (!activeFirmId) return;
     const returnItems = items.filter((it) => it.qty > 0);
     if (returnItems.length === 0) {
-      toast({ variant: "destructive", title: "Nothing to return", description: "Set a damaged quantity (at least 1) on the products being returned — rows left at 0 stay out of the return." });
+      toast({ variant: "destructive", title: t("sret.errNothing"), description: t("sret.errNothingDesc") });
       return;
     }
     const over = returnItems.filter((it) => it.invoicedQty != null && it.qty > (it.invoicedQty ?? 0));
     if (over.length > 0) {
-      toast({ variant: "destructive", title: "Quantity exceeds the invoice", description: `${over.length} row(s) exceed the invoiced quantity — reduce the damaged qty on those rows.` });
+      toast({ variant: "destructive", title: t("sret.errOverQty"), description: t("sret.errOverQtyDesc", { n: over.length }) });
       return;
     }
     const valid = returnItems.every((it) => it.productId && Number(it.unitPrice) >= 0);
     if (!valid) {
-      toast({ variant: "destructive", title: "Invalid rows", description: "Every returned line needs a product and a rate." });
+      toast({ variant: "destructive", title: t("sret.errInvalid"), description: t("sret.errInvalidDesc") });
       return;
     }
     setSaving(true);
@@ -597,19 +615,19 @@ function NewReturnPanel({
       });
       const settleNote =
         refundMode === "CREDIT"
-          ? `${formatINR(res.salesReturn?.grandTotal ?? 0)} credited to the customer's account`
+          ? t("sret.noteCreditAmt", { amt: formatINR(res.salesReturn?.grandTotal ?? 0) })
           : refundMode === "UPI_NEFT"
-            ? `${formatINR(res.salesReturn?.grandTotal ?? 0)} refund payable via UPI/NEFT`
-            : `${formatINR(res.salesReturn?.grandTotal ?? 0)} refund payable in Cash`;
-      toast({ title: `Return recorded — ${res.salesReturn?.creditNoteNo ?? "credit note posted"}`, description: `Damaged qty quarantined · ${settleNote}.` });
+            ? t("sret.noteBankAmt", { amt: formatINR(res.salesReturn?.grandTotal ?? 0) })
+            : t("sret.noteCashAmt", { amt: formatINR(res.salesReturn?.grandTotal ?? 0) });
+      toast({ title: t("sret.toastRecorded", { no: res.salesReturn?.creditNoteNo ?? t("sret.phCreditNotePosted") }), description: t("sret.toastRecordedDesc", { note: settleNote }) });
       setItems([]);
       setCustomerId("");
       setInvoiceId("");
       onCreated();
       onClose();
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not record return.";
-      toast({ variant: "destructive", title: "Return failed", description: msg });
+      const msg = e instanceof ApiError ? e.message : t("sret.errRecordReturn");
+      toast({ variant: "destructive", title: t("sret.errReturnFailed"), description: msg });
     } finally {
       setSaving(false);
     }
@@ -619,7 +637,7 @@ function NewReturnPanel({
     <div
       ref={panelRef}
       role="region"
-      aria-label="New sales return form"
+      aria-label={t("sret.formAria")}
       className="dmk-card relative overflow-hidden dmk-enter"
     >
       {/* Accent strip */}
@@ -633,16 +651,16 @@ function NewReturnPanel({
               <RotateCcw className="h-4 w-4 text-dmk-warning" />
             </span>
             <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold text-dmk-text-primary">New sales return</h2>
+              <h2 className="text-[15px] font-semibold text-dmk-text-primary">{t("sret.formTitle")}</h2>
               <p className="text-[11.5px] text-dmk-text-muted leading-snug">
-                B2B customers only — damaged/broken goods are not collected from B2C counter buyers. Pick a customer invoice to auto-load its products at the invoiced prices, then set the damaged qty per row (0 = not returned).
+                {t("sret.formDesc")}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close new return form"
+            aria-label={t("sret.closeFormAria")}
             className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md text-dmk-text-muted hover:text-dmk-text-primary hover:bg-dmk-hover transition-colors"
           >
             <X className="h-4 w-4" />
@@ -650,12 +668,12 @@ function NewReturnPanel({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-          <Field label="Customer (B2B)">
+          <Field label={t("sret.fCustomer")}>
             <Select
               value={customerId}
               onValueChange={(v) => setCustomerId(v)}
             >
-              <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder="Select B2B customer" /></SelectTrigger>
+              <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder={t("sret.phSelectCust")} /></SelectTrigger>
               <SelectContent className="max-h-64">
                 {customers.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
@@ -665,15 +683,15 @@ function NewReturnPanel({
               </SelectContent>
             </Select>
             <p className="mt-1 text-[11px] leading-tight text-dmk-text-muted">
-              B2B only — no returns from B2C counter buyers.
+              {t("sret.b2bOnly")}
             </p>
           </Field>
-          <Field label="Customer invoices">
+          <Field label={t("sret.fInvoices")}>
             <Select value={invoiceId} onValueChange={setInvoiceId} disabled={!customerId}>
-              <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder={customerId ? "Pick an invoice…" : "Pick a customer first"} /></SelectTrigger>
+              <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder={customerId ? t("sret.phPickInvoice") : t("sret.phPickCustFirst")} /></SelectTrigger>
               <SelectContent className="max-h-64">
                 {sortedInvoices.length === 0 ? (
-                  <SelectItem value="none" disabled>No invoices for this customer</SelectItem>
+                  <SelectItem value="none" disabled>{t("sret.noInvoices")}</SelectItem>
                 ) : (
                   sortedInvoices.map((i) => (
                     <SelectItem key={i.id} value={i.id}>
@@ -684,34 +702,37 @@ function NewReturnPanel({
               </SelectContent>
             </Select>
             <p className="mt-1 text-[11px] leading-tight text-dmk-text-muted">
-              Newest invoices first — picking one loads its products &amp; prices below.
+              {t("sret.invoicesHint")}
             </p>
           </Field>
-          <Field label="Return date">
+          <Field label={t("sret.fReturnDate")}>
             <Input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className={inputCls} />
           </Field>
-          <Field label="Refund settlement">
+          <Field label={t("sret.fRefund")}>
             <div className="grid grid-cols-3 gap-1.5">
-              {REFUND_MODES.map((m) => (
-                <button
-                  key={m.value}
-                  type="button"
-                  onClick={() => setRefundMode(m.value)}
-                  title={`${m.label} — ${m.sub}`}
-                  aria-pressed={refundMode === m.value}
-                  className={cn(
-                    "h-9 rounded-md border px-1 text-[11px] font-medium leading-tight transition-colors",
-                    refundMode === m.value
-                      ? "border-dmk-yellow bg-dmk-yellow text-[#0A0F1D] shadow-sm"
-                      : "border-dmk-border-medium bg-transparent text-dmk-text-secondary hover:bg-dmk-hover",
-                  )}
-                >
-                  {m.value === "CREDIT" ? "Add to credit" : m.value === "UPI_NEFT" ? "UPI / NEFT" : "Cash"}
-                </button>
-              ))}
+              {REFUND_MODES.map((m) => {
+                const copy = refundModeCopy(t, m);
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setRefundMode(m)}
+                    title={`${copy.label} — ${copy.sub}`}
+                    aria-pressed={refundMode === m}
+                    className={cn(
+                      "h-9 rounded-md border px-1 text-[11px] font-medium leading-tight transition-colors",
+                      refundMode === m
+                        ? "border-dmk-yellow bg-dmk-yellow text-[#0A0F1D] shadow-sm"
+                        : "border-dmk-border-medium bg-transparent text-dmk-text-secondary hover:bg-dmk-hover",
+                    )}
+                  >
+                    {m === "CREDIT" ? t("sret.refundCreditBtn") : m === "UPI_NEFT" ? t("sret.refundBankBtn") : t("sret.refundCashBtn")}
+                  </button>
+                );
+              })}
             </div>
             <p className="mt-1 text-[11px] leading-tight text-dmk-text-muted">
-              {REFUND_MODES.find((m) => m.value === refundMode)?.sub}
+              {refundModeCopy(t, refundMode).sub}
             </p>
           </Field>
         </div>
@@ -720,23 +741,23 @@ function NewReturnPanel({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-              {invLoading ? "Loading invoice products…" : selectedInvoice ? `Products from ${selectedInvoice.invoiceNumber} — invoiced prices` : "Returned items"}
+              {invLoading ? t("sret.loadingInvoice") : selectedInvoice ? t("sret.productsFrom", { no: selectedInvoice.invoiceNumber }) : t("sret.returnedItems")}
             </span>
             {selectedInvoice ? (
-              <span className="text-[11px] text-dmk-text-muted">Set damaged qty — rows left at 0 are not returned</span>
+              <span className="text-[11px] text-dmk-text-muted">{t("sret.setQtyHint")}</span>
             ) : (
               <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={addItem} disabled={products.length === 0}>
-                <Plus className="h-3.5 w-3.5" /> Add item
+                <Plus className="h-3.5 w-3.5" /> {t("sret.addItem")}
               </Button>
             )}
           </div>
           {items.length === 0 ? (
             <div className="dmk-well p-4 text-center text-[12px] text-dmk-text-muted">
               {selectedInvoice
-                ? "No product lines on this invoice."
+                ? t("sret.emptyNoLines")
                 : customerId
-                  ? "Pick an invoice above to auto-load its products, or click “Add item”."
-                  : "Select a B2B customer to begin."}
+                  ? t("sret.emptyPickInvoice")
+                  : t("sret.emptySelectCust")}
             </div>
           ) : (
             <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
@@ -753,10 +774,10 @@ function NewReturnPanel({
                         <div>
                           <span className="block text-[12.5px] font-medium leading-tight">
                             <span className="font-money text-[10.5px] text-dmk-text-muted mr-1.5">{p?.sku ?? "—"}</span>
-                            {p?.name ?? "Product"}
+                            {p?.name ?? t("cmn.product")}
                           </span>
                           <span className="mt-0.5 block text-[10.5px] text-dmk-text-muted">
-                            Invoiced <span className="font-money">{it.invoicedQty}</span> × <span className="font-money">{formatINR(it.unitPrice)}</span> — invoiced price
+                            {t("sret.invoiced", { qty: it.invoicedQty ?? 0, price: formatINR(it.unitPrice) })}
                           </span>
                         </div>
                       ) : (
@@ -780,7 +801,7 @@ function NewReturnPanel({
                     </div>
                     <div className="col-span-4 sm:col-span-2">
                       {it.fromInvoice && (
-                        <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">Damaged qty</label>
+                        <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">{t("sret.damagedQty")}</label>
                       )}
                       <Input
                         type="number"
@@ -788,28 +809,28 @@ function NewReturnPanel({
                         step={1}
                         value={it.qty}
                         onChange={(e) => updateItem(idx, { qty: it.fromInvoice ? Math.max(0, Math.floor(Number(e.target.value) || 0)) : Math.max(1, Number(e.target.value) || 1) })}
-                        aria-label={it.fromInvoice ? "Damaged quantity" : "Returned quantity"}
+                        aria-label={it.fromInvoice ? t("sret.damagedQtyAria") : t("sret.returnedQtyAria")}
                         className={cn(inputCls, "font-money", over && "border-dmk-danger")}
-                        placeholder={it.fromInvoice ? "0" : "Qty"}
+                        placeholder={it.fromInvoice ? "0" : t("sret.phQty")}
                       />
-                      {over && <span className="mt-0.5 block text-[10px] text-dmk-danger">Max {it.invoicedQty}</span>}
+                      {over && <span className="mt-0.5 block text-[10px] text-dmk-danger">{t("sret.maxQty", { n: it.invoicedQty ?? 0 })}</span>}
                     </div>
                     <div className="col-span-8 sm:col-span-3">
                       {it.fromInvoice && (
-                        <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">Defect</label>
+                        <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-dmk-text-muted">{t("sret.colDefect")}</label>
                       )}
                       <Select value={it.defectType} onValueChange={(v) => updateItem(idx, { defectType: v as DraftItem["defectType"] })}>
                         <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {DEFECTS.map((d) => (
-                            <SelectItem key={d} value={d}>{d}</SelectItem>
+                            <SelectItem key={d} value={d}>{defectLabel(t, d)}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                     {it.fromInvoice ? (
                       <div className="col-span-10 sm:col-span-1.5 text-right">
-                        <span className="block text-[10px] uppercase tracking-wide text-dmk-text-muted sm:hidden">Line total</span>
+                        <span className="block text-[10px] uppercase tracking-wide text-dmk-text-muted sm:hidden">{t("sret.lineTotalMobile")}</span>
                         <span className="font-money text-[12.5px] text-dmk-text-primary">{formatINR(round2(lineTaxable + g.cgst + g.sgst + g.igst))}</span>
                       </div>
                     ) : (
@@ -820,7 +841,7 @@ function NewReturnPanel({
                           step={0.01}
                           value={it.unitPrice}
                           onChange={(e) => updateItem(idx, { unitPrice: Number(e.target.value) || 0 })}
-                          aria-label="Unit price"
+                          aria-label={t("sret.unitPriceAria")}
                           className={cn(inputCls, "font-money")}
                           placeholder="₹"
                         />
@@ -829,7 +850,7 @@ function NewReturnPanel({
                     <div className="col-span-2 sm:col-span-0.5 flex justify-end">
                       <button
                         onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
-                        aria-label="Remove item"
+                        aria-label={t("sret.removeAria")}
                         className="h-8 w-8 inline-flex items-center justify-center rounded-md text-dmk-text-muted hover:text-dmk-danger hover:bg-dmk-hover transition-colors"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -838,16 +859,13 @@ function NewReturnPanel({
                     <div className="col-span-12 flex items-center justify-between text-[11px] text-dmk-text-muted px-1">
                       <span>
                         {over ? (
-                          <span className="text-dmk-danger font-medium">Exceeds invoiced qty ({it.invoicedQty})</span>
+                          <span className="text-dmk-danger font-medium">{t("sret.exceeds", { n: it.invoicedQty ?? 0 })}</span>
                         ) : (
-                          <>
-                            Taxable <span className="font-money text-dmk-text-secondary">{formatINR(lineTaxable)}</span>
-                            {" · "}GST {p?.gstRate ?? 0}% <span className="font-money text-dmk-text-secondary">{formatINR(g.cgst + g.sgst + g.igst)}</span>
-                          </>
+                          t("sret.taxableGst", { taxable: formatINR(lineTaxable), rate: p?.gstRate ?? 0, tax: formatINR(g.cgst + g.sgst + g.igst) })
                         )}
                       </span>
                       <span>
-                        Line total <span className="font-money text-dmk-text-primary">{formatINR(round2(lineTaxable + g.cgst + g.sgst + g.igst))}</span>
+                        {t("sret.lineTotal", { amt: formatINR(round2(lineTaxable + g.cgst + g.sgst + g.igst)) })}
                       </span>
                     </div>
                   </div>
@@ -859,18 +877,18 @@ function NewReturnPanel({
 
         {overQtyRows.length > 0 && (
           <div className="rounded-md border border-dmk-danger/40 bg-dmk-danger/10 px-3 py-2 text-[11.5px] text-dmk-danger">
-            {overQtyRows.length} row{overQtyRows.length === 1 ? "" : "s"} exceed the invoiced quantity — reduce the damaged qty before posting.
+            {t("sret.overWarn", { n: overQtyRows.length })}
           </div>
         )}
 
         <div className="flex items-center justify-between dmk-well px-3 py-2.5">
           <div className="flex items-center gap-1.5 text-[11.5px] text-dmk-warning">
-            <AlertTriangle className="h-3.5 w-3.5" /> Damaged qty quarantined to Damaged Stock
+            <AlertTriangle className="h-3.5 w-3.5" /> {t("sret.quarantineWarn")}
           </div>
           <div className="text-right">
             <span className="text-[11px] text-dmk-text-muted block">
-              {refundMode === "CREDIT" ? "Credited to customer account" : refundMode === "UPI_NEFT" ? "Refund via UPI/NEFT" : "Refund in Cash"}
-              {" (taxable "}{formatINR(draftTotals.taxable)}{" + tax "}{formatINR(draftTotals.tax)}{")"}
+              {refundMode === "CREDIT" ? t("sret.settleCredit") : refundMode === "UPI_NEFT" ? t("sret.settleBank") : t("sret.settleCash")}
+              {t("sret.settleDetail", { t: formatINR(draftTotals.taxable), x: formatINR(draftTotals.tax) })}
             </span>
             <span className="font-money text-[16px] text-dmk-yellow">{formatINR(draftTotals.grand)}</span>
           </div>
@@ -878,9 +896,9 @@ function NewReturnPanel({
 
         {/* Panel footer actions */}
         <div className="flex items-center justify-end gap-2 border-t border-dmk-border-subtle pt-3">
-          <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
+          <Button variant="outline" onClick={onClose} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">{t("cmn.cancel")}</Button>
           <Button onClick={submit} disabled={saving || returnRows.length === 0 || overQtyRows.length > 0} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
-            {saving ? "Posting…" : returnRows.length > 0 ? `Create credit note · ${returnRows.length} item${returnRows.length === 1 ? "" : "s"}` : "Create credit note"}
+            {saving ? t("sret.posting") : returnRows.length > 0 ? t("sret.createCnItems", { n: returnRows.length }) : t("sret.createCn")}
           </Button>
         </div>
       </div>
@@ -925,6 +943,7 @@ function SendToPurchaseDialog({
   onSent: () => void | Promise<void>;
 }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const navigate = useErpStore((s) => s.setView);
 
@@ -952,13 +971,13 @@ function SendToPurchaseDialog({
       .catch((e) => {
         if (!alive) return;
         setLines([]);
-        if (e instanceof ApiError) toast({ variant: "destructive", title: "Could not load pending lines", description: e.message });
+        if (e instanceof ApiError) toast({ variant: "destructive", title: t("sret.errLoadPending"), description: e.message });
       })
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
-  }, [open, activeFirmId, toast]);
+  }, [open, activeFirmId, toast, t]);
 
   const list = lines ?? [];
   const chosen = list.filter((l) => selected.has(l.itemId) && l.sendableQty > 0);
@@ -989,8 +1008,8 @@ function SendToPurchaseDialog({
         itemIds: chosen.map((l) => l.itemId),
       });
       toast({
-        title: `${res.totals.debitNotes} debit note${res.totals.debitNotes === 1 ? "" : "s"} created`,
-        description: `${res.message} · ${formatINR(res.totals.value)} recovered from vendors.`,
+        title: t("sret.toastCreated", { n: res.totals.debitNotes }),
+        description: t("sret.toastCreatedDesc", { msg: res.message, amt: formatINR(res.totals.value) }),
       });
       onOpenChange(false);
       await onSent();
@@ -998,8 +1017,8 @@ function SendToPurchaseDialog({
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Could not send to Purchase Return",
-        description: e instanceof ApiError ? e.message : "Something went wrong.",
+        title: t("sret.errSend"),
+        description: e instanceof ApiError ? e.message : t("sret.errSendGeneric"),
       });
     } finally {
       setSending(false);
@@ -1011,35 +1030,32 @@ function SendToPurchaseDialog({
       <DialogContent className="dmk-elevated max-w-2xl border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-dmk-text-primary">
-            <ArrowRightLeft className="h-5 w-5 text-dmk-info" /> Send returned products to Purchase Return
+            <ArrowRightLeft className="h-5 w-5 text-dmk-info" /> {t("sret.sendTitle")}
           </DialogTitle>
           <DialogDescription className="text-dmk-text-secondary">
-            Only sales-return quantities <span className="font-semibold text-dmk-text-primary">not yet sent to vendors</span> are
-            listed below. Tick exactly what goes — nothing is sent on its own.
+            {t("sret.sendDesc")}
           </DialogDescription>
         </DialogHeader>
 
         {loading || lines === null ? (
           <div className="space-y-2">
             <LoadingRows rows={4} />
-            <p className="text-center text-[11.5px] text-dmk-text-muted">Checking pending sales-return lines…</p>
+            <p className="text-center text-[11.5px] text-dmk-text-muted">{t("sret.checking")}</p>
           </div>
         ) : list.length === 0 ? (
           <div className="dmk-well flex flex-col items-center gap-2 px-4 py-8 text-center">
             <CheckCircle2 className="h-9 w-9 text-dmk-success" />
-            <p className="text-[14px] font-semibold text-dmk-text-primary">Nothing pending</p>
+            <p className="text-[14px] font-semibold text-dmk-text-primary">{t("sret.nothingPending")}</p>
             <p className="max-w-sm text-[12px] leading-relaxed text-dmk-text-muted">
-              {allRecovered
-                ? "Every sales-return quantity has already been sent to vendors — there is nothing left to recover, so no debit note will be created."
-                : "No sales returns recorded yet."}{" "}
-              A debit note can still be raised manually from the Purchase Returns section.
+              {allRecovered ? t("sret.allRecovered") : t("sret.noReturns")}{" "}
+              {t("sret.manualNote")}
             </p>
           </div>
         ) : (
           <>
             <div className="flex items-center justify-between px-0.5">
               <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted">
-                Pending lines · {list.length} not yet recovered
+                {t("sret.pendingLines", { n: list.length })}
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -1047,7 +1063,7 @@ function SendToPurchaseDialog({
                   onClick={() => setSelected(new Set(list.filter((l) => l.sendableQty > 0).map((l) => l.itemId)))}
                   className="text-[11px] font-medium text-dmk-info underline underline-offset-2 hover:text-dmk-text-primary"
                 >
-                  Select all
+                  {t("sret.selectAll")}
                 </button>
                 <span className="text-dmk-border-medium">·</span>
                 <button
@@ -1055,7 +1071,7 @@ function SendToPurchaseDialog({
                   onClick={() => setSelected(new Set())}
                   className="text-[11px] font-medium text-dmk-text-muted underline underline-offset-2 hover:text-dmk-text-primary"
                 >
-                  Clear
+                  {t("sret.clear")}
                 </button>
               </div>
             </div>
@@ -1078,7 +1094,7 @@ function SendToPurchaseDialog({
                       disabled={!sendable || sending}
                       onCheckedChange={() => toggle(l.itemId)}
                       className="mt-0.5"
-                      aria-label={`Select ${l.productName} from ${l.creditNoteNo}`}
+                      aria-label={t("sret.selectAria", { prod: l.productName, no: l.creditNoteNo })}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
@@ -1095,27 +1111,27 @@ function SendToPurchaseDialog({
                         <span>· {formatDate(l.returnDate)}</span>
                         {l.customerName && <span className="truncate">· {l.customerName}</span>}
                         <span>
-                          · returned <span className="font-money">{l.damagedQty}</span>
+                          · {t("sret.returned", { n: l.damagedQty })}
                           {l.sentToVendorQty > 0 && (
                             <>
                               {" "}
-                              · already sent <span className="font-money text-dmk-success">{l.sentToVendorQty}</span>
+                              · {t("sret.alreadySent", { n: l.sentToVendorQty })}
                             </>
                           )}
                         </span>
-                        {l.vendorName && <span className="truncate">· vendor {l.vendorName}</span>}
+                        {l.vendorName && <span className="truncate">· {t("sret.vendorLbl", { name: l.vendorName })}</span>}
                       </div>
                       <div className="mt-1 flex items-center gap-2">
                         {sendable ? (
                           <Badge tone="info">
-                            send {l.sendableQty} · {formatINR(l.unitCost)}/unit
+                            {t("sret.sendBadge", { qty: l.sendableQty, price: formatINR(l.unitCost) })}
                           </Badge>
                         ) : (
-                          <Badge tone="warning">damaged stock empty — cannot send</Badge>
+                          <Badge tone="warning">{t("sret.poolEmpty")}</Badge>
                         )}
                         {l.poolBlocked && sendable && (
                           <span className="text-[10px] text-dmk-warning">
-                            only {l.sendableQty} of {l.eligibleQty} in damaged stock
+                            {t("sret.partial", { a: l.sendableQty, b: l.eligibleQty })}
                           </span>
                         )}
                       </div>
@@ -1129,15 +1145,13 @@ function SendToPurchaseDialog({
               <div className="rounded-md border border-dmk-warning/40 bg-dmk-warning/10 px-3 py-2 text-[11px] leading-relaxed text-dmk-warning">
                 {poolBlockedCount > 0 && (
                   <span>
-                    {poolBlockedCount} line{poolBlockedCount === 1 ? "" : "s"} cannot be sent — the returned goods are no longer in
-                    the damaged pool (already recovered or written off).
+                    {t("sret.blockedWarn", { n: poolBlockedCount })}
                   </span>
                 )}
                 {poolBlockedCount > 0 && partialCount > 0 && " "}
                 {partialCount > 0 && (
                   <span>
-                    {partialCount} line{partialCount === 1 ? " is" : "s are"} only partially covered by damaged stock — the send is
-                    capped at what is available.
+                    {t("sret.partialWarn", { n: partialCount })}
                   </span>
                 )}
               </div>
@@ -1146,8 +1160,8 @@ function SendToPurchaseDialog({
             <div className="flex items-center justify-between dmk-well px-3 py-2.5">
               <span className="text-[11.5px] text-dmk-text-muted">
                 {chosen.length === 0
-                  ? "No lines selected — nothing will be sent"
-                  : `${chosen.length} line${chosen.length === 1 ? "" : "s"} · ${chosenQty} qty → debit notes per vendor`}
+                  ? t("sret.noneSelected")
+                  : t("sret.selectedSummary", { n: chosen.length, qty: chosenQty })}
               </span>
               <span className="font-money text-[16px] text-dmk-yellow">{formatINR(chosenValue)}</span>
             </div>
@@ -1161,20 +1175,20 @@ function SendToPurchaseDialog({
             disabled={sending}
             className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover"
           >
-            Cancel
+            {t("cmn.cancel")}
           </Button>
           <Button
             onClick={send}
             disabled={sending || loading || chosen.length === 0}
             className="bg-dmk-info text-white hover:bg-dmk-info/90"
-            title={list.length === 0 ? "Nothing pending to send" : "Create the debit notes for the ticked lines"}
+            title={list.length === 0 ? t("sret.tooltipNothing") : t("sret.tooltipCreate")}
           >
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
             {sending
-              ? "Sending…"
+              ? t("sret.sending")
               : chosen.length === 0
-                ? "Send to vendors"
-                : `Send ${chosen.length} line${chosen.length === 1 ? "" : "s"} · ${formatINR(chosenValue)}`}
+                ? t("sret.sendBtn")
+                : t("sret.sendN", { n: chosen.length, amt: formatINR(chosenValue) })}
           </Button>
         </DialogFooter>
       </DialogContent>

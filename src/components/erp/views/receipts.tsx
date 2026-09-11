@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useT } from "@/lib/i18n";
 import { consumePendingCustomer, consumePendingSettleInvoice } from "@/lib/settle-bus";
 import { filterByQuery } from "@/lib/search-rank";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,7 @@ function bucketTone(bucket: OpenInvoiceRow["bucket"]): "info" | "warning" | "gol
 
 export default function ReceiptsView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
 
   const [receipts, setReceipts] = React.useState<CustomerReceipt[] | null>(null);
@@ -118,14 +120,14 @@ export default function ReceiptsView() {
       } catch (e) {
         if (alive) {
           setReceipts([]);
-          if (e instanceof ApiError) toast({ variant: "destructive", title: "Could not load receipts", description: e.message });
+          if (e instanceof ApiError) toast({ variant: "destructive", title: t("rcpt.errLoad"), description: e.message });
         }
       }
     })();
     return () => {
       alive = false;
     };
-  }, [activeFirmId, custFilter, refresh]);
+  }, [activeFirmId, custFilter, refresh, t, toast]);
 
   React.useEffect(() => {
     if (!activeFirmId) return;
@@ -169,7 +171,7 @@ export default function ReceiptsView() {
 
   function exportCsv() {
     downloadCSV("customer-receipts.csv", [
-      ["Date", "Customer", "Mode", "UTR / Ref", "Settled against", "On account", "Notes", "Amount"],
+      [t("cmn.date"), t("rcpt.csvCustomer"), t("rcpt.colMode"), t("rcpt.colUtr"), t("rcpt.csvSettled"), t("rcpt.csvOnAccount"), t("cmn.notes"), t("cmn.amount")],
       ...visible.map((r) => {
         const allocs = r.allocations ?? [];
         const allocated = allocs.reduce((s, a) => s + a.amount, 0);
@@ -188,33 +190,33 @@ export default function ReceiptsView() {
   }
 
   if (!activeFirmId) {
-    return <EmptyState icon={HandCoins} title="No active firm" hint="Select a firm from the header switcher." />;
+    return <EmptyState icon={HandCoins} title={t("sale.noFirm")} hint={t("sale.noFirmHint")} />;
   }
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Customer Receipts"
-        subtitle="Collections against receivables — allocate to invoices for precise aging (R7)"
+        title={t("rcpt.title")}
+        subtitle={t("rcpt.subtitle")}
         icon={HandCoins}
         actions={
           <Button size="sm" className="h-9 bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90" onClick={() => setNewOpen(true)}>
-            <Plus className="h-4 w-4" /> Record Receipt
+            <Plus className="h-4 w-4" /> {t("rcpt.record")}
           </Button>
         }
       />
 
       <div className="dmk-card p-3 flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search customer, UTR, invoice # or notes…" className="pl-9" />
+          <SearchInput value={query} onChange={setQuery} placeholder={t("rcpt.searchPh")} className="pl-9" />
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-dmk-text-muted pointer-events-none" />
         </div>
         <Select value={custFilter} onValueChange={(v) => setCustFilter(v)}>
           <SelectTrigger className={cn(inputCls, "sm:w-64")}>
-            <SelectValue placeholder="Customer" />
+            <SelectValue placeholder={t("rcpt.phCustomer")} />
           </SelectTrigger>
           <SelectContent className="max-h-64">
-            <SelectItem value="all">All customers</SelectItem>
+            <SelectItem value="all">{t("rcpt.allCustomers")}</SelectItem>
             {(customers ?? []).map((c) => (
               <SelectItem key={c.id} value={c.id}>{c.partyName}</SelectItem>
             ))}
@@ -228,7 +230,7 @@ export default function ReceiptsView() {
               groupByCustomer ? "bg-dmk-yellow/15 text-dmk-yellow" : "text-dmk-text-muted hover:text-dmk-text-secondary"
             )}
           >
-            <Layers className="h-3.5 w-3.5" /> By customer
+            <Layers className="h-3.5 w-3.5" /> {t("rcpt.byCustomer")}
           </button>
           <button
             onClick={() => setGroupByCustomer(false)}
@@ -237,11 +239,11 @@ export default function ReceiptsView() {
               !groupByCustomer ? "bg-dmk-yellow/15 text-dmk-yellow" : "text-dmk-text-muted hover:text-dmk-text-secondary"
             )}
           >
-            <List className="h-3.5 w-3.5" /> Flat list
+            <List className="h-3.5 w-3.5" /> {t("rcpt.flatList")}
           </button>
         </div>
         <Button size="sm" variant="outline" onClick={exportCsv} disabled={visible.length === 0} className="h-9 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover">
-          <Download className="h-4 w-4" /> Export CSV
+          <Download className="h-4 w-4" /> {t("rcpt.exportCsv")}
         </Button>
       </div>
 
@@ -250,7 +252,7 @@ export default function ReceiptsView() {
         receipts === null ? (
           <div className="dmk-card overflow-hidden"><LoadingRows rows={6} /></div>
         ) : groups.length === 0 ? (
-          <div className="dmk-card overflow-hidden"><EmptyState icon={HandCoins} title="No receipts" hint="Record a receipt to reduce a customer's outstanding balance." /></div>
+          <div className="dmk-card overflow-hidden"><EmptyState icon={HandCoins} title={t("rcpt.empty")} hint={t("rcpt.emptyHint")} /></div>
         ) : (
           <div className="space-y-3">
             {groups.map((g) => {
@@ -268,11 +270,11 @@ export default function ReceiptsView() {
                     <span className="min-w-0 flex-1">
                       <span className="block text-[13.5px] font-bold text-dmk-text-primary truncate">{g.name}</span>
                       <span className="block text-[11px] text-dmk-text-muted">
-                        {g.receipts.length} receipt{g.receipts.length === 1 ? "" : "s"} · latest {formatDate(g.receipts[0].receiptDate)}
+                        {t("rcpt.groupSub", { n: g.receipts.length, date: formatDate(g.receipts[0].receiptDate) })}
                       </span>
                     </span>
                     <span className="text-right shrink-0">
-                      <span className="block text-[10px] uppercase tracking-widest text-dmk-text-muted">Total received</span>
+                      <span className="block text-[10px] uppercase tracking-widest text-dmk-text-muted">{t("rcpt.totalReceived")}</span>
                       <span className="block font-money text-[15px] font-bold text-dmk-success">{formatINR(g.total)}</span>
                     </span>
                   </button>
@@ -289,7 +291,7 @@ export default function ReceiptsView() {
                             <span className="font-money text-dmk-text-muted truncate max-w-[140px]">{r.utrRef || "—"}</span>
                             <span className="min-w-0 flex-1 flex flex-wrap items-center gap-1.5">
                               {allocs.length === 0 ? (
-                                <span className="text-[11.5px] text-dmk-text-muted italic">On account</span>
+                                <span className="text-[11.5px] text-dmk-text-muted italic">{t("rcpt.onAccount")}</span>
                               ) : (
                                 <>
                                   {allocs.slice(0, 3).map((a) => (
@@ -298,8 +300,8 @@ export default function ReceiptsView() {
                                       <span className="font-money text-dmk-text-primary">{formatINR(a.amount)}</span>
                                     </span>
                                   ))}
-                                  {allocs.length > 3 && <span className="text-[10.5px] text-dmk-text-muted">+{allocs.length - 3} more</span>}
-                                  {onAccount > 0.009 && <span className="text-[10.5px] text-dmk-text-muted">· on acct {formatINR(onAccount)}</span>}
+                                  {allocs.length > 3 && <span className="text-[10.5px] text-dmk-text-muted">{t("rcpt.more", { n: allocs.length - 3 })}</span>}
+                                  {onAccount > 0.009 && <span className="text-[10.5px] text-dmk-text-muted">{t("rcpt.onAcct", { amt: formatINR(onAccount) })}</span>}
                                 </>
                               )}
                               {r.notes && <span className="text-[10.5px] text-dmk-text-muted italic truncate max-w-[180px]">{r.notes}</span>}
@@ -321,18 +323,18 @@ export default function ReceiptsView() {
           {receipts === null ? (
             <LoadingRows rows={6} />
           ) : visible.length === 0 ? (
-            <EmptyState icon={HandCoins} title="No receipts" hint="Record a receipt to reduce a customer's outstanding balance." />
+            <EmptyState icon={HandCoins} title={t("rcpt.empty")} hint={t("rcpt.emptyHint")} />
           ) : (
             <table className="dmk-table min-w-[880px]">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Customer</th>
-                  <th>Settled against</th>
-                  <th>Mode</th>
-                  <th>UTR / Ref</th>
-                  <th>Notes</th>
-                  <th className="text-right">Amount</th>
+                  <th>{t("cmn.date")}</th>
+                  <th>{t("cmn.customer")}</th>
+                  <th>{t("rcpt.colSettled")}</th>
+                  <th>{t("rcpt.colMode")}</th>
+                  <th>{t("rcpt.colUtr")}</th>
+                  <th>{t("cmn.notes")}</th>
+                  <th className="text-right">{t("cmn.amount")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -346,7 +348,7 @@ export default function ReceiptsView() {
                       <td className="max-w-[220px] truncate text-[13px] font-medium">{r.customer?.partyName ?? customerMap.get(r.customerId)?.partyName ?? r.customerId}</td>
                       <td className="max-w-[280px]">
                         {allocs.length === 0 ? (
-                          <span className="text-[11.5px] text-dmk-text-muted italic">On account</span>
+                          <span className="text-[11.5px] text-dmk-text-muted italic">{t("rcpt.onAccount")}</span>
                         ) : (
                           <div className="flex flex-wrap items-center gap-1.5">
                             {allocs.slice(0, 2).map((a) => (
@@ -360,10 +362,10 @@ export default function ReceiptsView() {
                               </span>
                             ))}
                             {allocs.length > 2 && (
-                              <span className="text-[10.5px] text-dmk-text-muted">+{allocs.length - 2} more</span>
+                              <span className="text-[10.5px] text-dmk-text-muted">{t("rcpt.more", { n: allocs.length - 2 })}</span>
                             )}
                             {onAccount > 0.009 && (
-                              <span className="text-[10.5px] text-dmk-text-muted">· on acct {formatINR(onAccount)}</span>
+                              <span className="text-[10.5px] text-dmk-text-muted">{t("rcpt.onAcct", { amt: formatINR(onAccount) })}</span>
                             )}
                           </div>
                         )}
@@ -420,6 +422,7 @@ function NewReceiptDialog({
   onCreated: () => void;
 }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   // /sales portal — attribution for receipts collected by a sales member.
   const session = useErpStore((s) => s.session);
@@ -582,15 +585,15 @@ function NewReceiptDialog({
   async function submit() {
     if (!activeFirmId) return;
     if (!customerId) {
-      toast({ variant: "destructive", title: "Customer required", description: "Pick the B2B customer this receipt belongs to." });
+      toast({ variant: "destructive", title: t("rcpt.errCustomerRequired"), description: t("rcpt.errCustomerRequiredDesc") });
       return;
     }
     if (amt <= 0) {
-      toast({ variant: "destructive", title: "Invalid amount", description: "Amount must be greater than zero." });
+      toast({ variant: "destructive", title: t("rcpt.errAmount"), description: t("rcpt.errAmountDesc") });
       return;
     }
     if (overAllocated) {
-      toast({ variant: "destructive", title: "Allocation exceeds receipt", description: `Allocated ${formatINR(allocationTotal)} but the receipt is ${formatINR(amt)}.` });
+      toast({ variant: "destructive", title: t("rcpt.errAlloc"), description: t("rcpt.errAllocDesc", { a: formatINR(allocationTotal), b: formatINR(amt) }) });
       return;
     }
     setSaving(true);
@@ -615,17 +618,19 @@ function NewReceiptDialog({
       );
       const settledCount = res.applied?.length ?? 0;
       toast({
-        title: "Receipt recorded",
+        title: t("rcpt.toastRecorded"),
         description:
           settledCount > 0
-            ? `${formatINR(amt)} via ${mode} — settled ${settledCount} invoice${settledCount !== 1 ? "s" : ""} (${formatINR(res.allocatedTotal ?? 0)})`
-            : `${formatINR(amt)} via ${mode}${selected ? ` — ${selected.partyName}` : ""} (on account)`,
+            ? t("rcpt.toastSettled", { amt: formatINR(amt), mode, n: settledCount, total: formatINR(res.allocatedTotal ?? 0) })
+            : selected
+              ? t("rcpt.toastOnAccountName", { amt: formatINR(amt), mode, name: selected.partyName })
+              : t("rcpt.toastOnAccount", { amt: formatINR(amt), mode }),
       });
       onCreated();
       onOpenChange(false);
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not record receipt.";
-      toast({ variant: "destructive", title: "Receipt failed", description: msg });
+      const msg = e instanceof ApiError ? e.message : t("rcpt.errRecord");
+      toast({ variant: "destructive", title: t("rcpt.errRecordFailed"), description: msg });
     } finally {
       setSaving(false);
     }
@@ -635,32 +640,32 @@ function NewReceiptDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
-          <DialogTitle className="text-dmk-text-primary">Record customer receipt</DialogTitle>
+          <DialogTitle className="text-dmk-text-primary">{t("rcpt.dlgTitle")}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted">
-            Payment received against outstanding receivable — optionally settle specific invoices for precise aging.
+            {t("rcpt.dlgDesc")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Customer (B2B) *">
+            <Field label={t("rcpt.fCustomer")}>
               <Select value={customerId} onValueChange={setCustomerId}>
-                <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder="Select customer" /></SelectTrigger>
+                <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue placeholder={t("rcpt.phSelectCust")} /></SelectTrigger>
                 <SelectContent className="max-h-64">
                   {(customers ?? []).map((c) => {
                     const bal = Number(c.closingBalance);
                     return (
                       <SelectItem key={c.id} value={c.id}>
-                        {c.partyName} — {bal > 0.005 ? `Dr ${formatINR(bal)}` : "Clear"}
+                        {c.partyName} — {bal > 0.005 ? `Dr ${formatINR(bal)}` : t("rcpt.clear")}
                       </SelectItem>
                     );
                   })}
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Amount ₹ *">
+            <Field label={t("rcpt.fAmount")}>
               <Input type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={cn(inputCls, "font-money")} placeholder="0.00" />
             </Field>
-            <Field label="Mode *">
+            <Field label={t("rcpt.fMode")}>
               <Select value={mode} onValueChange={(v) => setMode(v as (typeof MODES)[number])}>
                 <SelectTrigger className={cn(inputCls, "w-full")}><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -670,22 +675,22 @@ function NewReceiptDialog({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="UTR / cheque ref">
-              <Input value={utrRef} onChange={(e) => setUtrRef(e.target.value)} className={cn(inputCls, "font-money")} placeholder="e.g. UTIB2026…" />
+            <Field label={t("rcpt.fUtr")}>
+              <Input value={utrRef} onChange={(e) => setUtrRef(e.target.value)} className={cn(inputCls, "font-money")} placeholder={t("rcpt.phUtr")} />
             </Field>
-            <Field label="Receipt date">
+            <Field label={t("rcpt.fDate")}>
               <Input type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} className={inputCls} />
             </Field>
-            <Field label="Notes">
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} className={inputCls} placeholder="optional" />
+            <Field label={t("cmn.notes")}>
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} className={inputCls} placeholder={t("rcpt.phOptional")} />
             </Field>
           </div>
 
           {selected && (
             <div className="dmk-well px-3 py-2.5 flex items-center justify-between text-[12.5px]">
-              <span className="text-dmk-text-muted">Current outstanding</span>
+              <span className="text-dmk-text-muted">{t("rcpt.currentOutstanding")}</span>
               <span className={cn("font-money font-semibold", outstanding > 0.005 ? "text-dmk-yellow" : "text-dmk-success")}>
-                {outstanding > 0.005 ? `Dr ${formatINR(outstanding)}` : "Clear"}
+                {outstanding > 0.005 ? `Dr ${formatINR(outstanding)}` : t("rcpt.clear")}
               </span>
             </div>
           )}
@@ -696,12 +701,12 @@ function NewReceiptDialog({
               <div className="flex items-center justify-between px-3 py-2 border-b border-dmk-border-subtle">
                 <div className="flex items-center gap-2">
                   <CalendarClock className="h-3.5 w-3.5 text-dmk-info" />
-                  <span className="text-[12px] font-semibold text-dmk-text-primary">Settle against open invoices</span>
+                  <span className="text-[12px] font-semibold text-dmk-text-primary">{t("rcpt.settleTitle")}</span>
                   {invLoading ? (
                     <Loader2 className="h-3 w-3 animate-spin text-dmk-text-muted" />
                   ) : (
                     <span className="text-[10.5px] text-dmk-text-muted">
-                      {openInvCount > 0 ? `${openInvCount} open` : "none open"}
+                      {openInvCount > 0 ? t("rcpt.openCount", { n: openInvCount }) : t("rcpt.noneOpen")}
                     </span>
                   )}
                 </div>
@@ -713,25 +718,25 @@ function NewReceiptDialog({
                   disabled={amt <= 0 || openInvCount === 0}
                   className="h-7 gap-1.5 px-2 text-[11px] border-dmk-border-medium text-dmk-info hover:bg-dmk-hover"
                 >
-                  <Sparkles className="h-3 w-3" /> Auto-allocate (oldest first)
+                  <Sparkles className="h-3 w-3" /> {t("rcpt.autoAllocate")}
                 </Button>
               </div>
 
               {invLoading ? (
-                <div className="px-3 py-4 text-[12px] text-dmk-text-muted">Loading open invoices…</div>
+                <div className="px-3 py-4 text-[12px] text-dmk-text-muted">{t("rcpt.loadingInvoices")}</div>
               ) : openInvCount === 0 ? (
                 <div className="px-3 py-3 text-[11.5px] text-dmk-text-muted italic">
-                  No open credit invoices — the full amount will be recorded <span className="not-italic font-medium text-dmk-text-secondary">on account</span>.
+                  {t("rcpt.noOpenA")} <span className="not-italic font-medium text-dmk-text-secondary">{t("rcpt.onAccount")}</span>.
                 </div>
               ) : (
                 <div className="max-h-44 overflow-y-auto">
                   <table className="w-full text-[12px]">
                     <thead className="sticky top-0 bg-dmk-bg-tertiary z-10">
                       <tr className="text-[10.5px] uppercase tracking-wide text-dmk-text-muted">
-                        <th className="text-left font-semibold px-3 py-1.5">Invoice</th>
-                        <th className="text-left font-semibold px-2 py-1.5">Age</th>
-                        <th className="text-right font-semibold px-2 py-1.5">Outstanding</th>
-                        <th className="text-right font-semibold px-3 py-1.5 w-28">Allocate ₹</th>
+                        <th className="text-left font-semibold px-3 py-1.5">{t("rcpt.colInvoice")}</th>
+                        <th className="text-left font-semibold px-2 py-1.5">{t("rcpt.colAge")}</th>
+                        <th className="text-right font-semibold px-2 py-1.5">{t("rcpt.colOutstanding")}</th>
+                        <th className="text-right font-semibold px-3 py-1.5 w-28">{t("rcpt.colAllocate")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -745,7 +750,7 @@ function NewReceiptDialog({
                             </td>
                             <td className="px-2 py-1.5">
                               <Badge tone={bucketTone(inv.bucket)}>{inv.bucket}</Badge>
-                              {inv.isOverdue && <span className="ml-1 text-[10px] font-semibold text-dmk-danger">{inv.overdueDays}d late</span>}
+                              {inv.isOverdue && <span className="ml-1 text-[10px] font-semibold text-dmk-danger">{t("rcpt.late", { n: inv.overdueDays })}</span>}
                             </td>
                             <td className="px-2 py-1.5 text-right font-money text-dmk-text-secondary">{formatINR(inv.outstanding)}</td>
                             <td className="px-3 py-1.5">
@@ -758,7 +763,7 @@ function NewReceiptDialog({
                                 onChange={(e) => setAlloc(inv.invoiceId, e.target.value)}
                                 className="h-7 bg-dmk-input-well border-dmk-border-subtle text-right font-money text-[11.5px] text-dmk-text-primary dmk-input"
                                 placeholder="0.00"
-                                aria-label={`Allocate to ${inv.invoiceNumber}`}
+                                aria-label={t("rcpt.allocAria", { no: inv.invoiceNumber })}
                               />
                             </td>
                           </tr>
@@ -773,8 +778,8 @@ function NewReceiptDialog({
               {amt > 0 && (
                 <div className="flex items-center justify-between px-3 py-2 border-t border-dmk-border-subtle bg-dmk-bg-tertiary/70 text-[11.5px]">
                   <span className="text-dmk-text-muted">
-                    Allocated <span className={cn("font-money font-semibold", overAllocated ? "text-dmk-danger" : "text-dmk-info")}>{formatINR(allocationTotal)}</span>
-                    {" · "}On account <span className="font-money font-semibold text-dmk-text-secondary">{formatINR(Math.max(0, onAccount))}</span>
+                    {t("rcpt.allocated", { amt: formatINR(allocationTotal) })}
+                    {" · "}{t("rcpt.onAccountAmt", { amt: formatINR(Math.max(0, onAccount)) })}
                   </span>
                   {hasAllocations && (
                     <button
@@ -782,7 +787,7 @@ function NewReceiptDialog({
                       onClick={() => setAllocs({})}
                       className="text-[10.5px] text-dmk-text-muted hover:text-dmk-text-primary underline underline-offset-2"
                     >
-                      Clear all
+                      {t("rcpt.clearAll")}
                     </button>
                   )}
                 </div>
@@ -794,7 +799,7 @@ function NewReceiptDialog({
             <div className="flex items-start gap-2 rounded-md border border-dmk-danger/30 bg-[rgba(239,68,68,0.08)] px-3 py-2">
               <AlertTriangle className="h-4 w-4 text-dmk-danger shrink-0 mt-0.5" />
               <p className="text-[11.5px] text-dmk-danger leading-snug">
-                Allocated {formatINR(allocationTotal)} exceeds the receipt amount {formatINR(amt)} — reduce an allocation or raise the receipt amount.
+                {t("rcpt.overAllocWarn", { a: formatINR(allocationTotal), b: formatINR(amt) })}
               </p>
             </div>
           )}
@@ -803,15 +808,15 @@ function NewReceiptDialog({
             <div className="flex items-start gap-2 rounded-md border border-dmk-warning/30 bg-[rgba(245,158,11,0.08)] px-3 py-2">
               <AlertTriangle className="h-4 w-4 text-dmk-warning shrink-0 mt-0.5" />
               <p className="text-[11.5px] text-dmk-warning leading-snug">
-                Amount {formatINR(amt)} exceeds the outstanding {formatINR(outstanding)} — the excess will show as an advance (customer balance goes negative / Cr).
+                {t("rcpt.overpayWarn", { a: formatINR(amt), b: formatINR(outstanding) })}
               </p>
             </div>
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-dmk-border-medium text-dmk-text-secondary hover:bg-dmk-hover">{t("cmn.cancel")}</Button>
           <Button onClick={submit} disabled={saving || !customerId || overAllocated} className="bg-dmk-yellow text-[#0A0F1D] hover:bg-dmk-yellow/90">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Record receipt
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} {t("rcpt.recordBtn")}
           </Button>
         </DialogFooter>
       </DialogContent>
