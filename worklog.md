@@ -1634,3 +1634,19 @@ Stage Summary:
 - The left sidebar now has a dedicated top-level "Expenses" section (Inventory → Expenses → Finance & Accounting) containing Record Expense and Expense Reports, fully trilingual.
 - No backend/API changes; ViewIds stable so bookmarks, G-chords and command palette keep working.
 - Screenshots: /tmp/qa-expenses-drawer.png (Record Expense view with active wallet icon).
+
+---
+Task ID: 62
+Agent: ATLAS (main orchestrator)
+Task: Diagnose and fix "Invalid prisma.firm.findUnique() — The column Firm.upiId does not exist in the current database" reported on the development (Vercel) URL.
+
+Work Log:
+- Verified the LOCAL sandbox is healthy: SQLite db/custom.db Firm table already has upiId (PRAGMA table_info confirmed); live dev server queries work.
+- Root cause: Firm.upiId (Request D, UPI-QR) and the Request F expense tables were added to both schema files, but `db:push:pg` against Neon was never run for those eras — the Vercel deployment's Prisma client KNOWS upiId (committed pg mirror line 41) while the Neon DATABASE lacks the column → every firm.findUnique() 500s on Vercel.
+- Extra finding: the committed prisma/schema.postgres.prisma mirror was ALSO stale — missing the 67-line ExpenseCategory/ExpenseVoucher block (Request F). `bun run db:sync:pg` regenerated it; committed + pushed (ec7ac14) so future Vercel builds generate a complete client.
+- Neon remediation NOT executable from the sandbox: the owner's pooled Neon URL (user-provided in an earlier session) is gone after the sandbox reset — .env is SQLite, no Vercel CLI auth, no token, git history never contained it (verified .env in 44ad761/a3c9b36 = SQLite only; no postgres:// anywhere on disk).
+- Fix staged for the owner (one command, purely additive — adds Firm.upiId + 2 expense tables, no data loss): `DATABASE_URL="<neon-pooled-url>" bun run db:push:pg`. No Vercel redeploy needed afterwards — the current deployment heals as soon as the DB catches up, because the error was purely DB-side.
+
+Stage Summary:
+- Repo mirror refreshed + pushed; local app unaffected and working.
+- BLOCKED ON OWNER: run db:push:pg with the Neon pooled URL (or paste the URL in chat and the agent runs it). Until then the Vercel (dev) URL keeps throwing Firm.upiId errors on every authenticated screen.
