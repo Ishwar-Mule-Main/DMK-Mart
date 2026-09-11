@@ -49,6 +49,8 @@ model Firm {
 
   verificationStaff VerificationStaff[]
   salesMembers      SalesMember[]
+  expenseCategories ExpenseCategory[]
+  expenseVouchers   ExpenseVoucher[]
   salesOrders       SalesOrder[]
   stagedOrderUploads StagedOrderUpload[]
   financialYears    FinancialYear[]
@@ -565,6 +567,7 @@ model JournalEntry {
   createdAt       DateTime @default(now())
 
   lines JournalLine[]
+  expenseVoucher ExpenseVoucher?
 
   @@unique([firmId, voucherNumber])
   @@index([firmId, postingDate])
@@ -1042,4 +1045,68 @@ model StagedItem {
   linePosition    Int               @default(0)
 
   @@index([stagedOrderId])
+}
+
+// ─── OPERATIONAL EXPENSES (Accounting → Record Expense) ──────────
+// Every non-trading operational cost — driver allowances, diesel,
+// electricity, salaries, bank CC interest — recorded on a single
+// screen. Each save posts a balanced PAYMENT journal automatically:
+//   DEBIT  → the category's expense account (5301–5307)
+//   CREDIT → the money source (Cash Drawer 1000 / Bank 1010 / CC 2500)
+// so the cash drawer, day book and P&L are always true to the paisa.
+
+enum PaymentSourceType {
+  CASH_DRAWER
+  BANK_CURRENT
+  BANK_CC
+}
+
+model ExpenseCategory {
+  id          String           @id @default(cuid())
+  firmId      String
+  firm        Firm             @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  code        String // display code from the DMK chart, e.g. "4100"
+  nameEnglish String // "Vehicle Fuel & Logistics"
+  nameHindi   String // "वाहन ईंधन व लॉजिस्टिक्स"
+  nameMarathi String // "डिझेल व गाडी खर्च"
+  description String           @default("")
+  accountCode String // COA account used for the DEBIT leg (5301–5307…)
+  isActive    Boolean          @default(true)
+  sortOrder   Int              @default(0)
+  expenses    ExpenseVoucher[]
+  createdAt   DateTime         @default(now())
+
+  @@unique([firmId, code])
+  @@index([firmId, isActive])
+}
+
+model ExpenseVoucher {
+  id             String            @id @default(cuid())
+  firmId         String
+  firm           Firm              @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  voucherNumber  String @unique // "EXP-2026-0042"
+  expenseDate    DateTime
+
+  categoryId     String
+  category       ExpenseCategory   @relation(fields: [categoryId], references: [id])
+
+  amount         Float
+  paymentSource  PaymentSourceType // CASH_DRAWER | BANK_CURRENT | BANK_CC
+
+  paidTo         String            @default("")
+  vehicleNumber  String            @default("")
+  tripId         String            @default("")
+  narration      String            @default("")
+  receiptFileUrl String? // receipt/slip photo stored as data URL (Vercel-safe)
+
+  // Double-entry audit link — the PAYMENT journal posted on save
+  journalEntryId String?            @unique
+  journalEntry   JournalEntry?     @relation(fields: [journalEntryId], references: [id])
+
+  createdBy      String            @default("OWNER")
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([firmId, expenseDate])
+  @@index([firmId, categoryId])
 }
