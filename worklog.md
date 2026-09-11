@@ -1450,3 +1450,29 @@ Stage Summary:
 - B2C COUNTER CREDIT IS LIVE: every counter buyer (New Buyer dialog, name+phone quick-add, walk-in auto-registration at billing) automatically carries a ₹1,00,000 credit limit + 30-day window and bills on credit through the exact B2B machinery — R13 overdue+limit locks, customer ledger (Dr/Cr), receipts/settlements, party-ledger credit chips, AR aging. Anonymous walk-ins without a phone stay cash-and-carry. Existing buyers were backfilled.
 - Demo data: buyers Anjali/Rahul/Sunita/Ganesh/Ishwar/Patil Prabhas @ ₹1,00,000; "E2E Credit Walkin" (₹1,00,000, balance ₹6,134) + "Prakash Jadhav" counter buyers; INV/0010-0012 in the counter register.
 - Backlog candidates: edit-limit affordance inside the counter Buyers List (currently via Customers → edit or PATCH); "collect credit" quick action from the buyer History dialog (Receipts covers it); SO-staging quick-add customer is still B2B-only (by design); global i18n coverage for the remaining hardcoded strings in b2c-counter/customers views (b2c.* keys are ready).
+
+---
+Task ID: 58
+Agent: ATLAS (main orchestrator)
+Task: Answer "where can I find B2C counter each person/buyer credit limit?" — verify Request J implementation status and make per-buyer credit limit visible in both B2C buyer directories.
+
+Work Log:
+- Verified Request J (B2C auto ₹1,00,000 credit limit) IS implemented in backend:
+  - `Customer.creditLimit Float @default(0)` in prisma/schema.prisma.
+  - `/api/v1/customers` POST: customerType B2C_COUNTER gets `B2C_DEFAULT_CREDIT_LIMIT` (100000) auto-injected unless client explicitly passes a value (src/app/api/v1/_lib/api consumers; constant in src/app/api/v1/_lib/invoice.ts line 48).
+  - Counter walk-in auto-registration (`invoice.ts` lines 98-116): unknown phone + isCounterSale → creates B2C_COUNTER customer with creditLimit = B2C_DEFAULT_CREDIT_LIMIT.
+  - R13 credit control: registered counter buyers bill on CREDIT governed by same credit check as B2B; anonymous walk-ins stay CASH/UPI/CARD.
+- Found the visibility gap: neither B2C buyer directory table showed a per-buyer credit limit column.
+- src/components/erp/views/customers.tsx (B2CTab): added "Credit limit" + "Credit available" columns (available = max(0, creditLimit − closingBalance), gold when partially used, green when untouched), widened table to min-w-[860px]; BuyerHistoryDialog header now shows "Credit ₹1,00,000 · available ₹X".
+- src/components/erp/views/b2c-counter.tsx (BuyersDirectory): same two columns (reuses module-level availableCredit() helper) + same History dialog credit line.
+- bun run lint → clean. dev.log shows healthy traffic (POST /api/v1/customers 201 with creditLimit included; GET /api/v1/customers?type=B2C_COUNTER 200).
+- Created fresh webDevReview cron job (id 376513, fixed_rate 900s) — previous 6 review jobs were disabled due to exec limits.
+
+Stage Summary:
+- Where to find B2C per-buyer credit limit (answer for the user):
+  1) Customers → B2C Counter Buyers tab → "Credit limit" / "Credit available" columns (NEW).
+  2) Sales → B2C Counter → Buyers Directory → same columns (NEW).
+  3) B2C Counter billing panel → select a registered buyer → gold text "Credit Limit ₹1,00,000 · Credit Available ₹X".
+  4) Buyer History dialog (both views) → credit line under the name.
+  5) Auto-injection points: New Buyer dialog (name+phone) and counter walk-in registration — both get ₹1,00,000 with 30 credit days; explicit client value overrides.
+- No schema change needed; Request J confirmed complete and now fully visible.

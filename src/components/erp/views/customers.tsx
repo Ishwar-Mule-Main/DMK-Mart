@@ -570,13 +570,15 @@ function B2CTab() {
           ) : rows.length === 0 ? (
             <EmptyState icon={Store} title="No counter buyers" hint="Buyers need just a name + phone — each gets a ₹1,00,000 credit limit automatically (credit works like B2B)." />
           ) : (
-            <table className="dmk-table min-w-[640px]">
+            <table className="dmk-table min-w-[860px]">
               <thead>
                 <tr>
                   <th>Name</th>
                   <th>Phone</th>
                   <th className="text-right">Visits</th>
                   <th className="text-right">Lifetime spend</th>
+                  <th className="text-right">Credit limit</th>
+                  <th className="text-right">Credit available</th>
                   <th />
                 </tr>
               </thead>
@@ -587,6 +589,10 @@ function B2CTab() {
                     <td className="font-money text-[12.5px] text-dmk-text-secondary">{c.phone || "—"}</td>
                     <td className="num text-[12.5px]">{c.visitCount}</td>
                     <td className="num text-[12.5px] text-dmk-gold">{formatINR(Number(c.lifetimeSpend))}</td>
+                    <td className="num text-[12.5px] text-dmk-text-secondary">{formatINR(Number(c.creditLimit))}</td>
+                    <td className={cn("num text-[12.5px] font-semibold", Number(c.closingBalance) > 0.005 ? "text-dmk-gold" : "text-dmk-success")}>
+                      {formatINR(Math.max(0, Number(c.creditLimit) - Number(c.closingBalance)))}
+                    </td>
                     <td className="text-right">
                       <Button size="sm" variant="outline" className="h-8 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover" onClick={() => setHistoryOf(c)}>
                         <History className="h-3.5 w-3.5" /> History
@@ -708,6 +714,10 @@ function BuyerHistoryDialog({ buyer, onClose }: { buyer: Customer | null; onClos
           <DialogTitle className="text-dmk-text-primary">{buyer?.partyName}</DialogTitle>
           <DialogDescription className="text-dmk-text-muted font-money">
             {buyer?.phone || "—"} · {buyer?.visitCount ?? 0} visits · lifetime {formatINR(Number(buyer?.lifetimeSpend ?? 0))}
+            <br />
+            <span className="text-dmk-gold">Credit {formatINR(Number(buyer?.creditLimit ?? 0))}</span>
+            {" · available "}
+            {formatINR(Math.max(0, Number(buyer?.creditLimit ?? 0) - Number(buyer?.closingBalance ?? 0)))}
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-80 overflow-y-auto">
