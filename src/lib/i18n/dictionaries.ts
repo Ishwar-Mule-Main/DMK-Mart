@@ -329,7 +329,8 @@ const en = {
   "log.billsOtp": "Bills + OTP",
   "log.planTrip": "Plan trip with {n} orders",
 
-  // ── Finance · Operational Expenses (Record Expense + Expense Reports) ──
+  // ── Expenses section (Record Expense + Expense Reports) ──
+  "nav.expenses": "Expenses",
   "nav.expenseRecord": "Record Expense",
   "nav.expenseReports": "Expense Reports",
   "exp.title": "Record Daily Operational Expense",
@@ -723,7 +724,8 @@ const hi: Partial<Record<DictKey, string>> = {
   "log.billsOtp": "बिल + OTP",
   "log.planTrip": "{n} ऑर्डर के साथ ट्रिप बनाएँ",
 
-  // ── Finance · Operational Expenses (Record Expense + Expense Reports) ──
+  // ── Expenses section (Record Expense + Expense Reports) ──
+  "nav.expenses": "खर्च",
   "nav.expenseRecord": "खर्च दर्ज करें",
   "nav.expenseReports": "खर्च रिपोर्ट",
   "exp.title": "दैनिक परिचालन खर्च दर्ज करें",
@@ -1115,7 +1117,8 @@ const mr: Partial<Record<DictKey, string>> = {
   "log.billsOtp": "बिले + OTP",
   "log.planTrip": "{n} ऑर्डरसह ट्रिप तयार करा",
 
-  // ── Finance · Operational Expenses (Record Expense + Expense Reports) ──
+  // ── Expenses section (Record Expense + Expense Reports) ──
+  "nav.expenses": "खर्च",
   "nav.expenseRecord": "खर्च नोंदवा",
   "nav.expenseReports": "खर्च अहवाल",
   "exp.title": "दैनिक कार्यकारी खर्च नोंदवा",

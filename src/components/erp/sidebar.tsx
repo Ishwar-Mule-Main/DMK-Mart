@@ -115,13 +115,19 @@ const SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: "Expenses",
+    labelKey: "nav.expenses",
+    items: [
+      { id: "finance/expense-record", label: "Record Expense", key: "nav.expenseRecord", icon: Wallet },
+      { id: "finance/expense-reports", label: "Expense Reports", key: "nav.expenseReports", icon: BarChart3 },
+    ],
+  },
+  {
     label: "Finance & Accounting",
     labelKey: "nav.finance",
     items: [
       { id: "finance/journals", label: "Journals", key: "nav.journals", icon: BookOpen },
       { id: "finance/coa", label: "Chart of Accounts", key: "nav.coa", icon: ListTree },
-      { id: "finance/expense-record", label: "Record Expense", key: "nav.expenseRecord", icon: Wallet },
-      { id: "finance/expense-reports", label: "Expense Reports", key: "nav.expenseReports", icon: BarChart3 },
       { id: "finance/ledgers", label: "Party Ledgers", key: "nav.ledgers", icon: Landmark },
       { id: "finance/sundry", label: "Sundry Debtors / Creditors", key: "nav.sundry", icon: BookUser },
       { id: "finance/statements", label: "Statements (TB · P&L · BS)", key: "nav.statements", icon: PieChart },

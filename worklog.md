@@ -1616,3 +1616,21 @@ Stage Summary:
 - Global recency-sort rule shipped: all 25+ date lists newest-first with same-day createdAt tiebreaker, frontend pickers included.
 - Remaining known English: sample-data placeholders (e.g. "HDFC Bank", "98…"), enum codes (CASH/PAID/Dr/Cr), GST legal footer — all intentional.
 - Dev server restarted on SQLite (sandbox rollback); .env DATABASE_URL=file:db/custom.db. Production path (Neon) unaffected on Vercel.
+
+---
+Task ID: 61
+Agent: ATLAS (main orchestrator)
+Task: Restore the standalone "Expenses" top-level section in the left sidebar (user: the expense views should live in their own section, not inside Finance & Accounting — regressed during the Task 60 i18n rewrite).
+
+Work Log:
+- Diagnosed regression: sidebar.tsx SECTIONS (rewritten with i18n keys in Task 60) had folded "Record Expense" + "Expense Reports" back into the "Finance & Accounting" section — no dedicated Expenses section existed.
+- sidebar.tsx: created new top-level section { label: "Expenses", labelKey: "nav.expenses" } holding the two expense NavItems (finance/expense-record → Wallet, finance/expense-reports → BarChart3); positioned between Inventory and Finance & Accounting; removed both items from the Finance section. ViewIds unchanged (no store/app-shell/shortcut churn).
+- dictionaries.ts: added "nav.expenses" key to all 3 language blocks (EN "Expenses" / HI "खर्च" / MR "खर्च") and updated the block comment to "Expenses section".
+- Investigation note: an earlier `rg -rn` misread (-r is the REPLACE flag) falsely suggested corrupted "nav.n" keys — verified with Grep tool that nav.expenseRecord/nav.expenseReports keys are intact in all 3 languages; no key corruption existed.
+- Verification: bun run lint → 0 problems; bunx tsc --noEmit → exit 0.
+- agent-browser live QA (owner Kunal/1234): a11y snapshot shows Record Expense + Expense Reports in their own <ul> between the Inventory and Finance lists; DOM eval of nav buttons reads exactly "…Low Stock Alerts | Expenses | Record Expense | Expense Reports | Finance & Accounting | Journals…". Clicking Record Expense opens the expense view (KPI strip, form, PAID THROUGH radios, Recent Expenses all render). Trilingual check of the section: EN "Expenses / Record Expense / Expense Reports", हिंदी "खर्च / खर्च दर्ज करें / खर्च रिपोर्ट", मराठी "खर्च / खर्च नोंदवा / खर्च अहवाल" (Radix dropdown driven via synthetic pointerdown/mousedown/mouseup/click sequences). dev.log clean (only a stale EADDRINUSE from an earlier duplicate-start attempt; HTTP 200).
+
+Stage Summary:
+- The left sidebar now has a dedicated top-level "Expenses" section (Inventory → Expenses → Finance & Accounting) containing Record Expense and Expense Reports, fully trilingual.
+- No backend/API changes; ViewIds stable so bookmarks, G-chords and command palette keep working.
+- Screenshots: /tmp/qa-expenses-drawer.png (Record Expense view with active wallet icon).
