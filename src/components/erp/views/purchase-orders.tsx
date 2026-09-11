@@ -181,7 +181,7 @@ export default function PurchaseOrdersView() {
   React.useEffect(() => {
     if (!activeFirmId) return;
     let alive = true;
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       try {
         const res = await apiGet<PoRow[]>("/api/v1/purchase-orders", {
           firmId: activeFirmId,
@@ -199,7 +199,7 @@ export default function PurchaseOrdersView() {
     }, 220);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [activeFirmId, query, status, refresh, toast]);
 

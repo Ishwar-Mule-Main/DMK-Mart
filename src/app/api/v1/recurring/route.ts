@@ -81,19 +81,14 @@ async function resolveLines(firmId: string, raw: Record<string, unknown>[]): Pro
   }));
 }
 
-async function assertCustomer(firmId: string, customerId: string, paymentMode: string) {
+async function assertCustomer(firmId: string, customerId: string, _paymentMode: string) {
   const customer = await db.customer.findFirst({ where: { id: customerId, firmId } });
   if (!customer) {
     throw new BusinessError("ERR_CUSTOMER_NOT_FOUND", "Customer not found for this firm", 404);
   }
-  // R14: B2C counter accounts are cash-and-carry — no standing credit billing
-  if (customer.customerType === "B2C_COUNTER" && paymentMode === "CREDIT") {
-    throw new BusinessError(
-      "ERR_INVALID_PAYMENT_MODE",
-      "Counter customers are cash-and-carry — recurring billing accepts CASH, UPI or CARD only",
-      422
-    );
-  }
+  // R14 (revised): B2C counter accounts may also run CREDIT templates —
+  // each generated invoice passes the same R13 credit control as B2B
+  // (auto ₹1,00,000 limit + overdue window), enforced inside createInvoice.
   return customer;
 }
 

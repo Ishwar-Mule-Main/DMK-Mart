@@ -17,6 +17,7 @@ import {
   resolveFirm,
 } from "@/app/api/v1/_lib/api";
 import { addCustomerLedger } from "@/app/api/v1/_lib/party";
+import { B2C_DEFAULT_CREDIT_LIMIT } from "@/app/api/v1/_lib/invoice";
 import { containsArms, rankSearch } from "@/lib/search-rank";
 
 function composePartyName(customerType: string, city: string, firmName: string): string {
@@ -87,8 +88,14 @@ export async function POST(request: NextRequest) {
     const city = getStr(body.city);
     const partyName = composePartyName(customerType, city, firmName);
 
-    // R14: B2C accounts carry no credit
-    const creditLimit = customerType === "B2C_COUNTER" ? 0 : round2(getNum(body.creditLimit));
+    // B2C counter accounts automatically carry a ₹1,00,000 credit limit
+    // (works like B2B afterwards); an explicit value from the client wins.
+    const creditLimit =
+      customerType === "B2C_COUNTER"
+        ? body.creditLimit !== undefined
+          ? Math.max(0, round2(getNum(body.creditLimit)))
+          : B2C_DEFAULT_CREDIT_LIMIT
+        : round2(getNum(body.creditLimit));
     const openingBalance = round2(getNum(body.openingBalance));
 
     const customer = await db.customer.create({

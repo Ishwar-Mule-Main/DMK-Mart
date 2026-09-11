@@ -239,7 +239,7 @@ export async function POST(_request: NextRequest) {
           phone: c.phone,
           customerType: "B2C_COUNTER",
           assignedTier: "tier4Retailer",
-          creditLimit: 0,
+          creditLimit: 100000, // auto credit limit — works like B2B
         },
       });
       customerMap.set(c.name, created.id);

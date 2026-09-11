@@ -331,8 +331,6 @@ export default function RecurringView() {
   function validateForm(): string | null {
     if (!name.trim()) return "Template name is required.";
     if (!customerId) return "Select a customer for this standing order.";
-    if (selectedCustomer?.customerType === "B2C_COUNTER" && paymentMode === "CREDIT")
-      return "Counter customers are cash-and-carry — pick CASH, UPI or CARD.";
     const clean = lines.filter((l) => l.productId);
     if (clean.length === 0) return "Add at least one product line.";
     for (const l of clean) {
@@ -879,7 +877,7 @@ export default function RecurringView() {
                   </SelectTrigger>
                   <SelectContent>
                     {PAYMENT_MODES.map((m) => (
-                      <SelectItem key={m.value} value={m.value} disabled={selectedCustomer?.customerType === "B2C_COUNTER" && m.value === "CREDIT"}>
+                      <SelectItem key={m.value} value={m.value}>
                         {m.label}
                       </SelectItem>
                     ))}

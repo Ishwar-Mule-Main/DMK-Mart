@@ -42,6 +42,10 @@ type FirmRow = {
 
 const VALID_PAYMENT_MODES = ["CREDIT", "CASH", "UPI", "CARD", "NEFT"];
 const COUNTER_PAYMENT_MODES = ["CASH", "UPI", "CARD"];
+/** B2C counter buyers automatically get this credit limit at creation
+ *  (new accounts + direct name+phone adds + walk-in registration).
+ *  Their credit then works exactly like B2B: same ledger, same R13 checks. */
+export const B2C_DEFAULT_CREDIT_LIMIT = 100000;
 
 function debitAccountForMode(paymentMode: string): string {
   switch (paymentMode) {
@@ -105,19 +109,21 @@ export async function createInvoice(firm: FirmRow, input: CreateInvoiceInput) {
           phone: input.walkInPhone,
           customerType: "B2C_COUNTER",
           assignedTier: "tier4Retailer",
-          creditLimit: 0,
+          creditLimit: B2C_DEFAULT_CREDIT_LIMIT,
           stateCode: firm.stateCode,
         },
       });
     }
   }
 
-  // R14: B2C counter has NO credit — cash-and-carry modes only
+  // R14 (revised): anonymous walk-ins (no account) stay cash-and-carry.
+  // REGISTERED counter buyers (B2C_COUNTER accounts, auto ₹1,00,000 limit)
+  // may now bill on CREDIT — governed by the same R13 credit control as B2B.
   const isCounterCustomer = isCounterSale || customer?.customerType === "B2C_COUNTER";
-  if (isCounterCustomer && !COUNTER_PAYMENT_MODES.includes(paymentMode)) {
+  if (isCounterCustomer && !customer && !COUNTER_PAYMENT_MODES.includes(paymentMode)) {
     throw new BusinessError(
       "ERR_INVALID_PAYMENT_MODE",
-      "Counter sales accept CASH, UPI or CARD only — no credit at the counter",
+      "Anonymous walk-in sales accept CASH, UPI or CARD only — pick a registered buyer (or add name + phone) to bill on credit",
       422
     );
   }
@@ -209,8 +215,10 @@ export async function createInvoice(firm: FirmRow, input: CreateInvoiceInput) {
   const { grand: grandTotal, roundOff } = roundOffDelta(subtotal + tax.cgst + tax.sgst + tax.igst);
   const cogs = round2(computed.reduce((s, l) => s + l.purchaseCost * l.quantity, 0));
 
-  // ── R13 credit control (B2B + CREDIT only) ─────────────────────
-  if (customer && customer.customerType === "B2B" && paymentMode === "CREDIT") {
+  // ── R13 credit control (B2B + B2C counter accounts, CREDIT only) ─
+  // B2C buyers carry the auto ₹1,00,000 limit and pass through the exact
+  // same overdue + limit checks as B2B parties.
+  if (customer && paymentMode === "CREDIT") {
     const creditDays = customer.creditDays > 0 ? customer.creditDays : 30;
     const overdueCutoff = Date.now() - creditDays * 86400000;
     const overdue = await db.invoice.findFirst({
@@ -406,7 +414,7 @@ export async function createInvoice(firm: FirmRow, input: CreateInvoiceInput) {
     where: { id: invoiceId },
     include: {
       lineItems: true,
-      customer: { select: { id: true, partyName: true, stateCode: true, customerType: true, closingBalance: true } },
+      customer: { select: { id: true, partyName: true, stateCode: true, customerType: true, closingBalance: true, creditLimit: true } },
     },
   });
 

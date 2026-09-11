@@ -718,7 +718,7 @@ function NewDebitNotePanel({
                         <p className="text-[10.5px] text-dmk-text-muted mt-0.5">
                           {line.fromPo && (
                             <span className="mr-2">
-                              {t("pret.poLinePrefix", { qty: line.poQty, cost: formatINR(num(line.cost)) })}{" "}
+                              {t("pret.poLinePrefix", { qty: line.poQty ?? 0, cost: formatINR(num(line.cost)) })}{" "}
                             </span>
                           )}
                           {t("pret.damagedInStock")}{" "}
@@ -740,7 +740,7 @@ function NewDebitNotePanel({
                           aria-label={line.fromPo ? t("pret.damagedQtyAria") : t("pret.returnQtyAria")}
                           className={cn(inputCls, "h-8 text-right font-money", (overStock || overPo) && "border-dmk-danger/60")}
                         />
-                        {overPo && <span className="mt-0.5 block text-[10px] text-dmk-danger">{t("pret.maxQty", { n: line.poQty })}</span>}
+                        {overPo && <span className="mt-0.5 block text-[10px] text-dmk-danger">{t("pret.maxQty", { n: line.poQty ?? 0 })}</span>}
                       </div>
                       {line.fromPo ? (
                         <div className="sm:col-span-2 text-right">

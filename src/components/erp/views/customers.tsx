@@ -13,6 +13,7 @@ import { useErpStore, useActiveFirm } from "@/store/erp-store";
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/api-client";
 import { formatINR, formatDate } from "@/lib/format";
 import { TIERS } from "@/lib/pricing";
+import { useT } from "@/lib/i18n";
 import type { Customer, Invoice, LedgerRow } from "@/types/erp";
 import { PageHeader, Badge, EmptyState, LoadingRows, SearchInput, Field, inputCls, StatusBadge } from "@/components/erp/shared";
 import { Button } from "@/components/ui/button";
@@ -567,7 +568,7 @@ function B2CTab() {
           {rows === null ? (
             <LoadingRows rows={6} />
           ) : rows.length === 0 ? (
-            <EmptyState icon={Store} title="No counter buyers" hint="Buyers need just a name + phone — no credit, instant payment (R14)." />
+            <EmptyState icon={Store} title="No counter buyers" hint="Buyers need just a name + phone — each gets a ₹1,00,000 credit limit automatically (credit works like B2B)." />
           ) : (
             <table className="dmk-table min-w-[640px]">
               <thead>
@@ -621,6 +622,7 @@ function B2CTab() {
 
 function NewBuyerDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; onCreated: () => void }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   const [name, setName] = React.useState("");
@@ -635,6 +637,7 @@ function NewBuyerDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
     }
     setSaving(true);
     try {
+      // creditLimit/creditDays omitted — server injects the ₹1,00,000 auto limit.
       await apiPost<Customer>("/api/v1/customers", {
         firmId: activeFirmId,
         customerType: "B2C_COUNTER",
@@ -643,10 +646,8 @@ function NewBuyerDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
         city: "",
         stateCode: firm?.stateCode ?? "",
         assignedTier: "tier4Retailer",
-        creditLimit: 0,
-        creditDays: 0,
       });
-      toast({ title: "Buyer added", description: name.trim() });
+      toast({ title: "Buyer added", description: `${name.trim()} · ${t("b2c.autoCreditNote")}` });
       setName("");
       setPhone("");
       onCreated();
@@ -663,7 +664,7 @@ function NewBuyerDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
       <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">New counter buyer</DialogTitle>
-          <DialogDescription className="text-dmk-text-muted">No credit — instant payment only (R14).</DialogDescription>
+          <DialogDescription className="text-dmk-text-muted">{t("b2c.newBuyerDesc")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <Field label="Name *">

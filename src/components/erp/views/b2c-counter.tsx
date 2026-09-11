@@ -1,9 +1,10 @@
 "use client";
 
 // ═══════════════════════════════════════════════════════════════
-// SALES — B2C COUNTER POS (R9/R14)
-// Buyer directory (name + phone), walk-in support, Retailer tier,
-// instant payment ONLY: CASH / UPI / CARD — no credit, ever.
+// SALES — B2C COUNTER POS (R9/R14-revised)
+// Buyer directory (name + phone), walk-in support, Retailer tier.
+// Every registered buyer gets a ₹1,00,000 credit limit automatically —
+// CASH / UPI / CARD / CREDIT (credit works exactly like B2B).
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
@@ -25,6 +26,7 @@ import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { formatINR, toISODate, amountInWords, formatDate } from "@/lib/format";
 import { calculateBulkPricing, formatLabel } from "@/lib/pricing";
 import { round2 } from "@/lib/gst";
+import { useT } from "@/lib/i18n";
 import type { Customer, Product, Invoice } from "@/types/erp";
 import {
   PageHeader,
@@ -65,10 +67,23 @@ interface CartLine {
   qty: number;
 }
 
-const PAYMENT_PILLS = ["CASH", "UPI", "CARD"] as const;
+type CounterPaymentMode = "CASH" | "UPI" | "CARD" | "CREDIT";
+const INSTANT_PILLS = ["CASH", "UPI", "CARD"] as const;
+
+/** Registered buyer (or a walk-in phone that auto-registers one) unlocks CREDIT. */
+function creditEligible(buyer: Customer | null, walkInPhone: string): boolean {
+  if (buyer) return Number(buyer.creditLimit) > 0;
+  return walkInPhone.replace(/\D/g, "").length >= 6;
+}
+
+function availableCredit(c: Customer | null): number {
+  if (!c) return 0;
+  return round2(Math.max(0, Number(c.creditLimit) - Number(c.closingBalance)));
+}
 
 export default function B2CCounterView() {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   // /sales portal — attribution for counter receipts posted by a sales member.
@@ -98,7 +113,7 @@ export default function B2CCounterView() {
 
   // ── Cart ─────────────────────────────────────────────────────
   const [lines, setLines] = React.useState<CartLine[]>([]);
-  const [paymentMode, setPaymentMode] = React.useState<(typeof PAYMENT_PILLS)[number]>("CASH");
+  const [paymentMode, setPaymentMode] = React.useState<CounterPaymentMode>("CASH");
   const [invoiceDate] = React.useState<string>(toISODate(new Date()));
   const [submitting, setSubmitting] = React.useState(false);
   const [lastInvoice, setLastInvoice] = React.useState<Invoice | null>(null);
@@ -215,8 +230,19 @@ export default function B2CCounterView() {
     return { count: todays.length, amount: round2(todays.reduce((s, i) => s + Number(i.grandTotal), 0)) };
   }, [counterInvoices]);
 
+  // CREDIT pill appears only for registered buyers / phone-registered walk-ins
+  const canUseCredit = creditEligible(buyer, walkInPhone);
+  React.useEffect(() => {
+    if (paymentMode === "CREDIT" && !canUseCredit) setPaymentMode("CASH");
+  }, [canUseCredit, paymentMode]);
+  const pills: CounterPaymentMode[] = canUseCredit ? [...INSTANT_PILLS, "CREDIT"] : [...INSTANT_PILLS];
+
   async function confirmSale() {
     if (!activeFirmId || lines.length === 0) return;
+    if (paymentMode === "CREDIT" && !canUseCredit) {
+      toast({ variant: "destructive", title: "Credit needs a buyer", description: t("b2c.creditBuyerOnly") });
+      return;
+    }
     setSubmitting(true);
     try {
       const inv = await apiPost<Invoice>("/api/v1/invoices", {
@@ -255,7 +281,7 @@ export default function B2CCounterView() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="B2C Counter POS" subtitle="Walk-in & counter billing · Retailer pricing · instant payment only (R14 — no credit)" icon={Store} />
+      <PageHeader title="B2C Counter POS" subtitle="Walk-in & counter billing · Retailer pricing · registered buyers bill on credit too (auto ₹1,00,000 limit)" icon={Store} />
 
       {/* Today's counter chips */}
       <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 max-w-md">
@@ -273,7 +299,7 @@ export default function B2CCounterView() {
             <Coins className="h-4 w-4 text-dmk-text-muted" />
           </div>
           <span className="font-money text-[20px] font-semibold leading-none text-dmk-success">{formatINR(todayStats.amount)}</span>
-          <span className="text-[11px] text-dmk-text-muted">cash + UPI + card</span>
+          <span className="text-[11px] text-dmk-text-muted">cash + UPI + card + on-account</span>
         </div>
       </div>
 
@@ -304,6 +330,16 @@ export default function B2CCounterView() {
                     <div className="min-w-0 flex-1">
                       <p className="text-[14px] font-semibold text-dmk-text-primary truncate">{buyer.partyName}</p>
                       <p className="text-[11.5px] text-dmk-text-muted font-money">{buyer.phone || "no phone"} · {buyer.visitCount} visits · spent {formatINR(Number(buyer.lifetimeSpend))}</p>
+                      <p className="text-[11.5px] font-money mt-0.5">
+                        {Number(buyer.creditLimit) > 0 ? (
+                          <>
+                            <span className="text-dmk-gold">{t("b2c.creditLimit")} {formatINR(Number(buyer.creditLimit))}</span>
+                            <span className="text-dmk-text-muted"> · {t("b2c.creditAvailable")} {formatINR(availableCredit(buyer))}</span>
+                          </>
+                        ) : (
+                          <span className="text-dmk-text-muted">{t("b2c.creditLimit")} — ₹0</span>
+                        )}
+                      </p>
                     </div>
                     <Badge tone="neutral">Retailer</Badge>
                     <button aria-label="Clear buyer" onClick={() => setBuyer(null)} className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-dmk-border-subtle text-dmk-text-muted hover:text-dmk-danger hover:border-dmk-danger/40 transition-colors">
@@ -346,7 +382,7 @@ export default function B2CCounterView() {
                               if (isPhone) setWalkInPhone(q); else setWalkInName(q);
                               setBuyerQuery("");
                               setBuyerOpen(false);
-                              toast({ title: "New counter buyer", description: isPhone ? "Phone pre-filled — add the buyer's name, then bill." : "Name pre-filled — add a phone (optional), then bill. The buyer joins the counter list automatically." });
+                              toast({ title: "New counter buyer", description: isPhone ? "Phone pre-filled — add the buyer's name, then bill." : `Name pre-filled — add a phone (optional), then bill. ${t("b2c.walkInAutoCredit")}` });
                             }}
                             className="w-full text-left px-3 py-2.5 hover:bg-dmk-hover transition-colors flex items-center gap-2"
                           >
@@ -529,11 +565,11 @@ export default function B2CCounterView() {
                 </div>
                 <p className="text-[11.5px] italic text-dmk-text-muted">{amountInWords(totals.grand)}</p>
 
-                {/* Payment pills — CASH/UPI/CARD only (R14) */}
+                {/* Payment pills — CASH/UPI/CARD always, + CREDIT for registered buyers */}
                 <div>
                   <span className="text-[11px] uppercase tracking-wider font-semibold text-dmk-text-muted block mb-2">Payment mode</span>
-                  <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Payment mode">
-                    {PAYMENT_PILLS.map((m) => (
+                  <div className={cn("grid gap-2", pills.length === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4")} role="radiogroup" aria-label="Payment mode">
+                    {pills.map((m) => (
                       <button
                         key={m}
                         role="radio"
@@ -542,7 +578,9 @@ export default function B2CCounterView() {
                         className={cn(
                           "h-10 rounded-lg border text-[12.5px] font-semibold transition-colors",
                           paymentMode === m
-                            ? "border-dmk-success/50 bg-[rgba(34,197,94,0.12)] text-dmk-success"
+                            ? m === "CREDIT"
+                              ? "border-dmk-gold/50 bg-[rgba(212,175,55,0.12)] text-dmk-gold"
+                              : "border-dmk-success/50 bg-[rgba(34,197,94,0.12)] text-dmk-success"
                             : "border-dmk-border-subtle bg-dmk-input-well text-dmk-text-secondary hover:bg-dmk-hover"
                         )}
                       >
@@ -550,7 +588,21 @@ export default function B2CCounterView() {
                       </button>
                     ))}
                   </div>
+                  {paymentMode === "CREDIT" && (
+                    <p className="mt-2 text-[11.5px] text-dmk-gold">
+                      {t("b2c.onAccount")}
+                      {buyer && Number(buyer.creditLimit) > 0 && (
+                        <span className="text-dmk-text-muted"> · {t("b2c.creditAvailable")} {formatINR(availableCredit(buyer))}</span>
+                      )}
+                    </p>
+                  )}
                 </div>
+
+                {paymentMode === "CREDIT" && (
+                  <div className="dmk-well border border-dmk-gold/25 p-3">
+                    <p className="text-[11.5px] leading-relaxed text-dmk-text-secondary">{t("b2c.creditLedgerNote")}</p>
+                  </div>
+                )}
 
                 <div className="flex-1" aria-hidden="true" />
 
@@ -617,7 +669,7 @@ export default function B2CCounterView() {
           setNewBuyerOpen(false);
           setWalkInName("");
           setWalkInPhone("");
-          toast({ title: `Buyer added — ${c.partyName}` });
+          toast({ title: `Buyer added — ${c.partyName}`, description: t("b2c.autoCreditNote") });
         }}
       />
     </div>
@@ -669,7 +721,7 @@ function BuyersDirectory({ onNew }: { onNew: () => void }) {
         {rows === null ? (
           <LoadingRows />
         ) : rows.length === 0 ? (
-          <EmptyState icon={Store} title="No counter buyers yet" hint="Buyers are created at the counter with just a name and phone — no credit, instant payment." />
+          <EmptyState icon={Store} title="No counter buyers yet" hint="Buyers are created at the counter with just a name and phone — each gets a ₹1,00,000 credit limit automatically (credit works like B2B)." />
         ) : (
           <table className="dmk-table min-w-[640px]">
             <thead>
@@ -767,7 +819,8 @@ function BuyerHistoryDialog({ buyer, onClose }: { buyer: Customer | null; onClos
 }
 
 // ═══════════════════════════════════════════════════════════════
-// New buyer dialog — name + phone ONLY (R9/R14: no credit fields)
+// New buyer dialog — name + phone ONLY; the server automatically
+// applies the ₹1,00,000 credit limit (credit works like B2B).
 // ═══════════════════════════════════════════════════════════════
 function NewBuyerDialog({
   open,
@@ -779,6 +832,7 @@ function NewBuyerDialog({
   onCreated: (c: Customer) => void;
 }) {
   const { toast } = useToast();
+  const { t } = useT();
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   const [name, setName] = React.useState("");
@@ -793,6 +847,8 @@ function NewBuyerDialog({
     }
     setSaving(true);
     try {
+      // creditLimit/creditDays intentionally omitted — the server injects
+      // the ₹1,00,000 auto credit limit + standard 30-day window.
       const c = await apiPost<Customer>("/api/v1/customers", {
         firmId: activeFirmId,
         customerType: "B2C_COUNTER",
@@ -801,8 +857,6 @@ function NewBuyerDialog({
         city: "",
         stateCode: firm?.stateCode ?? "",
         assignedTier: "tier4Retailer",
-        creditLimit: 0,
-        creditDays: 0,
       });
       onCreated(c);
       setName("");
@@ -820,7 +874,7 @@ function NewBuyerDialog({
       <DialogContent className="dmk-elevated border-dmk-border-medium">
         <DialogHeader>
           <DialogTitle className="text-dmk-text-primary">New counter buyer</DialogTitle>
-          <DialogDescription className="text-dmk-text-muted">Name + phone only — no credit, instant payment (R14).</DialogDescription>
+          <DialogDescription className="text-dmk-text-muted">{t("b2c.newBuyerDesc")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <Field label="Buyer name *">

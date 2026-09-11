@@ -398,6 +398,17 @@ const en = {
   "exp.colJournal": "Journal",
   "exp.colNarration": "Narration",
 
+  // ── B2C counter credit (auto ₹1,00,000 — works like B2B) ─────
+  "b2c.creditLimit": "Credit limit",
+  "b2c.creditAvailable": "Available credit",
+  "b2c.onAccount": "On account (credit) — collect later",
+  "b2c.creditBuyerOnly": "On-account (credit) needs a registered buyer — pick a buyer or add name + phone.",
+  "b2c.autoCreditNote": "₹1,00,000 credit limit applied automatically — credit works like B2B.",
+  "b2c.newBuyerDesc": "Name + phone only — a ₹1,00,000 credit limit is set automatically (credit works like B2B).",
+  "b2c.buyerAdded": "Buyer added — ₹1,00,000 credit limit set",
+  "b2c.walkInAutoCredit": "The buyer joins the counter list with a ₹1,00,000 credit limit automatically.",
+  "b2c.creditLedgerNote": "Amount moves to the buyer's ledger as udhaar — settle later from Receipts.",
+
   // ── Domain batches (view-level keys) ─────────────────────────
   ...enSales,
   ...enPurchase,
@@ -781,6 +792,17 @@ const hi: Partial<Record<DictKey, string>> = {
   "exp.colJournal": "जर्नल",
   "exp.colNarration": "विवरण",
 
+  // ── B2C counter credit (auto ₹1,00,000 — works like B2B) ─────
+  "b2c.creditLimit": "उधार सीमा",
+  "b2c.creditAvailable": "उपलब्ध उधार",
+  "b2c.onAccount": "खाते पर (उधार) — बाद में वसूली",
+  "b2c.creditBuyerOnly": "खाते पर बिल (उधार) के लिए पंजीकृत खरीदार ज़रूरी है — खरीदार चुनें या नाम + फ़ोन जोड़ें.",
+  "b2c.autoCreditNote": "₹1,00,000 उधार सीमा स्वतः लग जाती है — उधार B2B की तरह काम करता है.",
+  "b2c.newBuyerDesc": "सिर्फ़ नाम + फ़ोन — ₹1,00,000 उधार सीमा स्वतः सेट होती है (उधार B2B की तरह काम करता है).",
+  "b2c.buyerAdded": "खरीदार जुड़ा — ₹1,00,000 उधार सीमा सेट",
+  "b2c.walkInAutoCredit": "खरीदार स्वतः ₹1,00,000 उधार सीमा के साथ काउंटर सूची में जुड़ जाता है.",
+  "b2c.creditLedgerNote": "रक्कम खरीदार के बहीखाते में उधार चली जाएगी — बाद में पावती से सेटल करें.",
+
   // ── Domain batches (view-level keys) ─────────────────────────
   ...hiSales,
   ...hiPurchase,
@@ -1161,6 +1183,17 @@ const mr: Partial<Record<DictKey, string>> = {
   "exp.colSource": "स्रोत",
   "exp.colJournal": "जर्नल",
   "exp.colNarration": "नोंद",
+
+  // ── B2C counter credit (auto ₹1,00,000 — works like B2B) ─────
+  "b2c.creditLimit": "उधार मर्यादा",
+  "b2c.creditAvailable": "उपलब्ध उधार",
+  "b2c.onAccount": "खात्यावर (उधार) — नंतर वसुली",
+  "b2c.creditBuyerOnly": "खात्यावर बिल (उधार) साठी नोंदलेला ग्राहक आवश्यक — ग्राहक निवडा किंवा नाव + फोन जोडा.",
+  "b2c.autoCreditNote": "₹1,00,000 उधार मर्यादा आपोआप लागते — उधार B2B प्रमाणे काम करते.",
+  "b2c.newBuyerDesc": "फक्त नाव + फोन — ₹1,00,000 उधार मर्यादा आपोआप सेट होते (उधार B2B प्रमाणे काम करते).",
+  "b2c.buyerAdded": "ग्राहक जोडला — ₹1,00,000 उधार मर्यादा सेट",
+  "b2c.walkInAutoCredit": "ग्राहक आपोआप ₹1,00,000 उधार मर्यादेसह काउंटर यादीत जोडला जातो.",
+  "b2c.creditLedgerNote": "रक्कम ग्राहकाच्या खात्यात उधार जमा होईल — नंतर पावतीतून सेटल करा.",
 
   // ── Domain batches (view-level keys) ─────────────────────────
   ...mrSales,

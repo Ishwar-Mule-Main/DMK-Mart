@@ -13,6 +13,9 @@ import { useErpStore } from "@/store/erp-store";
 export { LANGS, LANG_META };
 export type { Lang, DictKey };
 
+/** Shape of the `t()` translator — useful for helper signatures outside components. */
+export type TFn = (key: DictKey | string, vars?: Record<string, string | number>) => string;
+
 function interpolate(template: string, vars?: Record<string, string | number>): string {
   if (!vars) return template;
   return template.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
