@@ -182,6 +182,10 @@ export interface Invoice {
   walkInPhone: string;
   subtotal: number;
   discountTotal: number;
+  /** Whole-bill discount % applied on the taxable value (pre-GST). */
+  billDiscountPct?: number;
+  /** Whole-bill discount ₹ actually deducted (pre-GST). */
+  billDiscountAmt?: number;
   totalCgst: number;
   totalSgst: number;
   totalIgst: number;

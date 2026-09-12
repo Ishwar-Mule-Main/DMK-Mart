@@ -1810,3 +1810,29 @@ Stage Summary:
 - Inventory now renders the REAL 971-product Neon catalog with live Cloudinary imagery; PHOTO→DMK-logo fallback keeps the 45 unphotographed SKUs presentable
 - photoUrl is now a first-class schema field (read + write paths) — ready for the owner's Cloudinary sync to keep writing it externally
 - Remaining: owner may want a photo column in other product pickers (billing, NPO) later — schema/type already expose it
+
+---
+Task ID: 68
+Agent: Z.ai Code (main)
+Task: 4-part sales UX batch — ① SO staging popup scrollable + relayout (no PDF viewer; left=customer+products, right=invoice summary + Confirm & Book SO below) ② whole-bill discount in Fast Billing / B2C / SO summaries (+ printed on A4) ③ A4 invoice shows which products get discounts ④ remove per-product custom discount from Fast Billing & B2C (bulk discount kept). English-only strings for now (full translation later).
+
+Work Log:
+- Schema (additive, Neon): Invoice + SalesOrder + StagedOrderUpload each gained billDiscountPct/billDiscountAmt (default 0). db:push OK; verified via db pull (6 columns live). No data loss.
+- Invoice engine (_lib/invoice.ts): CreateInvoiceInput.billDiscountPct/Amt (validated 0-100 / >=0). After per-line bulk pricing, whole-bill discount applies a proportional factor on every line's taxable BEFORE GST — GST splits recomputed per line; subtotal = Σ discounted taxables (SALES journal credits the net → books stay balanced); discountTotal = bulk savings + bill discount; both fields persisted.
+- /invoices POST parses billDiscountPct (% mode wins) / billDiscountAmt (flat mode).
+- SO engine (_lib/salesOrder.ts): bookOrder accepts bill discount; estimatedTotal = gross − discount; persisted on the SO. convertSalesOrderToInvoice carries it into createInvoice (dispatch auto-bill honors the agreed discount).
+- Staged routes: PATCH accepts standalone {billDiscountPct,billDiscountAmt}; PATCH-items re-derives ₹ via new syncStagedBillDiscount(); confirm POST reads body discount (falls back to stored) → bookOrder; shapeStagedOrder returns both fields.
+- Fast Billing (billing.tsx): REMOVED per-product custom Disc % column + manualDiscPct/setDisc/canOverridePrice (sales-portal price-pin untouched); bulk/packaging discount intact. NEW Bill discount row in summary with %|₹ mode toggle + input; totals preview mirrors server (factor pre-GST); POST carries discount. Table min-width 860→760.
+- B2C counter (b2c-counter.tsx): same Bill discount row in receipt summary + POST + state reset; preview math mirrors server.
+- SO Staging Terminal (sales-orders.tsx): PDF/image/text viewer REMOVED (Eye import + TextPreview component deleted). Dialog pinned sm:top-[1rem] sm:translate-y-0 h-[100dvh-2rem] — can never clip. Body: grid overflow-y-auto lg:overflow-hidden; LEFT = customer card + editable line items (sticky header strip, own scroll on lg); RIGHT = "Invoice summary" (items subtotal → Bill discount %/₹ toggle+input → GST est. → Net payable) with Confirm & Book SO (full-width h-11) + Save draft + Discard BELOW the summary, lg:sticky bottom. Confirm body carries the discount.
+- A4 invoice (invoice-docs.tsx): totals now Gross taxable → Bill discount (x%) → Taxable value (after discount) → taxes → round-off → grand. Per-line DISC% now shows the EFFECTIVE discount vs tier base (covers bulk AND booked-price) with struck-through base price when discounted; dim "—" when none. Old invoices (amt=0) render unchanged (no phantom row).
+- types/erp.ts: Invoice.billDiscountPct/Amt. i18n batch-sales.ts: bill.billDisc(+Aria/PctMode/AmtMode), invd.billDiscount, invd.taxableAfterDisc in en/hi/mr (English strings in all 3 for now, keys TS-enforced aligned); bill.bulkManualDisc relabeled "Bulk discount"/थोक छूट/घाऊक सवलत.
+- lint ✅ tsc ✅ dev.log clean ✅
+- Browser QA (READ-ONLY — nothing posted to the production ledger): Staging terminal on user's order1.pdf → new 2-pane layout confirmed (no viewer/iframe), 5% discount → −₹84 → net ₹1,596 live; at 1280×620 Confirm button fully visible (dialog 588px < 620px), closed without changes. Fast Billing: Hubli Sri Ganesh Stores + PLANTER RECTANGLE 008 ×12 → Box(12) −12% bulk (−₹95.52), bill 10% → −₹70.01 → taxable ₹630.07 → IGST ₹113.41 → grand ₹743.00 (exact); Disc column gone. B2C: ×12 → gross 1200 → bulk −144 → bill 10% −105.60 → payNow ₹1,121 exact. A4: INV/0009 lines show "—" (no disc); INV/0010 line shows bold 20% + struck-through ₹182 base.
+
+Stage Summary:
+- One whole-bill discount (%, or flat ₹ capped at gross) now exists across the 3 sales surfaces, applies pre-GST proportionally, survives SO→invoice conversion, and prints on the A4 with a dedicated row.
+- Per-product custom discount is gone from Fast Billing (incl. /sales portal reuse) — quantity bulk discounts remain the only automatic line-level discount, as requested.
+- Server is the single source of truth: client previews mirror the factor math but every posted total is recomputed API-side.
+- Dev-server gotcha this session: plain `nohup … &` dies between tool invocations — working pattern is double-fork `(setsid bun run dev > dev.log 2>&1 &)`.
+- Pending: full HI/MR translation sweep deferred by user until "full products done"; existing-old-invoice A4s unaffected.

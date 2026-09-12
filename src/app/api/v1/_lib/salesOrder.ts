@@ -45,6 +45,11 @@ export interface BookOrderInput {
   stagedUploadId?: string | null;
   mode: "DRAFT" | "CONFIRMED";
   orderDate?: Date;
+  /** Whole-order discount % (staging terminal) — reduces the estimated total.
+   *  Carried onto the tax invoice when the order is converted at dispatch. */
+  billDiscountPct?: number;
+  /** Whole-order flat discount ₹ — used when the discount is an amount. */
+  billDiscountAmt?: number;
   /** Set when re-booking a staged upload that already used a number. */
   orderNumber?: string;
 }
@@ -158,7 +163,14 @@ export async function bookOrder(input: BookOrderInput): Promise<BookOrderResult 
       notes: i.notes ?? "",
     };
   });
-  const estimatedTotal = round2(lines.reduce((s, l) => s + l.totalAmount, 0));
+  const estimatedGross = round2(lines.reduce((s, l) => s + l.totalAmount, 0));
+
+  // Whole-order discount (₹ estimate is pre-tax, so the discount is a flat cut)
+  const billPct = Math.min(100, Math.max(0, input.billDiscountPct ?? 0));
+  const billAmtIn = Math.max(0, input.billDiscountAmt ?? 0);
+  const billDiscountAmt =
+    billPct > 0 ? round2((estimatedGross * billPct) / 100) : Math.min(billAmtIn, estimatedGross);
+  const estimatedTotal = round2(estimatedGross - billDiscountAmt);
 
   const confirmed = input.mode === "CONFIRMED";
   const orderDate = input.orderDate ?? new Date();
@@ -179,6 +191,8 @@ export async function bookOrder(input: BookOrderInput): Promise<BookOrderResult 
         customerId,
         status: confirmed ? "CONFIRMED" : "BOOKED",
         estimatedTotal,
+        billDiscountPct: billPct,
+        billDiscountAmt,
         notes: input.notes ?? "",
         deliveryOtp,
         stockReserved: confirmed,
@@ -324,6 +338,12 @@ export async function convertSalesOrderToInvoice(
       // Carry the price quoted at booking so packaging bulk discounts don't
       // silently change the bill away from what the customer agreed to.
       .map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice })),
+    // The whole-order discount agreed at booking rides onto the bill.
+    ...(order.billDiscountPct > 0
+      ? { billDiscountPct: order.billDiscountPct }
+      : order.billDiscountAmt > 0
+        ? { billDiscountAmt: order.billDiscountAmt }
+        : {}),
   };
   const { invoice } = await createInvoice(firm, invoiceInput);
 

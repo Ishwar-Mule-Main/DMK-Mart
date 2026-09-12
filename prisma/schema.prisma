@@ -303,6 +303,8 @@ model Invoice {
   walkInPhone    String   @default("")
   subtotal       Float    @default(0)
   discountTotal  Float    @default(0)
+  billDiscountPct Float   @default(0) // whole-bill discount % applied on the taxable value (pre-GST)
+  billDiscountAmt Float   @default(0) // whole-bill discount ₹ actually deducted (pre-GST)
   totalCgst      Float    @default(0)
   totalSgst      Float    @default(0)
   totalIgst      Float    @default(0)
@@ -942,7 +944,9 @@ model SalesOrder {
   customerId         String?
   customer           Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
   status             String       @default("BOOKED") // BOOKED | CONFIRMED | CONVERTED | CANCELLED
-  estimatedTotal     Float        @default(0)
+  estimatedTotal     Float        @default(0) // after the whole-bill discount
+  billDiscountPct    Float        @default(0) // whole-order discount % (carried onto the invoice at conversion)
+  billDiscountAmt    Float        @default(0) // whole-order discount ₹ actually deducted
   notes              String       @default("")
   deliveryOtp        String       @default("") // 4-digit Delivery Verification OTP — stamped on CONFIRMED, carried onto the tax invoice
   stockReserved      Boolean      @default(false) // CONFIRMED orders hold Product.reservedQty until converted/cancelled
@@ -1012,6 +1016,8 @@ model StagedOrderUpload {
   customerMatchScore   Float     @default(0)
 
   status               String    @default("NEEDS_REVIEW") // NEEDS_REVIEW | BOOKED | DISCARDED
+  billDiscountPct      Float     @default(0) // whole-order discount % set in the staging terminal
+  billDiscountAmt      Float     @default(0) // whole-order discount ₹ (derived from the lines + pct)
   confirmedSalesOrderId String   @default("")
   confirmedAt          DateTime?
   createdAt            DateTime  @default(now())

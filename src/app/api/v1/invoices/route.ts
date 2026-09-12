@@ -106,6 +106,10 @@ export async function POST(request: NextRequest) {
       manualDiscountPct: l.manualDiscountPct !== undefined ? getNum(l.manualDiscountPct) : undefined,
     }));
 
+    // Whole-bill discount — % mode wins when both are sent.
+    const billDiscountPct = body.billDiscountPct !== undefined ? getNum(body.billDiscountPct) : 0;
+    const billDiscountAmt = body.billDiscountAmt !== undefined ? getNum(body.billDiscountAmt) : 0;
+
     // /sales portal attribution — validate the member belongs to this firm.
     const salesMemberId = getStr(body.salesMemberId);
     if (salesMemberId) {
@@ -125,6 +129,8 @@ export async function POST(request: NextRequest) {
       invoiceDate: getDate(body.invoiceDate),
       paymentMode: getStr(body.paymentMode) || "CREDIT",
       lines,
+      ...(billDiscountPct > 0 ? { billDiscountPct } : {}),
+      ...(billDiscountPct <= 0 && billDiscountAmt > 0 ? { billDiscountAmt } : {}),
     });
 
     const postedInvoice = result.invoice;

@@ -87,6 +87,9 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
     });
 
     const firm = await resolveFirm(staged.firmId);
+    // Whole-order discount agreed in the staging terminal (% mode wins).
+    const bodyPct = body.billDiscountPct !== undefined ? getNum(body.billDiscountPct) : staged.billDiscountPct;
+    const bodyAmt = body.billDiscountAmt !== undefined ? getNum(body.billDiscountAmt) : staged.billDiscountAmt;
     const result = await bookOrder({
       firm,
       customerId: staged.matchedCustomerId,
@@ -96,6 +99,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
         `Deep-scanned from ${staged.originalFileName || staged.source.toLowerCase()}${staged.extractedGstin ? ` · GSTIN ${staged.extractedGstin}` : ""}`,
       stagedUploadId: staged.id,
       mode,
+      ...(bodyPct > 0 ? { billDiscountPct: bodyPct } : bodyAmt > 0 ? { billDiscountAmt: bodyAmt } : {}),
     });
 
     await db.stagedOrderUpload.update({

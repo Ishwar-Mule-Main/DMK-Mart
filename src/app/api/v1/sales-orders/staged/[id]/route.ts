@@ -108,6 +108,20 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
           };
         }),
       });
+      // Re-derive the whole-order discount ₹ from the fresh lines.
+      await syncStagedBillDiscount(id);
+      const detail = await shapeStagedOrder(id);
+      return ok({ staged: detail });
+    }
+
+    // ── Whole-order discount ──────────────────────────────────────
+    if (body.billDiscountPct !== undefined || body.billDiscountAmt !== undefined) {
+      const pct = Math.min(100, Math.max(0, getNum(body.billDiscountPct)));
+      const amt = Math.max(0, getNum(body.billDiscountAmt));
+      await db.stagedOrderUpload.update({
+        where: { id },
+        data: { billDiscountPct: pct, billDiscountAmt: amt },
+      });
       const detail = await shapeStagedOrder(id);
       return ok({ staged: detail });
     }
@@ -137,6 +151,29 @@ export async function DELETE(_request: NextRequest, ctx: RouteCtx) {
     return ok({ staged: detail });
   } catch (e) {
     return handleApiError(e);
+  }
+}
+
+/**
+ * Recompute the staged upload's whole-order discount ₹ from its current
+ * lines + stored pct. Runs after every line replace so a saved draft's
+ * discount always matches the lines it will book with.
+ */
+async function syncStagedBillDiscount(stagedId: string) {
+  const staged = await db.stagedOrderUpload.findUnique({
+    where: { id: stagedId },
+    include: { items: { select: { quantity: true, appliedPrice: true, statedPrice: true } } },
+  });
+  if (!staged) return;
+  const gross = staged.items.reduce(
+    (s, i) => s + i.quantity * (i.appliedPrice > 0 ? i.appliedPrice : i.statedPrice),
+    0
+  );
+  const amt =
+    staged.billDiscountPct > 0 ? Math.round(((gross * staged.billDiscountPct) / 100) * 100) / 100 : staged.billDiscountAmt;
+  const capped = Math.min(Math.max(0, amt), Math.max(0, Math.round(gross * 100) / 100));
+  if (Math.abs(capped - staged.billDiscountAmt) > 0.005) {
+    await db.stagedOrderUpload.update({ where: { id: stagedId }, data: { billDiscountAmt: capped } });
   }
 }
 

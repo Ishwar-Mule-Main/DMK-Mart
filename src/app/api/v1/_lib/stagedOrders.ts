@@ -250,6 +250,8 @@ export async function shapeStagedOrder(orderId: string) {
     createdAt: order.createdAt,
     items,
     subtotal,
+    billDiscountPct: order.billDiscountPct,
+    billDiscountAmt: order.billDiscountAmt,
     itemCount: items.length,
     unlistedCount: items.filter((i) => i.isUnlisted).length,
   };

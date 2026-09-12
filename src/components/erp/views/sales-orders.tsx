@@ -31,7 +31,6 @@ import {
   Trash2,
   Loader2,
   Truck,
-  Eye,
   Ban,
   MessageSquareText,
   ShieldCheck,
@@ -42,6 +41,7 @@ import { ApiError } from "@/lib/api-client";
 import { useToast } from "@/hooks/use-toast";
 import { useT, type TFn } from "@/lib/i18n";
 import { formatINR, formatDate } from "@/lib/format";
+import { round2 } from "@/lib/gst";
 import { cn } from "@/lib/utils";
 import {
   PageHeader,
@@ -138,6 +138,8 @@ interface StagedDetail {
   createdAt: string;
   items: StagedItemView[];
   subtotal: number;
+  billDiscountPct: number;
+  billDiscountAmt: number;
   itemCount: number;
   unlistedCount: number;
 }
@@ -952,10 +954,12 @@ function StagingTerminal({
   const [quickAddLine, setQuickAddLine] = React.useState<EditableLine | null>(null);
   const [changeCustomerOpen, setChangeCustomerOpen] = React.useState(false);
 
-  const fileUrl = `/api/v1/sales-orders/staged/${stagedId}/file`;
-  const isImage = detail?.originalFileType.startsWith("image/") ?? false;
-  const isPdf = detail?.originalFileType === "application/pdf";
-  const isText = detail?.originalFileType.startsWith("text/") ?? false;
+  // Whole-order discount — set in the invoice summary, carried onto the SO
+  // and later onto the tax invoice at dispatch.
+  const [billDiscMode, setBillDiscMode] = React.useState<"pct" | "amt">("pct");
+  const [billDiscValue, setBillDiscValue] = React.useState("");
+  const billDiscPct = billDiscMode === "pct" ? Math.min(100, Math.max(0, Number(billDiscValue) || 0)) : 0;
+  const billDiscAmtIn = billDiscMode === "amt" ? Math.max(0, Number(billDiscValue) || 0) : 0;
 
   const loadDetail = React.useCallback(() => {
     setLoading(true);
@@ -976,6 +980,15 @@ function StagingTerminal({
             isUnlisted: i.isUnlisted,
           }))
         );
+        // Seed the whole-order discount from the saved draft (first load only —
+        // refreshes after line saves keep the operator's in-progress input).
+        if (r.staged.billDiscountPct > 0) {
+          setBillDiscMode("pct");
+          setBillDiscValue(String(r.staged.billDiscountPct));
+        } else if (r.staged.billDiscountAmt > 0) {
+          setBillDiscMode("amt");
+          setBillDiscValue(String(r.staged.billDiscountAmt));
+        }
       })
       .catch((e) => {
         setError(e instanceof Error ? e.message : t("so.errLoadUpload"));
@@ -1003,18 +1016,32 @@ function StagingTerminal({
   }
 
   const totals = React.useMemo(() => {
+    let gross = 0;
+    for (const l of lines) {
+      const rate = l.appliedPrice > 0 ? l.appliedPrice : l.statedPrice;
+      const disc = rate * (l.discountPercent / 100);
+      gross += Math.max(0, l.quantity * (rate - disc));
+    }
+    gross = round2(gross);
+
+    // Whole-order discount — proportional factor across every line (pre-GST)
+    const disc = billDiscPct > 0 ? round2((gross * billDiscPct) / 100) : Math.min(billDiscAmtIn, gross);
+    const factor = gross > 0 && disc > 0 ? (gross - disc) / gross : 1;
+
     let subtotal = 0;
     let gst = 0;
     for (const l of lines) {
       const rate = l.appliedPrice > 0 ? l.appliedPrice : l.statedPrice;
-      const disc = rate * (l.discountPercent / 100);
-      const line = Math.max(0, l.quantity * (rate - disc));
-      subtotal += line;
-      const p = l.matchedSkuId ? detail?.items.find((d) => d.matchedSkuId === l.matchedSkuId)?.product : null;
-      gst += line * ((p?.gstRate ?? 18) / 100);
+      const d = rate * (l.discountPercent / 100);
+      const lineNet = round2(Math.max(0, l.quantity * (rate - d)) * factor);
+      subtotal += lineNet;
+      const p = l.matchedSkuId ? detail?.items.find((x) => x.matchedSkuId === l.matchedSkuId)?.product : null;
+      gst += lineNet * ((p?.gstRate ?? 18) / 100);
     }
-    return { subtotal, gst, net: subtotal + gst };
-  }, [lines, detail]);
+    subtotal = round2(subtotal);
+    gst = round2(gst);
+    return { gross, disc: round2(Math.max(0, disc)), subtotal, gst, net: round2(subtotal + gst) };
+  }, [lines, detail, billDiscPct, billDiscAmtIn]);
 
   function updateLine(key: string, patch: Partial<EditableLine>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -1128,7 +1155,13 @@ function StagingTerminal({
         estimatedTotal: number;
         warnings: string[];
         status: string;
-      }>(`/api/v1/sales-orders/staged/${stagedId}/confirm`, { mode });
+      }>(`/api/v1/sales-orders/staged/${stagedId}/confirm`, {
+        mode,
+        // Whole-order discount agreed in the staging terminal — the server
+        // stores it on the SO and later applies it to the dispatch invoice.
+        billDiscountPct: billDiscPct,
+        billDiscountAmt: billDiscPct > 0 ? 0 : billDiscAmtIn,
+      });
       onBooked({
         orderNumber: r.orderNumber,
         deliveryOtp: r.deliveryOtp,
@@ -1152,7 +1185,7 @@ function StagingTerminal({
   return (
     <>
     <Dialog open onOpenChange={(v) => !v && onClose(false)}>
-      <DialogContent className="sm:max-w-[1400px] sm:w-[calc(100vw-2rem)] max-w-[calc(100vw-1rem)] w-[calc(100vw-1rem)] h-[calc(100vh-4rem)] dmk-card border-dmk-border-subtle bg-[#0B1322] p-0 overflow-hidden flex flex-col">
+      <DialogContent className="dmk-card border-dmk-border-subtle bg-[#0B1322] p-0 overflow-hidden flex flex-col gap-0 sm:max-w-[1400px] sm:w-[calc(100vw-2rem)] max-w-[calc(100vw-1rem)] w-[calc(100vw-1rem)] sm:top-[1rem] sm:translate-y-0 h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)]">
         <DialogHeader className="px-5 pt-4 pb-3 border-b border-dmk-border-subtle shrink-0">
           <DialogTitle className="flex items-center gap-2 text-dmk-text-primary text-[16px]">
             <ScanSearch className="h-5 w-5 text-dmk-yellow" />
@@ -1173,39 +1206,15 @@ function StagingTerminal({
         ) : !detail ? (
           <div className="flex-1 flex items-center justify-center text-dmk-text-muted text-[13px]">{error || "Upload not found"}</div>
         ) : (
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-0 overflow-hidden">
-            {/* LEFT — original document */}
-            <div className="min-w-0 border-b lg:border-b-0 lg:border-r border-dmk-border-subtle flex flex-col bg-[#090E1A]">
-              <div className="px-4 py-2 border-b border-dmk-border-subtle flex items-center gap-2">
-                <Eye className="h-3.5 w-3.5 text-dmk-text-muted" />
-                <p className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">{t("so.origDocument")}</p>
-              </div>
-              <div className="flex-1 overflow-auto p-3">
-                {isImage && (
-                  <img src={fileUrl} alt={`Original order document: ${detail.originalFileName}`} className="max-w-full h-auto rounded-lg border border-dmk-border-subtle" />
-                )}
-                {isPdf && (
-                  <iframe title="Original order PDF" src={fileUrl} className="w-full h-full min-h-[480px] rounded-lg border border-dmk-border-subtle bg-white" />
-                )}
-                {isText && (
-                  <pre className="whitespace-pre-wrap rounded-lg border border-dmk-border-subtle bg-dmk-input-well p-4 text-[12.5px] leading-relaxed text-dmk-text-secondary font-mono">
-                    <TextPreview url={fileUrl} />
-                  </pre>
-                )}
-                {!detail.hasFile && (
-                  <EmptyState icon={Eye} title="No stored document" hint="This upload has no previewable file." />
-                )}
-              </div>
-            </div>
-
-            {/* RIGHT — editable draft */}
-            <div className="min-w-0 flex flex-col overflow-hidden">
-              <div className="px-4 py-2 border-b border-dmk-border-subtle flex items-center gap-2">
+          <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-0 overflow-y-auto lg:overflow-hidden">
+            {/* LEFT — customer details + scanned line items (document viewer removed) */}
+            <div className="min-w-0 lg:min-h-0 lg:overflow-y-auto dmk-scroll lg:border-r border-b lg:border-b-0 border-dmk-border-subtle bg-[#090E1A]">
+              <div className="px-4 py-2 border-b border-dmk-border-subtle flex items-center gap-2 sticky top-0 bg-[#090E1A] z-10">
                 <Sparkles className="h-3.5 w-3.5 text-dmk-yellow" />
                 <p className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">Parsed draft — review &amp; edit</p>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 dmk-scroll">
+              <div className="p-4 space-y-4">
                 {/* Customer block */}
                 {detail.customer ? (
                   <div className="rounded-xl border border-dmk-border-subtle bg-dmk-input-well p-3.5">
@@ -1413,12 +1422,71 @@ function StagingTerminal({
                   </div>
                 </div>
 
+              </div>
+            </div>
+
+            {/* RIGHT — invoice summary + booking actions below it */}
+            <div className="min-w-0 lg:min-h-0 lg:overflow-y-auto dmk-scroll flex flex-col bg-[#0B1322]">
+              <div className="px-4 py-2 border-b border-dmk-border-subtle flex items-center gap-2 sticky top-0 bg-[#0B1322] z-10">
+                <ClipboardList className="h-3.5 w-3.5 text-dmk-yellow" />
+                <p className="text-[11px] font-bold uppercase tracking-wider text-dmk-text-muted">Invoice summary</p>
+              </div>
+
+              <div className="p-4 space-y-4 flex-1">
                 {/* Totals */}
                 <div className="rounded-xl border border-dmk-border-subtle bg-dmk-input-well/40 p-3.5 space-y-1.5 text-[12.5px]">
                   <div className="flex justify-between text-dmk-text-secondary">
                     <span>{t("so.itemsSubtotal")}</span>
-                    <span className="font-money">{formatINR(totals.subtotal)}</span>
+                    <span className="font-money">{formatINR(totals.gross)}</span>
                   </div>
+
+                  {/* Whole-order discount — % or flat ₹, applied before GST */}
+                  <div className="flex items-center justify-between gap-2 text-dmk-text-secondary">
+                    <span>Bill discount</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-money text-[12px] text-dmk-gold">
+                        {totals.disc > 0 ? `−${formatINR(totals.disc)}` : "—"}
+                      </span>
+                      <div className="flex rounded-md border border-dmk-border-subtle bg-dmk-input-well p-0.5" role="group" aria-label="Whole order discount">
+                        <button
+                          type="button"
+                          aria-pressed={billDiscMode === "pct"}
+                          aria-label="Discount percent mode"
+                          onClick={() => setBillDiscMode("pct")}
+                          className={cn(
+                            "h-6 w-7 rounded text-[11px] font-bold transition-colors",
+                            billDiscMode === "pct" ? "bg-dmk-hover text-dmk-text-primary" : "text-dmk-text-muted hover:text-dmk-text-secondary"
+                          )}
+                        >
+                          %
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={billDiscMode === "amt"}
+                          aria-label="Discount amount mode"
+                          onClick={() => setBillDiscMode("amt")}
+                          className={cn(
+                            "h-6 w-7 rounded text-[11px] font-bold transition-colors",
+                            billDiscMode === "amt" ? "bg-dmk-hover text-dmk-text-primary" : "text-dmk-text-muted hover:text-dmk-text-secondary"
+                          )}
+                        >
+                          ₹
+                        </button>
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={billDiscMode === "pct" ? 100 : undefined}
+                        step={billDiscMode === "pct" ? 0.5 : 1}
+                        value={billDiscValue}
+                        onChange={(e) => setBillDiscValue(e.target.value)}
+                        placeholder="0"
+                        aria-label="Whole order discount"
+                        className={cn(inputCls, "h-8 w-[74px] text-right font-money text-[12.5px]")}
+                      />
+                    </div>
+                  </div>
+
                   <div className="flex justify-between text-dmk-text-secondary">
                     <span>GST (estimated at billing)</span>
                     <span className="font-money">{formatINR(totals.gst)}</span>
@@ -1442,32 +1510,34 @@ function StagingTerminal({
                 )}
               </div>
 
-              {/* Footer actions */}
-              <div className="shrink-0 border-t border-dmk-border-subtle p-3 flex flex-wrap items-center justify-end gap-2 bg-[#0B1322]">
+              {/* Booking actions — directly below the invoice summary */}
+              <div className="shrink-0 border-t border-dmk-border-subtle p-3 space-y-2 bg-[#0B1322] lg:sticky lg:bottom-0">
                 <Button
-                  variant="ghost"
-                  className="h-9 text-[12.5px] text-dmk-danger hover:bg-[rgba(239,68,68,0.12)]"
-                  onClick={discard}
-                >
-                  <X className="h-4 w-4" /> Discard
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-9 border-dmk-border-subtle text-[12.5px] text-dmk-text-secondary hover:bg-dmk-hover"
-                  disabled={saving || booking}
-                  onClick={() => book("DRAFT")}
-                >
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Save draft
-                </Button>
-                <Button
-                  className="h-9 bg-dmk-success text-[12.5px] font-bold text-[#0A0F1D] hover:brightness-110"
+                  className="w-full h-11 text-[13.5px] font-bold bg-dmk-success text-[#0A0F1D] hover:brightness-110"
                   disabled={saving || booking || !detail.customer || lines.some((l) => !l.matchedSkuId)}
                   onClick={() => book("CONFIRMED")}
                 >
                   {booking ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                   Confirm &amp; Book SO
                 </Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-9 border-dmk-border-subtle text-[12.5px] text-dmk-text-secondary hover:bg-dmk-hover"
+                    disabled={saving || booking}
+                    onClick={() => book("DRAFT")}
+                  >
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Save draft
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="h-9 text-[12.5px] text-dmk-danger hover:bg-[rgba(239,68,68,0.12)]"
+                    onClick={discard}
+                  >
+                    <X className="h-4 w-4" /> Discard
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -1529,17 +1599,7 @@ function StagingTerminal({
   );
 }
 
-/** Tiny fetch-and-render for pasted-text previews. */
-function TextPreview({ url }: { url: string }) {
-  const [text, setText] = React.useState("Loading…");
-  React.useEffect(() => {
-    fetch(url)
-      .then((r) => r.text())
-      .then(setText)
-      .catch(() => setText("(could not load text)"));
-  }, [url]);
-  return <>{text}</>;
-}
+/** Tiny fetch-and-render helper removed with the document viewer. */
 
 // ═══════════════════════════════════════════════════════════════
 // NEW CUSTOMER MODAL (pre-filled from the scan) + existing picker

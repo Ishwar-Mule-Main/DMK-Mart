@@ -2,9 +2,11 @@
 
 // ═══════════════════════════════════════════════════════════════
 // SALES — B2B FAST BILLING (two-panel: cart left, summary right)
-// Tier pricing + bulk/packaging discount + manual disc + GST split
-// preview (client mirrors server formula). Server recomputes ALL
-// money — client preview only. Credit lock & stock enforced API-side.
+// Tier pricing + bulk/packaging discount + whole-bill discount + GST
+// split preview (client mirrors server formula). Per-product custom
+// discounts are NOT offered here — only quantity bulk pricing and one
+// whole-bill discount. Server recomputes ALL money — client preview
+// only. Credit lock & stock enforced API-side.
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
@@ -128,7 +130,6 @@ function previewGst(taxable: number, rate: number, seller: string, buyer: string
 interface CartLine {
   product: Product;
   qty: number;
-  manualDiscPct: number;
 }
 
 // Sundry Debtor standing for the selected customer (from /finance/sundry)
@@ -159,9 +160,8 @@ export default function BillingView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const firm = useActiveFirm();
   const setView = useErpStore((s) => s.setView);
-  // /sales portal — attribution + owner-granted override permission.
+  // /sales portal — attribution.
   const session = useErpStore((s) => s.session);
-  const canOverridePrice = session?.role !== "SALES" || Boolean(session.salesPerms?.canOverridePrice);
 
   // Customer picker
   const [custQuery, setCustQuery] = React.useState("");
@@ -211,6 +211,10 @@ export default function BillingView() {
   const [submitting, setSubmitting] = React.useState(false);
   const [lastInvoice, setLastInvoice] = React.useState<Invoice | null>(null);
   const [successOpen, setSuccessOpen] = React.useState(false);
+
+  // Whole-bill discount (applied on the taxable value before GST)
+  const [billDiscMode, setBillDiscMode] = React.useState<"pct" | "amt">("pct");
+  const [billDiscValue, setBillDiscValue] = React.useState("");
 
   const tierKey = React.useMemo(() => {
     if (customer && TIERS.some((t) => t.key === customer.assignedTier)) return customer.assignedTier;
@@ -273,7 +277,7 @@ export default function BillingView() {
       if (existing) {
         return prev.map((l) => (l.product.id === p.id ? { ...l, qty: l.qty + 1 } : l));
       }
-      return [...prev, { product: p, qty: 1, manualDiscPct: 0 }];
+      return [...prev, { product: p, qty: 1 }];
     });
     setProdQuery("");
     setProdResults([]);
@@ -283,49 +287,79 @@ export default function BillingView() {
   function setQty(productId: string, qty: number) {
     setLines((prev) => prev.map((l) => (l.product.id === productId ? { ...l, qty: Math.max(1, qty) } : l)));
   }
-  function setDisc(productId: string, pct: number) {
-    setLines((prev) => prev.map((l) => (l.product.id === productId ? { ...l, manualDiscPct: Math.min(100, Math.max(0, pct)) } : l)));
-  }
   function removeLine(productId: string) {
     setLines((prev) => prev.filter((l) => l.product.id !== productId));
   }
   function resetCart() {
     setLines([]);
     setProdQuery("");
+    setBillDiscValue("");
+    setBillDiscMode("pct");
   }
 
   // ── Live totals (preview — server recomputes) ────────────────
+  const billDiscPct = billDiscMode === "pct" ? Math.min(100, Math.max(0, Number(billDiscValue) || 0)) : 0;
+  const billDiscAmtIn = billDiscMode === "amt" ? Math.max(0, Number(billDiscValue) || 0) : 0;
   const totals = React.useMemo(() => {
     const buyerState = customer?.stateCode ?? firm?.stateCode ?? "";
     const sellerState = firm?.stateCode ?? "";
     let baseSubtotal = 0;
-    let taxable = 0;
+    let grossTaxable = 0;
     let savings = 0;
+    for (const l of lines) {
+      const tp = tierPriceOf(l.product, tierKey);
+      const bp = calculateBulkPricing(tp, l.qty);
+      baseSubtotal += tp * l.qty;
+      grossTaxable += bp.taxable;
+      savings += bp.savings;
+    }
+    baseSubtotal = round2(baseSubtotal);
+    grossTaxable = round2(grossTaxable);
+    savings = round2(savings);
+
+    // Whole-bill discount → proportional factor on every line's taxable (pre-GST)
+    const discAmt =
+      billDiscPct > 0
+        ? round2((grossTaxable * billDiscPct) / 100)
+        : Math.min(billDiscAmtIn, grossTaxable);
+    const factor = grossTaxable > 0 && discAmt > 0 ? (grossTaxable - discAmt) / grossTaxable : 1;
+
+    let taxable = 0;
     let cgst = 0;
     let sgst = 0;
     let igst = 0;
     for (const l of lines) {
       const tp = tierPriceOf(l.product, tierKey);
-      const bp = calculateBulkPricing(tp, l.qty, l.manualDiscPct);
-      baseSubtotal += tp * l.qty;
-      taxable += bp.taxable;
-      savings += bp.savings;
-      const g = previewGst(bp.taxable, l.product.gstRate, sellerState, buyerState);
+      const bp = calculateBulkPricing(tp, l.qty);
+      const t2 = round2(bp.taxable * factor);
+      taxable += t2;
+      const g = previewGst(t2, l.product.gstRate, sellerState, buyerState);
       cgst += g.cgst;
       sgst += g.sgst;
       igst += g.igst;
     }
-    baseSubtotal = round2(baseSubtotal);
     taxable = round2(taxable);
-    savings = round2(savings);
     cgst = round2(cgst);
     sgst = round2(sgst);
     igst = round2(igst);
     const exact = round2(taxable + cgst + sgst + igst);
     const grand = Math.round(exact);
     const roundOff = round2(grand - exact);
-    return { baseSubtotal, taxable, savings, cgst, sgst, igst, exact, grand, roundOff, intra: sellerState === buyerState && !!buyerState };
-  }, [lines, tierKey, customer, firm]);
+    return {
+      baseSubtotal,
+      grossTaxable,
+      savings,
+      billDiscAmt: round2(Math.max(0, discAmt)),
+      taxable,
+      cgst,
+      sgst,
+      igst,
+      exact,
+      grand,
+      roundOff,
+      intra: sellerState === buyerState && !!buyerState,
+    };
+  }, [lines, tierKey, customer, firm, billDiscPct, billDiscAmtIn]);
 
   const creditWarning = React.useMemo(() => {
     if (!customer || customer.customerType !== "B2B") return null;
@@ -350,10 +384,10 @@ export default function BillingView() {
         paymentMode,
         // /sales portal attribution — stamp "Billed By" with the signed-in member.
         ...(session?.role === "SALES" && session.salesId ? { salesMemberId: session.salesId } : {}),
+        ...(billDiscPct > 0 ? { billDiscountPct: billDiscPct } : billDiscAmtIn > 0 ? { billDiscountAmt: billDiscAmtIn } : {}),
         lines: lines.map((l) => ({
           productId: l.product.id,
           quantity: l.qty,
-          ...(l.manualDiscPct > 0 ? { manualDiscountPct: l.manualDiscPct } : {}),
         })),
       });
       setLastInvoice(inv);
@@ -550,6 +584,54 @@ export default function BillingView() {
                 <span className="text-dmk-text-secondary">{t("bill.bulkManualDisc")}</span>
                 <span className="font-money text-dmk-gold">{totals.savings > 0 ? `−${formatINR(totals.savings)}` : formatINR(0)}</span>
               </div>
+
+              {/* Whole-bill discount — % or flat ₹, applied before GST */}
+              <div className="flex items-center justify-between gap-2 text-[13px]">
+                <span className="text-dmk-text-secondary">{t("bill.billDisc")}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-money text-[12.5px] text-dmk-gold">
+                    {totals.billDiscAmt > 0 ? `−${formatINR(totals.billDiscAmt)}` : "—"}
+                  </span>
+                  <div className="flex rounded-md border border-dmk-border-subtle bg-dmk-input-well p-0.5" role="group" aria-label={t("bill.billDiscAria")}>
+                    <button
+                      type="button"
+                      aria-pressed={billDiscMode === "pct"}
+                      aria-label={t("bill.billDiscPctMode")}
+                      onClick={() => setBillDiscMode("pct")}
+                      className={cn(
+                        "h-6 w-7 rounded text-[11px] font-bold transition-colors",
+                        billDiscMode === "pct" ? "bg-dmk-hover text-dmk-text-primary" : "text-dmk-text-muted hover:text-dmk-text-secondary"
+                      )}
+                    >
+                      %
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={billDiscMode === "amt"}
+                      aria-label={t("bill.billDiscAmtMode")}
+                      onClick={() => setBillDiscMode("amt")}
+                      className={cn(
+                        "h-6 w-7 rounded text-[11px] font-bold transition-colors",
+                        billDiscMode === "amt" ? "bg-dmk-hover text-dmk-text-primary" : "text-dmk-text-muted hover:text-dmk-text-secondary"
+                      )}
+                    >
+                      ₹
+                    </button>
+                  </div>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={billDiscMode === "pct" ? 100 : undefined}
+                    step={billDiscMode === "pct" ? 0.5 : 1}
+                    value={billDiscValue}
+                    onChange={(e) => setBillDiscValue(e.target.value)}
+                    placeholder="0"
+                    aria-label={t("bill.billDiscAria")}
+                    className="h-8 w-[74px] bg-dmk-input-well border-dmk-border-subtle text-[12.5px] font-money text-right dmk-input"
+                  />
+                </div>
+              </div>
+
               <div className="flex justify-between text-[13px] border-t border-dmk-border-subtle pt-2">
                 <span className="text-dmk-text-secondary">{t("bill.taxableValue")}</span>
                 <span className="font-money text-dmk-text-primary">{formatINR(totals.taxable)}</span>
@@ -690,7 +772,7 @@ export default function BillingView() {
                   hint={t("bill.cartEmptyHint")}
                 />
               ) : (
-                <table className="dmk-table min-w-[860px] [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
+                <table className="dmk-table min-w-[760px] [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
                   <thead>
                     <tr>
                       <th>{t("cmn.sku")}</th>
@@ -698,7 +780,6 @@ export default function BillingView() {
                       <th className="text-right">{t("sale.qty")}</th>
                       <th className="text-right">{t("bill.colTierPrice")}</th>
                       <th>{t("bill.colPackaging")}</th>
-                      <th className="text-right">{t("sale.disc")}</th>
                       <th className="text-right">{t("bill.colEffPrice")}</th>
                       <th className="text-right">{t("bill.colTaxable")}</th>
                       <th className="text-right">{t("bill.colGst")}</th>
@@ -709,7 +790,7 @@ export default function BillingView() {
                   <tbody>
                     {lines.map((l) => {
                       const tp = tierPriceOf(l.product, tierKey);
-                      const bp = calculateBulkPricing(tp, l.qty, l.manualDiscPct);
+                      const bp = calculateBulkPricing(tp, l.qty);
                       return (
                         <tr key={l.product.id}>
                           <td className="font-money text-[11px] text-dmk-text-secondary">{l.product.sku}</td>
@@ -740,20 +821,6 @@ export default function BillingView() {
                             ) : (
                               <span className="text-[11.5px] text-dmk-text-muted">{t("bill.piece")}</span>
                             )}
-                          </td>
-                          <td className="text-right">
-                            <Input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step={0.5}
-                              value={l.manualDiscPct}
-                              onChange={(e) => setDisc(l.product.id, Number(e.target.value) || 0)}
-                              disabled={!canOverridePrice}
-                              title={canOverridePrice ? undefined : t("bill.discDisabled")}
-                              aria-label={t("bill.discAria", { name: l.product.name })}
-                              className="h-8 w-16 bg-dmk-input-well border-dmk-border-subtle text-[12.5px] font-money text-right ml-auto dmk-input disabled:opacity-50 disabled:cursor-not-allowed"
-                            />
                           </td>
                           <td className="num text-[12.5px] text-dmk-text-primary">{formatINR(bp.unitPrice)}</td>
                           <td className="num text-[12.5px]">{formatINR(bp.taxable)}</td>

@@ -237,6 +237,8 @@ function InvoiceSheet({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
   const buyerState = invoice.customer?.stateCode ?? "";
   const placeOfSupply = buyerState || firm?.stateCode || "";
   const intra = !!firm && !!buyerState && buyerState === firm.stateCode;
+  // Whole-bill discount actually deducted (pre-GST) — printed as its own row
+  const billDiscAmt = Math.max(0, Number(invoice.billDiscountAmt) || 0);
 
   return (
     <>
@@ -354,6 +356,19 @@ function InvoiceSheet({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
             <tbody>
               <tr>
                 <td className="py-1 text-gray-600">{t("invd.taxableValue")}</td>
+                <td className="py-1 text-right font-semibold">{money(invoice.subtotal + billDiscAmt)}</td>
+              </tr>
+              {billDiscAmt > 0 && (
+                <tr>
+                  <td className="py-1 text-gray-600">
+                    {t("invd.billDiscount")}
+                    {Number(invoice.billDiscountPct) > 0 ? ` (${Number(invoice.billDiscountPct)}%)` : ""}
+                  </td>
+                  <td className="py-1 text-right font-semibold text-gray-900">−{money(billDiscAmt)}</td>
+                </tr>
+              )}
+              <tr>
+                <td className="py-1 text-gray-600">{t("invd.taxableAfterDisc")}</td>
                 <td className="py-1 text-right font-semibold">{money(invoice.subtotal)}</td>
               </tr>
               {Number(invoice.totalCgst) > 0 && (
@@ -411,6 +426,12 @@ function InvoiceSheet({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
 
 function InvoiceRow({ li, idx, intra }: { li: DetailLineItem; idx: number; intra: boolean }) {
   const money = (n: number | string) => formatINR(Number(n));
+  // Effective per-line discount vs the tier base price — covers packaging
+  // bulk discounts AND booked-price overrides, so the printed bill shows
+  // exactly which products got a discount and which did not.
+  const base = Number(li.baseTierPrice) || 0;
+  const unit = Number(li.unitPrice) || 0;
+  const effPct = base > 0 && unit < base ? Math.round(((base - unit) / base) * 1000) / 10 : 0;
   return (
     <tr>
       <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-700">{idx + 1}</td>
@@ -419,9 +440,14 @@ function InvoiceRow({ li, idx, intra }: { li: DetailLineItem; idx: number; intra
       <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-700 text-center">{li.hsnCode}</td>
       <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-900 text-right">{li.quantity}</td>
       <td className="border border-gray-300 px-1.5 py-1.5 text-[10px] text-gray-600 text-center">{li.product?.unit ?? "PCS"}</td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-900 text-right">{money(li.unitPrice)}</td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-700 text-right">
-        {Number(li.bulkDiscountPct) > 0 ? `${Number(li.bulkDiscountPct)}%` : "—"}
+      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-900 text-right">
+        {money(li.unitPrice)}
+        {effPct > 0 && Number(li.baseTierPrice) > 0 && (
+          <span className="block text-[8px] text-gray-400 line-through text-right leading-tight">{money(li.baseTierPrice)}</span>
+        )}
+      </td>
+      <td className={"border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-right " + (effPct > 0 ? "text-gray-900 font-semibold" : "text-gray-400")}>
+        {effPct > 0 ? `${effPct}%` : "—"}
       </td>
       <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-900 text-right">{money(li.taxableAmount)}</td>
       <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-800 text-right">

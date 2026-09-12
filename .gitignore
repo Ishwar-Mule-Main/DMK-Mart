@@ -63,3 +63,4 @@ db/*.db-journal
 # runtime tool dumps (never commit)
 tool-results/
 .zscripts/
+upload/
