@@ -1671,3 +1671,47 @@ Stage Summary:
 - Owners now fully control what drivers show on the delivery UPI screen: their UPI ID (existing) AND the actual scanner image (new) — upload/replace/remove from Settings → Company details → Bank & UPI. Drivers automatically display the owner's QR; fallback to the amount-encoded generated QR when no image is set.
 - Files: prisma/schema.prisma + schema.postgres.prisma, firms routes (list+detail), driver active-trip/history, settings.tsx, driver-trip-view.tsx, types/erp.ts, batch-platform.ts.
 - REMINDER: Neon production still needs the one-time `DATABASE_URL="<pooled-url>" bun run db:push:pg` (covers Firm.upiId + Expense tables + Firm.upiQrUrl together).
+
+---
+Task ID: 62-completion
+Agent: Z.ai Code (main)
+Task: Apply Neon Postgres schema push with user-provided DATABASE_URL (fixes Firm.upiId 500 on Vercel dev URL)
+
+Work Log:
+- User provided Neon pooled URL: postgresql://neondb_owner:***@ep-billowing-art-a5hulirs-pooler.us-east-2.aws.neon.tech/neondb (host contains -pooler ✅)
+- Ran `DATABASE_URL="<url>" bun run db:push:pg` → "Your database is now in sync with your Prisma schema. Done in 19.82s"
+- Verified via information_schema + Prisma raw queries:
+  - Firm.upiId column: ✅ EXISTS
+  - Firm rows: 1 (existing data preserved)
+  - ExpenseCategory + ExpenseVoucher tables: ✅ EXIST
+- No data loss (all changes additive); no Vercel redeploy required
+
+Stage Summary:
+- Vercel development URL self-heals immediately — `prisma.firm.findUnique()` 500 error is resolved
+- Neon Postgres now has full schema parity with local SQLite (upiId + Expense module + all 62-task models)
+- SECURITY NOTE: user's Neon password was pasted in chat; recommend rotating via Neon Console → Roles & Passwords → Reset password, then update DATABASE_URL in Vercel env vars
+
+---
+Task ID: 63
+Agent: Z.ai Code (main)
+Task: User request "In driver portal on UPi scanner i should have authority to add scanner and upi from owners portal" — investigate + verify; also apply Neon push (Task 62 execution) with user-provided URL
+
+Work Log:
+- User provided Neon pooled URL (ep-billowing-art-a5hulirs-pooler.us-east-2.aws.neon.tech); ran `DATABASE_URL="<url>" bun run db:push:pg` → in sync (19.8s)
+- Neon verification: Firm.upiId ✅ EXISTS, Firm rows = 1 (data preserved), ExpenseCategory + ExpenseVoucher tables ✅ EXIST → Vercel dev URL `Firm.upiId does not exist` error RESOLVED, no redeploy needed
+- Feature investigation: UPI scanner owner-authority ALREADY BUILT (Request D):
+  - Firm model: upiId + upiQrUrl (schema.prisma lines 33-34)
+  - Owner UI: Settings → firm card Edit → "Bank & UPI Details" → Firm UPI ID field + "Payment QR (driver scanner)" upload (settings.tsx ~1155-1400: onQrFile type/size validation, live preview — custom image badge vs auto-QR badge, replace/remove)
+  - Driver API: GET /api/v1/logistics/driver/active-trip returns paymentInfo { payeeName, upiId, upiQrUrl, phone } from Firm (active-trip/route.ts lines 44-56)
+  - Driver UI: driver-trip-view.tsx ~1004-1012 shows payInfo.upiQrUrl image when owner uploaded one, else auto-QR + upi://pay deep link
+- Browser QA (owner side): login Kunal → Settings → DMK Mart Edit → filled Firm UPI ID = dmkmart@okhdfcbank → live auto-QR preview regenerated instantly (screenshot qa-upi-section.png) → Save changes → GET /api/v1/firms confirms persisted upiId
+- ⚠️ INFRA BUG FOUND+FIXED: `db:push:pg` auto-ran `prisma generate` with the POSTGRES schema, overwriting node_modules/@prisma/client (SQLite dev server survived only via in-memory cache; restart would 500). Fixed package.json: `db:push:pg` = `prisma db push --schema prisma/schema.postgres.prisma --accept-data-loss --skip-generate && prisma generate` — Neon pushes can never clobber the local SQLite client again
+- Ran `bun run db:generate` to restore SQLite client; verified dev server healthy (firms API + driver active-trip API ok)
+- Driver-side UPI screen is code-verified only (no dispatched trip in local DB to render it live) — E2E driver QA listed as candidate for webDevReview
+
+Stage Summary:
+- Neon schema drift FULLY resolved (Task 62 closed); Vercel URL self-healed
+- User's request already satisfied by existing feature — documented exact navigation: Owner → Settings → Edit firm → Bank & UPI Details (UPI ID + QR upload); drivers automatically show owner's config
+- db:push:pg script hardened (client-regen footgun eliminated)
+- SECURITY: Neon password was pasted in chat — recommend rotation (Neon Console → Roles & Passwords)
+- New webDevReview cron: job 378638 (every 15 min, quartz `0 0/15 * * * ?` — 5-field expr rejected by service)
