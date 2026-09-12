@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { Package, Pencil, Plus, Scale, Trash2, Upload } from "lucide-react";
+import { ChevronLeft, ChevronRight, Package, Pencil, Plus, Scale, Trash2, Upload } from "lucide-react";
 
 import {
   PageHeader,
@@ -169,6 +169,10 @@ export default function ProductsView() {
   const [reloadKey, setReloadKey] = React.useState(0);
   const seqRef = React.useRef(0);
 
+  // Pagination — the real catalog is ~1k SKUs; slicing keeps the DOM light.
+  const [page, setPage] = React.useState(0);
+  const [pageSize, setPageSize] = React.useState(50);
+
   // Add/Edit dialog
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Product | null>(null);
@@ -193,6 +197,11 @@ export default function ProductsView() {
     const timer = setTimeout(() => setDebouncedSearch(search), 250);
     return () => clearTimeout(timer);
   }, [search]);
+
+  // Any filter change jumps back to the first page
+  React.useEffect(() => {
+    setPage(0);
+  }, [debouncedSearch, category, brand, activeOnly]);
 
   const load = React.useCallback(async () => {
     if (!activeFirmId) return;
@@ -317,6 +326,14 @@ export default function ProductsView() {
     return UNITS;
   }, [editing]);
 
+  const total = products.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = React.useMemo(
+    () => products.slice(safePage * pageSize, safePage * pageSize + pageSize),
+    [products, safePage, pageSize]
+  );
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -416,6 +433,7 @@ export default function ProductsView() {
         <DataTable>
           <thead>
             <tr>
+              <th>{t("prod.tblPhoto")}</th>
               <th>{t("prod.tblSku")}</th>
               <th>{t("prod.tblName")}</th>
               <th>{t("prod.tblCategory")}</th>
@@ -432,10 +450,18 @@ export default function ProductsView() {
             </tr>
           </thead>
           <tbody>
-            {products.map((p) => {
+            {pageRows.map((p) => {
               const isLow = p.stockQuantity <= p.lowStockThreshold;
               return (
                 <tr key={p.id}>
+                  <td>
+                    <img
+                      src={p.photoUrl || "/dmk-logo.png"}
+                      alt={p.name}
+                      className="w-10 h-10 object-cover rounded-lg border border-slate-700 bg-slate-900"
+                      loading="lazy"
+                    />
+                  </td>
                   <td className="font-money text-[12.5px] text-dmk-text-secondary">{p.sku}</td>
                   <td className="font-medium max-w-[220px] truncate" title={p.name}>
                     {p.name}
@@ -523,6 +549,60 @@ export default function ProductsView() {
             })}
           </tbody>
         </DataTable>
+      )}
+
+      {/* Pagination bar — shown only when there is something to page */}
+      {!loading && total > 0 && (
+        <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 px-1">
+          <span className="text-[11.5px] text-dmk-text-muted">
+            {t("prod.showingRange", {
+              a: safePage * pageSize + 1,
+              b: Math.min(total, (safePage + 1) * pageSize),
+              n: total,
+            })}
+          </span>
+          <div className="flex items-center gap-1.5 sm:ml-auto">
+            <Select
+              value={String(pageSize)}
+              onValueChange={(v) => {
+                setPageSize(Number(v));
+                setPage(0);
+              }}
+            >
+              <SelectTrigger className="h-8 w-[112px] bg-dmk-input-well border-dmk-border-subtle text-[12px]" aria-label={t("prod.rowsPerPage")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="50">{t("prod.rowsPerPage", { n: 50 })}</SelectItem>
+                <SelectItem value="100">{t("prod.rowsPerPage", { n: 100 })}</SelectItem>
+                <SelectItem value="200">{t("prod.rowsPerPage", { n: 200 })}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
+              disabled={safePage === 0}
+              onClick={() => setPage(safePage - 1)}
+              aria-label={t("prod.prevPage")}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-[12px] font-money text-dmk-text-secondary tabular-nums px-1">
+              {safePage + 1} / {pageCount}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0 border-dmk-border-subtle text-dmk-text-secondary hover:bg-dmk-hover"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage(safePage + 1)}
+              aria-label={t("prod.nextPage")}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
       )}
 
       {/* ── Per-product stock adjustment ──────────────── */}

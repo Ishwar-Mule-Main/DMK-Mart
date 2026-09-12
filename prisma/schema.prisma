@@ -142,6 +142,7 @@ model Product {
   weightGrams       Float?
   piecesPerBox      Int      @default(1) // logistics: units per full box (boxes/loose split on trip planner)
   barcode           String?
+  photoUrl          String? // live Cloudinary WebP product image (inventory PHOTO column)
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

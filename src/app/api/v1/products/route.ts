@@ -65,7 +65,8 @@ export async function GET(request: NextRequest) {
     const products = await db.product.findMany({
       where,
       orderBy: { name: "asc" },
-      take: 500,
+      // full real catalog (~1k SKUs) must load — rankSearch narrows the view client-side
+      take: 5000,
     });
 
     // Word-wise / text-wise relevance on top of the SQL prefilter —
@@ -131,6 +132,7 @@ export async function POST(request: NextRequest) {
 
     const weightGrams = body.weightGrams === undefined ? null : getNum(body.weightGrams);
     const barcode = getStr(body.barcode) || null;
+    const photoUrl = getStr(body.photoUrl) || null;
 
     // Manufacturer link — product belongs to a MANUFACTURER vendor (R10).
     // The catalog name then starts with the vendor's name automatically.
@@ -159,6 +161,7 @@ export async function POST(request: NextRequest) {
         manufacturerVendorId: mfrVendor?.id ?? null,
         weightGrams,
         barcode,
+        photoUrl,
         isActive: true,
       },
     });

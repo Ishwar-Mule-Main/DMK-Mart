@@ -93,6 +93,7 @@ export async function PATCH(
     if (body.hsnCode !== undefined) data.hsnCode = getStr(body.hsnCode);
     if (body.weightGrams !== undefined) data.weightGrams = body.weightGrams === null ? null : getNum(body.weightGrams);
     if (body.barcode !== undefined) data.barcode = getStr(body.barcode) || null;
+    if (body.photoUrl !== undefined) data.photoUrl = getStr(body.photoUrl) || null;
     if (body.isActive !== undefined) data.isActive = body.isActive === true || body.isActive === "true";
 
     // Manufacturer link changes — keep the vendor-prefixed name convention

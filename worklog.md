@@ -1788,3 +1788,25 @@ Stage Summary:
 - FIX: 1,803 translation entries added (601 keys × 3 languages), fully key-aligned and placeholder-identical; the whole Purchase & Inventory module now speaks EN/HI/MR
 - Added a reusable audit pattern (used twice in-session) — worth promoting to a lint rule/script if raw keys ever reappear
 - Previous task 65 (SO→Trip→Finance order flow) already complete & pushed at 8b378ed; this fix is independent of it
+
+---
+Task ID: 67
+Agent: Z.ai Code (main)
+Task: "Update Inventory Management screen to connect with the updated Neon database" — Product.photoUrl (Cloudinary WebP), 971 real products, PHOTO column first, DMK logo fallback, keep existing columns
+
+Work Log:
+- Discovered Neon Product table ALREADY had photoUrl populated externally (owner's Cloudinary pipeline): 971 products total, 926 with live res.cloudinary.com/dmkmart WebP URLs — but the Prisma schema/client didn't know the column yet
+- Schema: added `photoUrl String?` to Product → `bun run db:push` (additive, zero data loss; verified 971/926 intact after push)
+- ⚠️ Hit the Task-47 gotcha again: dev server kept serving the OLD in-memory Prisma client → API returned 971 rows with photoUrl stripped. Restarted dev server after prisma generate → 926 photoUrls flow through
+- API: GET take 500→5000 (full real catalog must load; ~1k SKUs); POST create + PATCH now accept optional photoUrl (null allowed) so the column is writable
+- types/erp.ts: Product.photoUrl?: string | null
+- products.tsx: PHOTO column FIRST with exact requested markup (w-10 h-10 object-cover rounded-lg border-slate-700 bg-slate-900, loading=lazy); fallback = /dmk-logo.png for the 45 products without photos
+- Client-side pagination (971-row DOM would jank): 50 default / 100 / 200 per-page selector, prev/next, "1 / 20" indicator, showingRange label; filters/search reset to page 1
+- i18n: prod.tblPhoto + prod.showingRange + prod.rowsPerPage + prod.prevPage + prod.nextPage in EN/HI/MR (3 batches aligned)
+- lint ✅ tsc ✅ dev.log clean ✅
+- Browser QA (READ-ONLY): logged in → Products — column order exactly PHOTO|SKU|NAME|CATEGORY|BRAND|UNIT|GST%|COST|MRP|SELLABLE|DAMAGED|THRESHOLD|STATUS|ACTIONS; page 1: 32 Cloudinary thumbs + 18 logo fallbacks + 0 broken images; pager "Showing 1–50 of 971 products"; next→"51–100" (2/20) and prev enabled; search "chair" → 27 results, pagination reset; page-size 50→100 → "Showing 1–100 of 971"; screenshot confirms real product photos + gold DMK fallback; 0 raw i18n keys
+
+Stage Summary:
+- Inventory now renders the REAL 971-product Neon catalog with live Cloudinary imagery; PHOTO→DMK-logo fallback keeps the 45 unphotographed SKUs presentable
+- photoUrl is now a first-class schema field (read + write paths) — ready for the owner's Cloudinary sync to keep writing it externally
+- Remaining: owner may want a photo column in other product pickers (billing, NPO) later — schema/type already expose it

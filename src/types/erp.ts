@@ -63,6 +63,8 @@ export interface Product {
   manufacturerVendorId?: string | null;
   weightGrams?: number | null;
   barcode?: string | null;
+  /** Live Cloudinary WebP product image (inventory PHOTO column). */
+  photoUrl?: string | null;
   isActive: boolean;
   createdAt: string;
 }

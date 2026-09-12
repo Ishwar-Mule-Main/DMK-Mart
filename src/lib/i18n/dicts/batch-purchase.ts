@@ -618,6 +618,11 @@ export const enPurchase = {
   "bul.toastCompleteDesc": "{c} created · {u} updated · {f} failed",
 
   // ── Products — inline error strings (prod) ───────────────────
+  "prod.tblPhoto": "Photo",
+  "prod.showingRange": "Showing {a}–{b} of {n} products",
+  "prod.rowsPerPage": "{n} / page",
+  "prod.prevPage": "Previous page",
+  "prod.nextPage": "Next page",
   "prod.namePh": "e.g. DMK Gold 25 kg",
   "prod.editAria": "Edit {n}",
   "prod.deactivateAria": "Deactivate {n}",
@@ -1241,6 +1246,11 @@ export const hiPurchase: Record<keyof typeof enPurchase, string> = {
   "bul.toastCompleteDesc": "{c} बने · {u} अपडेट · {f} असफल",
 
   // ── Products — inline error strings (prod) ───────────────────
+  "prod.tblPhoto": "फ़ोटो",
+  "prod.showingRange": "{n} में से {a}–{b} प्रोडक्ट दिखा रहे हैं",
+  "prod.rowsPerPage": "प्रति पेज {n}",
+  "prod.prevPage": "पिछला पेज",
+  "prod.nextPage": "अगला पेज",
   "prod.namePh": "जैसे DMK गोल्ड 25 कि.",
   "prod.editAria": "{n} संपादित करें",
   "prod.deactivateAria": "{n} निष्क्रिय करें",
@@ -1864,6 +1874,11 @@ export const mrPurchase: Record<keyof typeof enPurchase, string> = {
   "bul.toastCompleteDesc": "{c} तयार · {u} अद्ययावत · {f} अयशस्वी",
 
   // ── Products — inline error strings (prod) ───────────────────
+  "prod.tblPhoto": "फोटो",
+  "prod.showingRange": "{n} पैकी {a}–{b} उत्पादने दाखवत आहे",
+  "prod.rowsPerPage": "प्रति पान {n}",
+  "prod.prevPage": "मागील पान",
+  "prod.nextPage": "पुढील पान",
   "prod.namePh": "उदा. DMK गोल्ड 25 कि.",
   "prod.editAria": "{n} संपादित करा",
   "prod.deactivateAria": "{n} निष्क्रिय करा",
