@@ -31,6 +31,7 @@ model Firm {
   autoCreateFy   Boolean  @default(true) // auto-open the next FY account on 1 April; when OFF the app locks until the owner creates it
   invoicePrefix  String   @default("DMK")
   upiId          String   @default("") // firm UPI ID — drivers show its QR so customers pay from the driver's phone
+  upiQrUrl       String? // optional custom UPI scanner photo (bank/GPay QR) uploaded by the owner — drivers show this image instead of the generated QR
   logoUrl        String?
   openingCash    Float    @default(0)
   openingBank    Float    @default(0)

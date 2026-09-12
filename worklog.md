@@ -1650,3 +1650,24 @@ Work Log:
 Stage Summary:
 - Repo mirror refreshed + pushed; local app unaffected and working.
 - BLOCKED ON OWNER: run db:push:pg with the Neon pooled URL (or paste the URL in chat and the agent runs it). Until then the Vercel (dev) URL keeps throwing Firm.upiId errors on every authenticated screen.
+
+---
+Task ID: 63
+Agent: ATLAS (main orchestrator)
+Task: Owner authority over the driver UPI scanner — upload/manage the payment QR and UPI ID from the owner portal (user: "In driver portal on UPI scanner I should have authority to add scanner and upi from owners portal").
+
+Work Log:
+- Baseline: owner could already set Firm.upiId text (Settings → Edit firm; PATCH /api/v1/firms/[id]); driver portal generated a QR from it via upi:// intent. Missing: owner could not upload their REAL bank/GPay/PhonePe QR photo, and drivers could only ever show the auto-generated QR.
+- SCHEMA (+db:push SQLite, +db:sync:pg): Firm.upiQrUrl String? — custom scanner image stored as data URL (same Vercel-safe pattern as expense receipts). NOTE for prod: the still-pending Neon `db:push:pg` now also carries this column — one push fixes upiId + expenses + upiQrUrl together.
+- API: firms/[id] PATCH gained "upiQrUrl" (empty string clears the override; otherwise must match data:image/(png|jpeg|jpg|webp);base64 and ≤4.5MB chars → ERR_VALIDATION otherwise — bad-type rejection curl-verified); GET /api/v1/firms list select gained upiId+upiQrUrl (upiId was select-listed but the NEW field would have been invisible to the owner UI without this); driver active-trip + history paymentInfo now { payeeName, upiId, upiQrUrl, phone } (history payload curl-verified carrying the image).
+- OWNER UI (settings.tsx FirmDialog, edit mode): "Payment QR (driver scanner)" block inside Bank & UPI well — left column preview (custom image in white card, else live auto-QR via react-qr-code from upi://pay?pa=<vpa>&cu=INR, else dashed "enter a UPI ID" placeholder) + badge (AUTO QR FROM UPI ID / CUSTOM SCANNER — SHOWN TO DRIVERS); right column title+hint, hidden file input (png/jpeg/webp, ≤3MB, FileReader→dataURL, type/size toasts), Upload/Replace + Remove (clears to ""), drivers-see caption.
+- DRIVER UI (driver-trip-view.tsx PayFields): when payInfo.upiQrUrl present the white QR card renders the owner's image (h-44 w-44 object-contain, alt text) with caption "Office payment QR — the customer scans it and enters the amount"; otherwise the previous generated QR with amount-encoded upi intent. UPI ID / phone copy rows unchanged.
+- I18N: 11 new set.upiQr* keys × EN/HI/MR appended to batch-platform.ts (block stays 518/518/518 key-aligned, 0 missing).
+- DEV-SERVER GOTCHA (recurring): after `prisma generate`, the running Turbopack server kept serving a stale client ("Unknown argument upiQrUrl") — fixed only by pkill next/bun + rm -rf .next + fresh `bun run dev` with explicit DATABASE_URL. Local binary is prisma 6.19.2 (^6.11.1 range).
+- QA: lint 0 problems; tsc 0 errors; dict alignment script 518/518/518, upiQr 11/11/11. Browser (owner Kunal/1234): edit dialog shows all 3 preview states (a11y snapshot + screenshot /tmp/qa-qr-custom.png with custom image + Replace + Remove); Remove → Save changes → GET firms shows "upiQrUrl":"" (clear path E2E); PATCH with data:image/pdf rejected ERR_VALIDATION. Driver history endpoint returns paymentInfo.upiQrUrl (sandbox has ravi/VERIFIER only — no driver account/trip locally, so the driver-screen img branch was verified at API+code level, not visually).
+- DB left clean: test pixel image removed via the UI itself; firm upiQrUrl = "".
+
+Stage Summary:
+- Owners now fully control what drivers show on the delivery UPI screen: their UPI ID (existing) AND the actual scanner image (new) — upload/replace/remove from Settings → Company details → Bank & UPI. Drivers automatically display the owner's QR; fallback to the amount-encoded generated QR when no image is set.
+- Files: prisma/schema.prisma + schema.postgres.prisma, firms routes (list+detail), driver active-trip/history, settings.tsx, driver-trip-view.tsx, types/erp.ts, batch-platform.ts.
+- REMINDER: Neon production still needs the one-time `DATABASE_URL="<pooled-url>" bun run db:push:pg` (covers Firm.upiId + Expense tables + Firm.upiQrUrl together).

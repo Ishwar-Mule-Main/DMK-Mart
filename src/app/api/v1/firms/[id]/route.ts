@@ -58,6 +58,7 @@ const PATCHABLE = [
   "bankAccount",
   "ifsc",
   "upiId",
+  "upiQrUrl",
   "financialYear",
   "invoicePrefix",
   "logoUrl",
@@ -86,6 +87,20 @@ export async function PATCH(
     }
     if (data.gstin && /^\d{2}/.test(data.gstin) && !body.stateCode) {
       data.stateCode = data.gstin.slice(0, 2);
+    }
+
+    // ── Custom UPI scanner photo (Settings → UPI & Payment QR) ──
+    // Empty string clears the override (drivers fall back to the QR
+    // generated from upiId). Otherwise it must be an inline image
+    // data URL — same Vercel-safe pattern as expense receipts.
+    if (data.upiQrUrl && data.upiQrUrl !== "") {
+      const qr = data.upiQrUrl;
+      if (!/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=\s]+$/.test(qr)) {
+        throw new BusinessError("ERR_VALIDATION", "Payment QR must be a PNG, JPG or WebP image", 400);
+      }
+      if (qr.length > 4_500_000) {
+        throw new BusinessError("ERR_VALIDATION", "Payment QR photo is too large — keep it under 3 MB", 400);
+      }
     }
 
     // ── Owner password change (Settings → Owner Account) ──

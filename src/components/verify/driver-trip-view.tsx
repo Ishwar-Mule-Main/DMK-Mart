@@ -106,6 +106,7 @@ interface DriverStaff {
 interface PaymentInfo {
   payeeName: string;
   upiId: string;
+  upiQrUrl?: string | null; // owner-uploaded scanner photo — shown instead of the generated QR when present
   phone: string;
 }
 
@@ -1000,16 +1001,27 @@ function PayFields({
           {hasUpi && payInfo ? (
             <>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                Show this to the customer — they scan it from their phone
+                {payInfo.upiQrUrl
+                  ? "Office payment QR — the customer scans it and enters the amount"
+                  : "Show this to the customer — they scan it from their phone"}
               </p>
               <div className="mt-2 flex justify-center rounded-lg bg-white p-2.5 w-fit mx-auto">
-                <QRCode
-                  value={upiIntent(payInfo, amountNum > 0 ? amountNum : stopAmount, `${tripNumber} Stop ${stopSequence}`)}
-                  size={148}
-                  bgColor="#FFFFFF"
-                  fgColor="#0A0F1D"
-                  aria-label={`UPI QR code for ${payInfo.payeeName}`}
-                />
+                {payInfo.upiQrUrl ? (
+                  // Owner-uploaded scanner (bank/GPay QR photo) — exact authority of the owner portal.
+                  <img
+                    src={payInfo.upiQrUrl}
+                    alt={`Office payment QR for ${payInfo.payeeName}`}
+                    className="h-44 w-44 object-contain"
+                  />
+                ) : (
+                  <QRCode
+                    value={upiIntent(payInfo, amountNum > 0 ? amountNum : stopAmount, `${tripNumber} Stop ${stopSequence}`)}
+                    size={148}
+                    bgColor="#FFFFFF"
+                    fgColor="#0A0F1D"
+                    aria-label={`UPI QR code for ${payInfo.payeeName}`}
+                  />
+                )}
               </div>
               <p className="mt-2 text-center font-money text-[15px] font-black text-dmk-success">
                 {formatINR(amountNum > 0 ? amountNum : stopAmount)} → {payInfo.payeeName}

@@ -19,6 +19,7 @@ export interface Firm {
   autoCreateFy: boolean;
   invoicePrefix: string;
   upiId: string;
+  upiQrUrl?: string | null; // optional custom UPI scanner photo (owner-uploaded)
   logoUrl?: string | null;
   openingCash: number;
   openingBank: number;

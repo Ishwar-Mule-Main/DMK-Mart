@@ -45,13 +45,13 @@ export async function GET(request: NextRequest) {
     // driver's phone — the customer scans it).
     const firm = await db.firm.findUnique({
       where: { id: staff.firmId },
-      select: { firmName: true, upiId: true, phone: true },
+      select: { firmName: true, upiId: true, upiQrUrl: true, phone: true },
     });
 
     return ok({
       trip: { ...detail, deliveredStops },
       paymentInfo: firm
-        ? { payeeName: firm.firmName, upiId: firm.upiId, phone: firm.phone }
+        ? { payeeName: firm.firmName, upiId: firm.upiId, upiQrUrl: firm.upiQrUrl, phone: firm.phone }
         : null,
     });
   } catch (e) {

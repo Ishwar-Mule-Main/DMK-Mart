@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 
 import { Badge, ErrorText, Field, PageHeader, inputCls } from "../shared";
+import QRCode from "react-qr-code";
 import AiSettingsCard from "../ai-settings-card";
 import { LanguageCard, KeyboardShortcutsCard } from "../settings-cards";
 import { Button } from "@/components/ui/button";
@@ -107,6 +108,7 @@ interface FirmForm {
   financialYear: string;
   invoicePrefix: string;
   upiId: string;
+  upiQrUrl: string;
   openingCash: string;
   openingBank: string;
 }
@@ -126,6 +128,7 @@ const EMPTY_FORM: FirmForm = {
   financialYear: "2025-26",
   invoicePrefix: "",
   upiId: "",
+  upiQrUrl: "",
   openingCash: "",
   openingBank: "",
 };
@@ -146,6 +149,7 @@ function formFromFirm(f: Firm): FirmForm {
     financialYear: f.financialYear || "2025-26",
     invoicePrefix: f.invoicePrefix,
     upiId: f.upiId ?? "",
+    upiQrUrl: f.upiQrUrl ?? "",
     openingCash: "",
     openingBank: "",
   };
@@ -1148,6 +1152,25 @@ function FirmDialog({
   const [form, setForm] = React.useState<FirmForm>(EMPTY_FORM);
   const [saving, setSaving] = React.useState(false);
   const [formError, setFormError] = React.useState<string | null>(null);
+  const qrInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Owner's scanner authority: upload the firm's real bank/GPay QR photo.
+  // Drivers show exactly this image on every delivery's UPI screen.
+  function onQrFile(file: File | undefined | null) {
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
+      toast({ variant: "destructive", title: t("set.upiQrErrType") });
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      toast({ variant: "destructive", title: t("set.upiQrErrSize") });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => set("upiQrUrl", String(reader.result ?? ""));
+    reader.onerror = () => toast({ variant: "destructive", title: t("set.errRequest") });
+    reader.readAsDataURL(file);
+  }
 
   React.useEffect(() => {
     if (!open) return;
@@ -1204,6 +1227,7 @@ function FirmDialog({
           bankAccount: form.bankAccount.trim(),
           ifsc: form.ifsc.trim().toUpperCase(),
           upiId: form.upiId.trim(),
+          upiQrUrl: form.upiQrUrl,
           financialYear: form.financialYear,
           invoicePrefix: form.invoicePrefix.trim(),
         });
@@ -1316,6 +1340,74 @@ function FirmDialog({
                 className={cn(inputCls, "font-money")}
               />
             </Field>
+
+            {/* ── Payment QR authority — owner decides exactly what drivers show ── */}
+            {mode === "edit" && (
+              <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-3 items-start border-t border-dmk-border-subtle/60 pt-3">
+                <input
+                  ref={qrInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  aria-label={t("set.upiQrUpload")}
+                  onChange={(e) => {
+                    onQrFile(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+                <div className="flex flex-col items-center gap-1.5 sm:pr-1">
+                  {form.upiQrUrl ? (
+                    <div className="rounded-lg bg-white p-2 border border-dmk-border-subtle" title={t("set.upiQrCustomBadge")}>
+                      <img src={form.upiQrUrl} alt={t("set.upiQrCustomBadge")} className="h-36 w-36 object-contain" />
+                    </div>
+                  ) : form.upiId.trim() ? (
+                    <div className="rounded-lg bg-white p-2 border border-dmk-border-subtle" title={t("set.upiQrAutoBadge")}>
+                      <QRCode
+                        value={`upi://pay?pa=${encodeURIComponent(form.upiId.trim())}&cu=INR`}
+                        size={128}
+                        bgColor="#FFFFFF"
+                        fgColor="#0A0F1D"
+                        aria-label={t("set.upiQrAutoBadge")}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex h-[9.5rem] w-36 items-center justify-center rounded-lg border border-dashed border-dmk-border-medium bg-dmk-input-well px-2 text-center text-[11px] text-dmk-text-muted">
+                      {t("set.upiQrPreviewEmpty")}
+                    </div>
+                  )}
+                  <span className="text-[9.5px] font-bold uppercase tracking-wider text-dmk-text-muted">
+                    {form.upiQrUrl ? t("set.upiQrCustomBadge") : t("set.upiQrAutoBadge")}
+                  </span>
+                </div>
+                <div className="space-y-2 min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("set.upiQrTitle")}</p>
+                  <p className="text-[11.5px] leading-snug text-dmk-text-secondary">{t("set.upiQrHint")}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => qrInputRef.current?.click()}
+                      className="h-9 gap-2 border-dmk-border-medium text-[12px] font-semibold text-dmk-text-secondary hover:text-dmk-text-primary"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      {form.upiQrUrl ? t("set.upiQrReplace") : t("set.upiQrUpload")}
+                    </Button>
+                    {form.upiQrUrl && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => set("upiQrUrl", "")}
+                        className="h-9 gap-2 border-dmk-danger/40 text-[12px] font-semibold text-dmk-danger hover:bg-dmk-danger/10"
+                      >
+                        <TriangleAlert className="h-3.5 w-3.5" />
+                        {t("set.upiQrRemove")}
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-[10.5px] text-dmk-text-muted leading-snug">{t("set.upiQrDriversSee")}</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

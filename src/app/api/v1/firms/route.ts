@@ -38,6 +38,8 @@ export async function GET() {
         financialYear: true,
         autoCreateFy: true,
         invoicePrefix: true,
+        upiId: true,
+        upiQrUrl: true,
         logoUrl: true,
         openingCash: true,
         openingBank: true,

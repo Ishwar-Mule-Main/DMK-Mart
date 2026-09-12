@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
     const firm = await db.firm.findUnique({
       where: { id: staff.firmId },
-      select: { firmName: true, upiId: true, phone: true },
+      select: { firmName: true, upiId: true, upiQrUrl: true, phone: true },
     });
 
     return ok({
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
         deliveredStops: t.stops.filter((s) => s.status === "DELIVERED").length,
       })),
       paymentInfo: firm
-        ? { payeeName: firm.firmName, upiId: firm.upiId, phone: firm.phone }
+        ? { payeeName: firm.firmName, upiId: firm.upiId, upiQrUrl: firm.upiQrUrl, phone: firm.phone }
         : null,
     });
   } catch (e) {
