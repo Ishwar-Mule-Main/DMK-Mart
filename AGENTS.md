@@ -436,7 +436,7 @@ Do NOT proceed until user confirms.
 | 1.4 | Firm/Company as account entity (create, switch, list firms) | Firm switcher in header |
 | 1.5 | Firm profile management (name, GSTIN, state, address, bank) | Profile modal accessible |
 | 1.6 | Financial year switcher (FY 2025-26, FY 2026-27) | FY switch changes context |
-| 1.7 | Database setup (SQLite/PostgreSQL via Prisma) | Migrations run clean |
+| 1.7 | Database setup (Neon PostgreSQL via Prisma) | Migrations run clean |
 | 1.8 | Strict UI rules document (docs/STRICT_UI_RULES.md) | Document committed |
 
 **Phase 1 Review Gate:** All 8 tasks complete. Screens responsive.
@@ -733,7 +733,7 @@ If regression found → fix BEFORE starting new phase.
 | Styling | Tailwind CSS v4 + CSS custom properties (design tokens) |
 | UI Components | shadcn/ui + Radix UI primitives + Lucide icons |
 | State Management | Zustand (with persistence) or React Context |
-| Database | SQLite (dev) / PostgreSQL (prod) via Prisma ORM |
+| Database | Neon PostgreSQL (single DB for dev + prod) via Prisma ORM |
 | API | Next.js App Router API routes (REST) |
 | Charts | Chart.js + react-chartjs-2 |
 | PDF Generation | jsPDF + html2canvas (for A4 invoices) |

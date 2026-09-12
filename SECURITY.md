@@ -23,15 +23,15 @@ This ERP is designed for **self-hosted, trusted-network deployment**. Understand
 
 - **Authentication** — the owner identity is a single fixed username (`Kunal`); the **password identifies the company account**. Passwords are verified against hashed values stored per firm. There is no per-employee account system; the team portal (`/team`) has its own gated workflow.
 - **Authorization** — there is currently **no role-based access control** on the owner API. Anyone who can reach the app and knows a company password has full access to that company's data.
-- **Data at rest** — the entire database is a single SQLite file (`db/custom.db`). Protect it with filesystem permissions (readable only by the app user) and back it up (encrypted) off-machine.
+- **Data at rest** — the entire database lives in **Neon PostgreSQL** (hosted, encrypted at rest, TLS required in transit). Protect the connection string: whoever holds `DATABASE_URL` holds the books. Rotate the password from Neon Console → Roles & Passwords if it ever leaks.
 
 ## Deployment hardening checklist
 
 1. **Change the default demo password** (`Kunal / 1234`) immediately — Company Settings in the app.
 2. Serve **only over HTTPS** (Certbot or Caddy auto-TLS); never expose port 3000 directly — firewall it (`sudo ufw deny 3000/tcp`) and proxy through Nginx/Caddy.
-3. Keep `.env`, `.z-ai-config`, and `db/custom.db` **out of version control** (already gitignored — keep it that way).
+3. Keep `.env` and `.z-ai-config` **out of version control** (already gitignored — keep it that way).
 4. Apply OS patches; run the app as a non-root user (the systemd unit uses a dedicated user).
-5. Back up nightly: `sqlite3 db/custom.db ".backup /backups/erp-$(date +%F).db"` — and test restores.
+5. Neon keeps automatic history — know how to use Console → Restore (point-in-time recovery) **before** you need it.
 6. If you need multi-employee access control, put it in front of the app (reverse-proxy basic auth, VPN, or SSO) — do not share the owner password.
 
 ## Known limitations (by design, not vulnerabilities)

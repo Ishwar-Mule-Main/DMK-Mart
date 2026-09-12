@@ -1,6 +1,6 @@
 # DMK Mart ERP
 
-A production-ready, GST-compliant, **multi-company ERP** for Indian retail & wholesale trade — built on **Next.js 16**, **Prisma + SQLite**, and **Tailwind CSS 4 + shadcn/ui**.
+A production-ready, GST-compliant, **multi-company ERP** for Indian retail & wholesale trade — built on **Next.js 16**, **Prisma + Neon PostgreSQL**, and **Tailwind CSS 4 + shadcn/ui**.
 
 > Single owner, multiple company accounts. Real-time **double-entry accounting**, **dual-stock inventory** (sellable + damaged), B2B tier pricing, B2C counter sales (POS), full purchase lifecycle, credit control, AI copilot, and a team verification portal — all in one app.
 
@@ -48,7 +48,7 @@ A production-ready, GST-compliant, **multi-company ERP** for Indian retail & who
 - **Framework:** [Next.js 16](https://nextjs.org) (App Router, standalone output) + React 19
 - **Language:** TypeScript 5 (strict)
 - **Styling:** Tailwind CSS 4 + shadcn/ui (New York) + Lucide icons + Framer Motion
-- **Database:** SQLite via [Prisma ORM 6](https://prisma.io) (zero-config file database)
+- **Database:** [Neon PostgreSQL](https://neon.tech) (serverless Postgres) via [Prisma ORM 6](https://prisma.io) — one database for local dev and production
 - **State:** Zustand (client) + TanStack Query (server state)
 - **Charts:** Recharts
 - **Runtime:** [Bun](https://bun.sh) 1.2+ (recommended) — Node.js 20+ also works
@@ -102,39 +102,30 @@ bun install
 
 ### Step 3 — Configure the environment
 
-Copy the shipped template and edit the database path:
+Copy the shipped template and add your Neon connection string:
 
 ```bash
 cp .env.example .env
 ```
 
-Then edit `.env` and point `DATABASE_URL` at an **absolute** path (relative paths are resolved against `prisma/schema.prisma`, not the project root):
+Then edit `.env` and point `DATABASE_URL` at your **Neon pooled connection** (Neon Console → your project → Connect → enable "Pooled connection"; the host contains `-pooler`):
 
 ```bash
-# Linux / macOS
-DATABASE_URL="file:/full/absolute/path/to/dmk-mart-erp/db/custom.db"
+DATABASE_URL="postgresql://USER:PASSWORD@ep-xxxx-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
 ```
 
-> **Windows example:** `DATABASE_URL="file:C:/projects/dmk-mart-erp/db/custom.db"`
-
-Make sure the `db/` folder exists:
-
-```bash
-mkdir -p db
-```
-
-> `.env` is gitignored on purpose — the only **required** variable is `DATABASE_URL` (see [Environment Variables](#-environment-variables)).
+> Keep `sslmode=require`. `.env` is gitignored on purpose — the only **required** variable is `DATABASE_URL` (see [Environment Variables](#-environment-variables)).
 
 ### Step 4 — Create the database schema
 
 ```bash
 bun run db:generate   # generates the Prisma client
-bun run db:push       # creates db/custom.db with all tables
+bun run db:push       # applies every table to the Neon database
 ```
 
 > **Node.js users:** `npx prisma generate && npx prisma db push`
 
-You should see: `The database is now in sync with your Prisma schema.`
+You should see: `The database is already in sync with the Prisma schema.` (first run: `now in sync`).
 
 ### Step 5 — Start the development server
 
@@ -218,9 +209,8 @@ bun install
 
 # Environment (production)
 cat > .env <<'EOF'
-DATABASE_URL="file:/var/www/dmk-mart-erp/db/custom.db"
+DATABASE_URL="postgresql://USER:PASSWORD@ep-xxxx-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
 EOF
-mkdir -p db
 
 # Push schema, then build the standalone production bundle
 bun run db:generate
@@ -316,31 +306,7 @@ sudo systemctl reload caddy
 
 ## 🐳 Step-by-Step: Deploy with Docker
 
-The repo ships a production `Dockerfile`, a `docker-compose.yml` (with a persistent `erp-data` volume + healthcheck) and a `.dockerignore` — no extra files needed.
-
-### Step 1 — Review the configuration (optional)
-
-- `Dockerfile` — 3-stage build (deps → build → runtime, Bun-based); auto-runs `prisma db push` on first boot so the schema always exists
-- `docker-compose.yml` — exposes port **3000**, stores the SQLite file in the `erp-data` volume at `/data/custom.db`
-- `.dockerignore` — keeps secrets (`​.env`, `.z-ai-config`) and local databases out of the image
-
-### Step 2 — Build & run
-
-```bash
-docker compose up -d --build
-docker compose logs -f
-```
-
-### Step 3 — Verify & harden
-
-```bash
-curl http://localhost:3000/                     # → 200
-docker compose exec erp ls -la /data           # custom.db lives on the volume
-```
-
-Open **http://your-server-ip:3000**. Put Nginx/Caddy (previous section, Step 5–6) in front for HTTPS.
-
-> To load the demo data in Docker: `curl -X POST http://localhost:3000/api/v1/seed`
+The Docker self-host files were removed when the project consolidated onto **Neon PostgreSQL** — a container no longer needs a data volume, it only needs `DATABASE_URL` in its environment pointing at Neon (same image flow as the VPS/systemd section above). To re-introduce Docker, wrap the standalone server in a simple image and inject `DATABASE_URL` at runtime.
 
 ---
 
@@ -348,37 +314,29 @@ Open **http://your-server-ip:3000**. Put Nginx/Caddy (previous section, Step 5�
 
 ### Vercel (serverless — full guide in `docs/deploy/vercel.md`)
 
-The repo ships a **first-class Vercel path** alongside the self-hosted one — the codebase
-stays identical, only the database provider and build wiring differ:
+Vercel and your local sandbox share the **same Neon database and the same schema** — no mirrors, no provider switching:
 
-- **Database:** hosted **PostgreSQL** (Neon / Supabase / Vercel Postgres). The Prisma
-  schema mirror `prisma/schema.postgres.prisma` is auto-generated from the SQLite source
-  of truth (`bun run db:sync:pg`) and validated in CI — the two never drift.
-- **Recurring auto-post:** Vercel Cron (already wired in `vercel.json`) replaces the
-  in-process scheduler, which is skipped automatically on serverless.
-- **AI copilot:** configured with env vars (`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL`) —
-  e.g. OpenRouter — instead of the `.z-ai-config` file; degrades gracefully when absent.
-- **Realtime:** the socket.io emit bridge is fire-and-forget; both portals poll, so
-  nothing breaks on serverless.
+- **Database:** Neon PostgreSQL. The single `prisma/schema.prisma` (provider `postgresql`) is the one source of truth; `vercel.json` builds with plain `prisma generate`.
+- **Schema changes:** edit `prisma/schema.prisma` → `bun run db:push` (applies straight to Neon) → commit. Vercel picks it up on the next deploy — no extra steps.
+- **Recurring auto-post:** Vercel Cron (already wired in `vercel.json`) replaces the in-process scheduler, which is skipped automatically on serverless.
+- **AI copilot:** configured with env vars (`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL`) — e.g. OpenRouter — instead of the `.z-ai-config` file; degrades gracefully when absent.
+- **Realtime:** the socket.io emit bridge is fire-and-forget; both portals poll, so nothing breaks on serverless.
 
 ```bash
-# one-time: push the schema to your hosted Postgres (never touches local SQLite)
-DATABASE_URL="postgresql://…" bun run db:push:pg
-# then import the repo in the Vercel dashboard and add the env vars from .env.vercel.example
+# one-time: apply the schema to your Neon database
+bun run db:push
+# then import the repo in the Vercel dashboard and add the env vars from .env.example
 ```
 
-> Self-hosting on **Hostinger / VPS** with SQLite + socket.io is unchanged — see
-> `docs/deploy/hostinger.md`.
-
-### Railway / Render / Fly.io (persistent volumes — recommended for SQLite)
+### Railway / Render / Fly.io
 
 1. Create a new service from your Git repository.
 2. Build command: `bun install && bun run db:generate && bun run build`
 3. Start command: `NODE_ENV=production bun .next/standalone/server.js`
-4. Add a **persistent volume** mounted at `/data`, and set:
-   - `DATABASE_URL=file:/data/custom.db`
+4. Add the environment variable:
+   - `DATABASE_URL=<your Neon pooled connection string>`
    - `NODE_ENV=production`
-5. Deploy — first boot creates/migrates the SQLite file on the volume.
+5. Deploy — no volumes needed; the books live in Neon.
 
 ---
 
@@ -427,7 +385,7 @@ aider --model gpt-4o    # or any configured model
 - The only user-visible page is `/` (a client-side SPA view-switcher); all backend logic lives under `src/app/api/v1/*`.
 - Every API response is enveloped: `{ ok: true, data }` or `{ ok: false, error, code }`.
 - Money is always `round2`; journals must stay balanced (Dr = Cr) — tell your AI to respect rule R6 in `docs/brain/BRAIN.md`.
-- After schema edits run `bun run db:push` — never hand-edit `db/custom.db`.
+- After schema edits run `bun run db:push` — it applies straight to the Neon database.
 
 ---
 
@@ -437,7 +395,7 @@ aider --model gpt-4o    # or any configured model
 
 | Variable | Required | Example | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | ✅ | `file:/absolute/path/db/custom.db` | SQLite file location (use absolute path) |
+| `DATABASE_URL` | ✅ | `postgresql://USER:PASS@ep-…-pooler…/neondb?sslmode=require` | Neon pooled connection string |
 | `NODE_ENV` | prod only | `production` | Set automatically by the start script / systemd |
 | `PORT` | optional | `3000` | Port for the standalone server |
 | `HOSTNAME` | optional | `0.0.0.0` | Bind address for the standalone server |
@@ -465,7 +423,7 @@ aider --model gpt-4o    # or any configured model
 | `bun run start` | Runs the standalone production server (Bun) |
 | `bun run lint` | ESLint across the project |
 | `bun run db:generate` | Generate the Prisma client |
-| `bun run db:push` | Push `prisma/schema.prisma` to the SQLite file |
+| `bun run db:push` | Apply `prisma/schema.prisma` to the Neon database (+ regenerate client) |
 | `bun run db:migrate` | Create/apply a dev migration |
 | `bun run db:reset` | Drop & recreate the database |
 
@@ -510,8 +468,7 @@ dmk-mart-erp/
 │   ├── brain/                  # Product brain + delivery reviews
 │   ├── dev-notes/              # Build-phase engineering notes
 │   └── uploads/                # Reference images & data files
-├── prisma/schema.prisma        # Full data model (Firm, Product, Invoice, Journal…)
-├── db/custom.db                # SQLite database file (created by db:push)
+├── prisma/schema.prisma        # Full data model — Neon PostgreSQL (Firm, Product, Invoice, Journal…)
 ├── scripts/                    # Maintenance scripts (data backfills)
 ├── src/
 │   ├── app/
@@ -531,7 +488,7 @@ dmk-mart-erp/
 ├── mini-services/              # Standalone sidecar services (socket.io)
 ├── worklog.md                  # Development log
 └── (README, LICENSE, CHANGELOG, CONTRIBUTING, SECURITY,
-    CODE_OF_CONDUCT, Dockerfile, docker-compose.yml, .env.example…)
+    CODE_OF_CONDUCT, .env.example…)
 ```
 
 ---
@@ -541,13 +498,13 @@ dmk-mart-erp/
 | Symptom | Fix |
 |---|---|
 | `Error: Query engine library not found` / Prisma client errors | Run `bun run db:generate`, restart the server |
-| `P1003: Database file does not exist` | Run `bun run db:push`; check `DATABASE_URL` is an **absolute** path and the `db/` folder exists |
+| `P1001: Can't reach the database` | Check `DATABASE_URL` is the Neon pooled string (host contains `-pooler`) and the Neon project isn't suspended |
 | Port 3000 already in use | `PORT=3001 bun run dev` (or stop the other process: `lsof -ti:3000 \| xargs kill -9`) |
 | Login rejected on a fresh install | No firm exists yet — POST `/api/v1/seed` (demo login `Kunal` / `1234`) or create a company account on the login screen |
 | AI Copilot says it can't answer | SDK credentials missing on self-hosted servers; all other features are unaffected |
 | Build fails with type errors | `next.config.ts` ignores build type errors by design; still, run `bunx tsc --noEmit` to inspect real issues |
 | File uploads fail behind Nginx | Ensure `client_max_body_size 20M;` in the server block |
-| Data disappears on Vercel | Expected with serverless + SQLite — move to a volume or hosted DB (see cloud section) |
+| Data missing on localhost | You are on the shared Neon database — the same books Vercel sees; there is no separate local DB anymore |
 
 ---
 
@@ -555,12 +512,7 @@ dmk-mart-erp/
 
 1. **Change the default password immediately** — demo login `Kunal / 1234` is for evaluation only. Change it from **Company Settings** inside the app.
 2. Serve **only over HTTPS** (Certbot or Caddy auto-TLS).
-3. Keep regular backups of the single SQLite file:
-
-   ```bash
-   # cron: nightly 2 AM backup with 7-day rotation
-   0 2 * * * sqlite3 /var/www/dmk-mart-erp/db/custom.db ".backup /backups/erp-$(date +\%F).db"
-   ```
+3. **Backups are automatic** — Neon keeps point-in-time history; review **Console → Restore** and set the retention you're comfortable with. Whoever holds `DATABASE_URL` holds the books — rotate the Neon password if it ever leaks.
 
 4. Restrict direct access to port 3000 (firewall to localhost only) so traffic always flows through the TLS proxy:
 
@@ -584,7 +536,7 @@ dmk-mart-erp/
 | `CODE_OF_CONDUCT.md` | Contributor Covenant 2.1 |
 | `.env.example` | Environment template (copy to `.env`) |
 | `.z-ai-config.example` | AI copilot credential template (copy to `.z-ai-config`) |
-| `Dockerfile` + `docker-compose.yml` + `.dockerignore` | Production Docker deployment |
+| `.dockerignore` | Docker build context exclusions (image wiring now documented in the Docker section) |
 | `.editorconfig` | Consistent formatting across editors |
 | `AGENTS.md` | Project rules for AI coding tools (Claude Code, Cursor, Copilot…) |
 | `docs/` | Blueprint PRD, product brain, dev notes, reference uploads |

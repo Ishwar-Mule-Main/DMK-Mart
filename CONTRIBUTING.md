@@ -18,8 +18,8 @@ bun install
 
 # environment
 cp .env.example .env
-# edit .env → set DATABASE_URL to an absolute path ending in db/custom.db
-mkdir -p db
+# edit .env → set DATABASE_URL to your Neon pooled connection string
+# (Neon Console → Connect → "Pooled connection"; keep sslmode=require)
 
 # database
 bun run db:generate
@@ -41,7 +41,7 @@ These invariants keep the ERP correct — **do not break them**:
 3. **Firm isolation.** Every query/mutation must be filtered by `firmId`.
 4. **Money.** Always `round2`; every monetary event must post a **balanced journal** (Dr = Cr) via the ledger engine in `src/lib/journal.ts` / `src/app/api/v1/_lib/*`.
 5. **Dual stock pools.** Sellable and damaged stock never mix (R3/R4).
-6. **Schema changes** go through `prisma/schema.prisma` + `bun run db:push` — never hand-edit `db/custom.db`.
+6. **Schema changes** go through `prisma/schema.prisma` + `bun run db:push` (applies to the Neon database) — never mutate data by hand.
 
 ## 4. Code style
 

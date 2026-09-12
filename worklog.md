@@ -1715,3 +1715,28 @@ Stage Summary:
 - db:push:pg script hardened (client-regen footgun eliminated)
 - SECURITY: Neon password was pasted in chat — recommend rotation (Neon Console → Roles & Passwords)
 - New webDevReview cron: job 378638 (every 15 min, quartz `0 0/15 * * * ?` — 5-field expr rejected by service)
+
+---
+Task ID: 64
+Agent: Z.ai Code (main)
+Task: User request "remove all sql things from this whole project and keep neon thing without any single error" — full SQLite removal, single Neon PostgreSQL database for all environments
+
+Work Log:
+- Audit: grep'd sqlite/custom.db/mirror refs across repo; found functional refs in .env, prisma/schema.prisma, package.json, vercel.json, .github/workflows/ci.yml + stale docs (README, CONTRIBUTING, SECURITY, AGENTS, .env.example, docs/deploy/*)
+- Schema consolidation: prisma/schema.prisma provider sqlite→postgresql (schemas were byte-identical apart from provider + header). DELETED: prisma/schema.postgres.prisma, scripts/sync-pg-schema.mjs, Dockerfile, docker-compose.yml, docs/deploy/hostinger.md, .env.vercel.example; removed db/ folder (SQLite file archived to /tmp/sqlite-backup-custom-*.db)
+- package.json: db:push = `prisma db push --accept-data-loss --skip-generate && prisma generate` (applies straight to Neon); removed db:sync:pg / db:generate:pg / db:push:pg entirely
+- vercel.json buildCommand: `prisma generate --schema prisma/schema.postgres.prisma && next build` → `prisma generate && next build`
+- CI (.github/workflows/ci.yml): removed the two mirror-validation steps (would have failed on push); now single `bunx prisma validate`
+- .env: DATABASE_URL = Neon pooled URL (gitignored, never commit). GOTCHA re-confirmed: the shell session exports a STALE DATABASE_URL which overrides .env — every prisma command/dev-server start must re-export from .env (Task 47 gotcha, bit again in this task)
+- `bun run db:push` → "The database is already in sync with the Prisma schema" (zero drift, zero errors)
+- Dev server restarted on Neon: boot clean, queries now `"public"."Firm"` postgres syntax, ZERO errors in entire dev.log
+- Browser QA: owner login (Kunal/1234) against Neon works; Dashboard renders live Neon data (firm "DMK Mart", FY 2026-27, fresh books); Settings view loads; sales-orders API 200
+- Docs rewritten Neon-only: README (setup, VPS, Docker note, Vercel, Railway, env table, scripts, structure, troubleshooting, backups), .env.example, CONTRIBUTING.md, SECURITY.md, AGENTS.md, docs/deploy/vercel.md (full rewrite — single-DB flow)
+- Note: Neon firm's upiId is EMPTY (the dmkmart@okhdfcbank set in Task 63 QA lived in the old local SQLite). Owner should set UPI ID/QR via Settings on the live system (Vercel or localhost — same DB now)
+- lint ✅ clean, bunx tsc --noEmit ✅ exit 0
+
+Stage Summary:
+- SINGLE DATABASE ARCHITECTURE: one prisma/schema.prisma (postgresql), one Neon DB shared by localhost sandbox + Vercel + any future host; all mirror/sync machinery deleted
+- ⚠️ OPERATIONAL SHIFT: localhost now reads/writes the REAL production books — sandbox QA must be read-only-first; never post test transactions locally anymore
+- Zero-error verification complete: db push in-sync, dev.log clean, lint+tsc clean, browser QA passed
+- If sandbox reset ever wipes .env, restore DATABASE_URL from the user's message in this chat (Task 62) — never commit it

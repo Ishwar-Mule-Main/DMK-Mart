@@ -1,6 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
 // DMK MART ERP — PRISMA SCHEMA
 // Single-owner, multi-firm, dual-stock, double-entry ERP
+// Database: Neon PostgreSQL (single source of truth — dev + prod).
+// Applied via `bun run db:push` with DATABASE_URL pointing at Neon.
 // ═══════════════════════════════════════════════════════════════
 
 generator client {
@@ -8,7 +10,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
