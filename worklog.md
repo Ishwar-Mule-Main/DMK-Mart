@@ -1765,3 +1765,26 @@ Stage Summary:
 - NOTE: user's order1.pdf staging upload (NEEDS REVIEW, ₹1,680, matched by phone) is intentionally left in the deep-scan queue — it duplicates SO/0002; owner can discard it
 - Invoice numbering continued from user's existing Neon history (INV/0008-0009, TRIP/0004)
 - Driver-side delivery + settlement of TRIP/0004 left for the owner/driver to exercise live (real collections)
+
+---
+Task ID: 66
+Agent: Z.ai Code (main)
+Task: User screenshot showed raw i18n keys (npo.title, NPO.VENDORHEADING, npo.clearForm…) across the New Purchase Order page — "check the screenshot why npo thing is coming for whole project"
+
+Work Log:
+- Root cause: src/lib/i18n/dicts/batch-purchase.ts was COMPLETELY EMPTY (header said "owned by translation agent task 55-b" but keys were never filled) — every purchase/inventory view fell back to rendering raw keys
+- Built a project-wide audit script: walked src/**, extracted every t()/tNow() literal key, diffed against all dictionary files → 595 genuinely missing keys (1 false positive: dynamic `log.filter.${status}` templates, already defined)
+- Missing-key blast radius: npo (78) · po (110) · pret (118) · vp (68) · ven (79) · stl (54) · stm (23) · low (18) · bul (45) · prod (11) = 601 total incl. 9 found on re-audit
+- Read every usage site (placeholder vars: {n} {name} {q} {amt} {brand} {state} {terms} {gst} {po} {dn} {date} {c} {u} {f} {row} {sku} {errors} {alloc} {pay} {mode} {month} {vendors} {total} {idx} {skus} {avail} {qty} {cost} {sub} {tax} {list} {v}) to write context-accurate strings
+- Rewrote batch-purchase.ts: enPurchase/hiPurchase/mrPurchase × 601 keys — ERP-correct Hindi + Marathi (खरीद आदेश/विक्रेता/सत्यापन/डेबिट नोट/क्षतिग्रस्त पूल; पुरवठादार/खरेदी परत/वगळणी…), GST state names (ven.st07-36), payment terms labels, return-reason labels
+- Programmatic verification: 0 missing keys · en=hi=mr=601 · 0 key misalignment · 0 placeholder mismatches across the 3 blocks
+- lint ✅ tsc ✅ dev.log clean ✅
+- Agent-browser QA (READ-ONLY — no POs/payments created): logged in, opened New Purchase Order → EN renders real copy, zero raw keys; vendor dropdown shows "हम पर ₹34,338.00 बाकी" (owed interpolation); selected vendor → सुंड्री क्रेडिटर card + terms/state labels OK; product search → "स्टॉक 138 · क्षतिग्रस्त 0" OK
+- Full sweep of 10 purchase/inventory views (Purchase Orders, PO Verification, Purchase Returns, Vendor Payments, Vendors, Products, Stock Levels, Stock Movements, Low Stock, Bulk Upload) in HI and MR → ALL CLEAN (regex for raw key prefixes: 0 hits)
+- Reset language back to EN; screenshot confirms polished NPO page
+
+Stage Summary:
+- WHY IT HAPPENED: the purchase/i18n batch file was left empty since the dict split refactor — any view using npo.*/po.*/ven.*/vp.*/pret.*/stl.*/stm.*/low.*/bul.*/prod.* keys displayed raw keys in ALL languages
+- FIX: 1,803 translation entries added (601 keys × 3 languages), fully key-aligned and placeholder-identical; the whole Purchase & Inventory module now speaks EN/HI/MR
+- Added a reusable audit pattern (used twice in-session) — worth promoting to a lint rule/script if raw keys ever reappear
+- Previous task 65 (SO→Trip→Finance order flow) already complete & pushed at 8b378ed; this fix is independent of it
