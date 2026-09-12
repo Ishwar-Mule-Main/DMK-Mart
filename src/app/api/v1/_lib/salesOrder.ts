@@ -321,7 +321,9 @@ export async function convertSalesOrderToInvoice(
     invoiceDate: options?.invoiceDate ?? new Date(),
     lines: order.items
       .filter((i) => i.quantity > 0)
-      .map((i) => ({ productId: i.productId, quantity: i.quantity })),
+      // Carry the price quoted at booking so packaging bulk discounts don't
+      // silently change the bill away from what the customer agreed to.
+      .map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice })),
   };
   const { invoice } = await createInvoice(firm, invoiceInput);
 

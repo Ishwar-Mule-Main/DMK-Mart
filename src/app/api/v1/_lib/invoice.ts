@@ -18,6 +18,11 @@ export interface InvoiceLineInput {
   productId: string;
   quantity: number;
   manualDiscountPct?: number;
+  /** Booked/fixed price (₹, tax-exclusive base) — when set, packaging
+   *  bulk discounts are skipped and this exact price is billed. Used by
+   *  SO→invoice conversion so the bill matches what was quoted on the
+   *  order, and by any direct-bill flow that pins a price. */
+  unitPrice?: number;
 }
 
 export interface CreateInvoiceInput {
@@ -80,6 +85,9 @@ export async function createInvoice(firm: FirmRow, input: CreateInvoiceInput) {
     }
     if (line.manualDiscountPct !== undefined && (line.manualDiscountPct < 0 || line.manualDiscountPct > 100)) {
       throw new BusinessError("ERR_VALIDATION", "Manual discount must be between 0 and 100", 400);
+    }
+    if (line.unitPrice !== undefined && !(line.unitPrice > 0)) {
+      throw new BusinessError("ERR_VALIDATION", "Booked unit price must be a positive number", 400);
     }
   }
 
@@ -184,7 +192,20 @@ export async function createInvoice(firm: FirmRow, input: CreateInvoiceInput) {
     }
     const tierPrice = product[tierKey as keyof typeof product] as number;
     const base = tierPrice > 0 ? tierPrice : product.tier4Retailer;
-    const bulk = calculateBulkPricing(base, line.quantity, line.manualDiscountPct ?? 0);
+    // Booked-price override: when the caller pins a unit price (SO conversion
+    // carrying the order's quoted price, or a direct-bill price pin), the
+    // packaging bulk discount is skipped and the pinned price bills as-is.
+    const booked = line.unitPrice;
+    const bulk =
+      booked !== undefined
+        ? {
+            format: "PIECE",
+            discountPct: 0,
+            unitPrice: round2(booked),
+            taxable: round2(round2(booked) * line.quantity),
+            savings: round2((base - round2(booked)) * line.quantity),
+          }
+        : calculateBulkPricing(base, line.quantity, line.manualDiscountPct ?? 0);
     const gst = calculateGST(bulk.taxable, product.gstRate, firm.stateCode, buyerStateCode);
     computed.push({
       productId: product.id,

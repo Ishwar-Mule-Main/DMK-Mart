@@ -1740,3 +1740,28 @@ Stage Summary:
 - ⚠️ OPERATIONAL SHIFT: localhost now reads/writes the REAL production books — sandbox QA must be read-only-first; never post test transactions locally anymore
 - Zero-error verification complete: db push in-sync, dev.log clean, lint+tsc clean, browser QA passed
 - If sandbox reset ever wipes .env, restore DATABASE_URL from the user's message in this chat (Task 62) — never commit it
+
+---
+Task ID: 65
+Agent: Z.ai Code (main)
+Task: User shared 2 legacy orders (b2b.dmkmart.com PDFs) — "check this is exactly working with sales order section also place complete order to send this order to trip planner as well as financial and accounting section"
+
+Work Log:
+- Parsed both PDFs: Order DEMO1788194104 (31 Aug 2026, 18 items, ₹11,559, payment Completed) + Order DEMO178889131 (08 Sept 2026, 3 Galaxy Planter items, ₹1,680, Pending) — customer Kunal Kolapkar, Kolhar bk, Shirdi, ph 9309575173
+- Discovered Neon already had user's real data (27 products, 14 customers incl. "kolhar dmk mart" with the EXACT phone, driver Ganesh Halnor, 7 invoices, 3 trips from Vercel testing) — reused instead of duplicating
+- Stage 1 (catalog): created 18 products (gstRate 0 — legacy prices are GST-inclusive final; flat price ladder = PDF price at every tier, learned ladder-descending rule the hard way); patched 3 existing GALPL products gst 18→0 + flat ladder (they had pre-existing tier3=0 violations blocking PATCH — fixed by patching full ladder); ADD_SELLABLE stock adjustment +12 for GALPL-949 (zero purchaseCost → no journal, by design); created route "Kolhar – Shirdi Route" (towns: Kolhar, Shirdi, Rahata, Kolhar bk)
+- Stage 2 (orders): booked DMK/2026-27/SO/0001 (18 items, 31 Aug, est ₹11,559) + SO/0002 (3 items, 08 Sept, est ₹1,680) — exact totals
+- ⚠️ BUG FOUND: trip-creation auto-billing applied PACKAGING_RULES bulk discounts (qty≥12 → 12% off) → invoices came out ₹10,426 / ₹1,478.40 ≠ booked totals. Also discovered NO invoice cancel exists (posted = permanent)
+- SURGICAL ROLLBACK of the 2 wrong invoices (single $transaction with maxWait 20s/timeout 90s — WAN Neon + default 5s tx timeout was the failure mode, the dbTx gotcha again): deleted trip+stops, 2 journals, 2 ledger entries, 21 line items, 2 invoices, 21 movements; SOs → BOOKED; stock restored (+qty per line); customer closingBalance → 0. Verified trial balance delta ₹0.00
+- ⭐ ENGINE FIX (product improvement): InvoiceLineInput now supports explicit `unitPrice` (booked price override — skips packaging bulk discount); convertSalesOrderToInvoice now carries each SO line's booked unitPrice onto the invoice. Quote price = bill price, forever, for every SO→trip→bill flow
+- RE-RUN: trip DMK/2026-27/TRIP/0004 created on Kolhar – Shirdi Route, driver Ganesh Halnor, MH-12 Tata 407, 2 stops → auto-billed INV/0008 ₹11,559 + INV/0009 ₹1,680 — EXACT PDF totals, zero discount; DISPATCHED via /dispatch
+- Verified end-to-end: SOs CONVERTED; journals SAL/0015-0016 balanced; party ledger kolhar dmk mart = OPENING NIL → Dr ₹13,239 CLOSING; Day Book shows both vouchers; trial balance delta ₹0.00; driver active-trip API returns trip with both stops (₹11,559 + ₹1,680, expected CREDIT) + paymentInfo
+- Browser QA: Sales Orders view (order book ₹13,239, 2 orders, CONVERTED badges), Trip Planner (route pool empty — "every billed order already on a trip" ✓), Trips & Settlement register (TRIP/0004 DISPATCHED 0/2 ₹13,239), Party Ledgers (kolhar statement exact), Day Book (SAL/0015 ₹11,559)
+- lint ✅ tsc ✅ dev.log clean ✅
+
+Stage Summary:
+- Full legacy-order import pipeline proven: PDF data → SO (exact) → trip planner → auto-bill at dispatch → accounting (balanced) → driver portal
+- ⭐ Booked-price honor fix shipped: SO quoted prices now survive conversion — packaging discounts only apply to fresh direct bills, never to booked orders
+- NOTE: user's order1.pdf staging upload (NEEDS REVIEW, ₹1,680, matched by phone) is intentionally left in the deep-scan queue — it duplicates SO/0002; owner can discard it
+- Invoice numbering continued from user's existing Neon history (INV/0008-0009, TRIP/0004)
+- Driver-side delivery + settlement of TRIP/0004 left for the owner/driver to exercise live (real collections)
