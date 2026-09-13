@@ -1854,3 +1854,22 @@ Stage Summary:
 - Route builder now suggests only the towns lying ON the selected start→end corridor (19 mapped Maharashtra trade routes), with the full 394-town Maharashtra catalog one toggle away (plus live customer towns and custom chips) — multi-select checkboxes throughout.
 - All UI additions are English-only by design; the corridor map is catalog-based (practical trade routes, not GPS) and lives entirely client-side — no API/schema changes, zero DB writes during QA.
 - Files touched: src/lib/geo/maharashtra-towns.ts (new), src/components/erp/views/logistics.tsx (imports, TownCombobox, ManageRoutesDialog form).
+
+---
+Task ID: 67
+Agent: Z.ai Code (main)
+Task: Remove the Sundry section from the project (owner request: "remove sundry section from this project")
+
+Work Log:
+- Scoped carefully before deleting: "Sundry" exists in two distinct roles — (1) the standalone "Sundry Debtors / Creditors" finance VIEW, and (2) the standard GL terminology + the shared /api/v1/finance/sundry endpoint that feeds the customer/vendor standing widgets inside Fast Billing and New Purchase Order. Only (1) is the "section" — (2) is load-bearing for billing/purchase, so the API + journal.ts account names (1100/2000) were untouched.
+- Removed the view: src/components/erp/views/sundry.tsx deleted (~1 file); app-shell.tsx import + VIEW_MAP entry dropped; sidebar.tsx "Sundry Debtors / Creditors" nav item + BookUser import dropped; command-palette.tsx entry + BookUser import dropped; erp-store.ts "finance/sundry" removed from the ViewId union.
+- i18n cleanup: 228 "sund.*" lines stripped from batch-finance.ts (all three EN/HI/MR blocks stay key-aligned; keys were verified sundry-view-exclusive beforehand); 3 "nav.sundry" lines stripped from dictionaries.ts.
+- Stale-view guard: the store persists `view`, so onRehydrateStorage now snaps any browser persisted on "finance/sundry" back to "dashboard" (plus the existing `VIEW_MAP[view] ?? DashboardView` fallback) — nobody lands on a dead id.
+- Sandbox reset mid-task (2nd time): dev.log + node processes wiped and .env reverted to the stale SQLite URL — restored the Neon DATABASE_URL in .env and restarted (setsid pattern) before QA.
+- lint ✅ tsc ✅ (one TS2367/TS18048 fixed by widening the guard comparison) dev.log clean ✅
+- Browser QA (READ-ONLY): signed in as Kunal → sidebar shows 7 finance items (Journals, COA, Party Ledgers, Statements, Day Book, AR/AP Aging, GSTR-2B) and "Sundry Debtors" appears NOWHERE in the page (nav + palette both clean); GET /api/v1/finance/sundry?type=DEBTORS still returns ok with 14 parties (billing widgets intact); Fast Billing view opens with no runtime errors.
+
+Stage Summary:
+- The Sundry Debtors / Creditors section is fully removed — nav, command palette, view registry, store type, view component and its 76 translation keys × 3 languages — with zero broken references.
+- Kept deliberately: the /finance/sundry API and GL account names, because Fast Billing's customer standing and New Purchase Order's vendor standing consume them (removal there would be a different feature decision).
+- Files touched: deleted views/sundry.tsx; edited app-shell.tsx, sidebar.tsx, command-palette.tsx, erp-store.ts, lib/i18n/dictionaries.ts, lib/i18n/dicts/batch-finance.ts.

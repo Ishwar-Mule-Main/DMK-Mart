@@ -43,7 +43,6 @@ export type ViewId =
   | "finance/statements"
   | "finance/daybook"
   | "finance/aging"
-  | "finance/sundry"
   | "finance/gstr2b"
   | "docs/invoices"
   | "docs/notes"
@@ -161,6 +160,11 @@ export const useErpStore = create<ErpState>()(
     }),
     {
       name: "dmk-erp-store",
+      // "finance/sundry" was removed from the app — any browser persisted
+      // on it snaps back to the dashboard instead of a dead view id.
+      onRehydrateStorage: () => (state) => {
+        if (state && (state.view as string) === "finance/sundry") state.view = "dashboard";
+      },
       partialize: (s) => ({
         activeFirmId: s.activeFirmId,
         financialYear: s.financialYear,
