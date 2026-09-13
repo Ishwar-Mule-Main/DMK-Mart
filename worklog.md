@@ -1836,3 +1836,21 @@ Stage Summary:
 - Server is the single source of truth: client previews mirror the factor math but every posted total is recomputed API-side.
 - Dev-server gotcha this session: plain `nohup … &` dies between tool invocations — working pattern is double-fork `(setsid bun run dev > dev.log 2>&1 &)`.
 - Pending: full HI/MR translation sweep deferred by user until "full products done"; existing-old-invoice A4s unaffected.
+
+---
+Task ID: 66
+Agent: Z.ai Code (main)
+Task: Trip Planner — route-aware town suggestions + full Maharashtra town catalog (owner request: "in trip planner suggestive town should be as per route selected; every town as per Maharashtra in dropdown with multi select; when start & end selected only on-route towns in suggestion; additionally an option with all cities/towns")
+
+Work Log:
+- New dataset src/lib/geo/maharashtra-towns.ts: MAHARASHTRA_TOWNS — 394 unique cities/tehsil towns/trade hubs across all 36 districts (deduped, alphabetically sorted); MH_CORRIDORS — 19 ordered trade corridors (NH-48 Pune↔Mumbai, NH-60 Pune→Nashik, NH-61 Pune→Nagar→Sambhajinagar, NH-65 Pune→Solapur, NH-48 Pune→Kolhapur, NH-548 Baramati→Pandharpur, NH-3 Mumbai→Nashik, NH-66 Konkan/Goa road, NH-52 Vidarbha spine, Solapur→Latur→Nanded, Nagpur→Wardha→Chandrapur, Nagpur→Bhandara→Gondia, etc.); corridorTownsBetween(start,end) slices the ordered intermediate towns (direction-aware, tightest span wins, case-insensitive); isMaharashtraTown helper. Corridor towns verified to be a subset of the catalog (0 missing).
+- logistics.tsx — NEW TownCombobox (Popover+Command, ~140 lines): replaces the old plain Input+datalist on Start From / End To. Groups "Customer towns (live)" (with shop counts) above "Maharashtra — all cities & towns"; search-as-you-type; MH list capped at 80 rows until typed (perf); clear (X) button on trigger; trigger width mirrors Radix popover trigger.
+- Route form suggestion panel reworked: once BOTH ends are set, default view = ONLY on-route towns in driving order (corridor slice, synthesized 0-shop rows so the full corridor is always visible); corridor context line "N towns en route · <NH label>"; "All Maharashtra towns (394)" toggle flips to the full searchable catalog (MH ∪ customer towns ∪ custom chips, shop counts overlaid, live search box); "← Show only on-route towns" flips back; already-selected towns that fall off-corridor stay listed (dimmed) so they can be un-checked; selectedOffRouteCount surfaced in the context line; direct-run corridors (0 intermediate towns) show an explicit hint. Endpoint changes auto-reset the view + search.
+- Removed: dead Textarea fallback (MH catalog is static so the town grid can never be empty) + its now-unused Textarea import; stale datalist block. English-only copy for all new UI per owner instruction (translations deferred).
+- lint ✅ tsc ✅ dev.log clean ✅
+- Browser QA (READ-ONLY — form cancelled, nothing persisted): Manage routes → New route → Start combobox showed live customer towns (Hubli 1 shop, Hyderabad, Kolhar, Latur, Mumbai, Nanded, Nashik…) + MH group; picked Start=Nashik, End=Pune → context line "7 towns en route · NH-60 · Pune → Nashik" and grid showed EXACTLY Chakan, Rajgurunagar, Manchar, Narayangaon, Alephata, Sangamner, Sinnar in driving order; multi-selected Chakan + Sangamner ("2 selected"); toggled "All Maharashtra towns (394)" → 398 rows listed with search box ("shir" → Malshiras/Shirdi/Shirol/Shirur/Shirur Kasar/Shirwal); toggled back → corridor view with selections intact; Cancelled — no write to Neon.
+
+Stage Summary:
+- Route builder now suggests only the towns lying ON the selected start→end corridor (19 mapped Maharashtra trade routes), with the full 394-town Maharashtra catalog one toggle away (plus live customer towns and custom chips) — multi-select checkboxes throughout.
+- All UI additions are English-only by design; the corridor map is catalog-based (practical trade routes, not GPS) and lives entirely client-side — no API/schema changes, zero DB writes during QA.
+- Files touched: src/lib/geo/maharashtra-towns.ts (new), src/components/erp/views/logistics.tsx (imports, TownCombobox, ManageRoutesDialog form).

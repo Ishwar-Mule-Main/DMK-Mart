@@ -27,11 +27,13 @@ import {
   Banknote,
   Boxes,
   CheckCircle2,
+  ChevronsUpDown,
   Circle,
   IdCard,
   IndianRupee,
   Loader2,
   MapPinned,
+  MapPin,
   Package,
   PackageOpen,
   Pencil,
@@ -40,6 +42,7 @@ import {
   RefreshCw,
   Route as RouteIcon,
   Scale,
+  Search,
   Send,
   Smartphone,
   StickyNote,
@@ -47,6 +50,7 @@ import {
   Truck,
   TriangleAlert,
   Users,
+  X,
 } from "lucide-react";
 import { useErpStore } from "@/store/erp-store";
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "@/lib/api-client";
@@ -63,7 +67,6 @@ import {
 } from "@/components/erp/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
@@ -93,6 +96,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  MAHARASHTRA_TOWNS,
+  corridorTownsBetween,
+  type CorridorMatch,
+} from "@/lib/geo/maharashtra-towns";
 import { useToast } from "@/hooks/use-toast";
 import { A4PrintPortal, printA4 } from "@/components/erp/print-portal";
 import { cn } from "@/lib/utils";
@@ -1482,6 +1499,148 @@ function OtherTownsDialog({
 }
 
 // ═══════════════════════════════════════════════════════════════
+// TOWN COMBOBOX — searchable Start/End picker for the route builder.
+// Lists the firm's live customer towns first, then EVERY city/town
+// in Maharashtra (src/lib/geo/maharashtra-towns.ts). English-only
+// copy per owner instruction (translations deferred).
+// ═══════════════════════════════════════════════════════════════
+
+/** Cap the Maharashtra group's rendered rows; search narrows to find the rest. */
+const COMBO_MH_CAP = 80;
+
+function TownCombobox({
+  value,
+  onChange,
+  customerTowns,
+  placeholder,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  customerTowns: TownCandidate[];
+  placeholder: string;
+  ariaLabel: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const v = value.trim();
+  const vKey = v.toLowerCase();
+
+  const customerMatches = React.useMemo(
+    () => (vKey ? customerTowns.filter((tc) => tc.name.toLowerCase().includes(vKey)) : customerTowns),
+    [customerTowns, vKey]
+  );
+  const mhMatches = React.useMemo(() => {
+    const pool = vKey
+      ? MAHARASHTRA_TOWNS.filter((t) => t.toLowerCase().includes(vKey))
+      : MAHARASHTRA_TOWNS;
+    return pool.slice(0, COMBO_MH_CAP);
+  }, [vKey]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          aria-label={ariaLabel}
+          className="h-9 w-full justify-between border-dmk-border-subtle bg-dmk-input-well px-3 text-[13px] font-normal text-dmk-text-primary hover:bg-dmk-input-well"
+        >
+          <span className={cn("min-w-0 truncate", !v && "text-dmk-text-muted")}>
+            {v || placeholder}
+          </span>
+          <span className="flex shrink-0 items-center gap-1">
+            {v && (
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={`Clear ${ariaLabel}`}
+                className="rounded p-0.5 text-dmk-text-muted hover:bg-dmk-hover hover:text-dmk-text-primary"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onChange("");
+                  }
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onChange("");
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+              </span>
+            )}
+            <ChevronsUpDown className="h-3.5 w-3.5 text-dmk-text-muted" />
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[calc(100%+8px)] min-w-[240px] border-dmk-border-subtle bg-dmk-bg-card p-0"
+        style={{ width: "var(--radix-popover-trigger-width)" }}
+      >
+        <Command>
+          <CommandInput placeholder="Search town…" className="h-9 text-[13px]" />
+          <CommandList className="max-h-64">
+            <CommandEmpty className="py-4 text-center text-[12px] text-dmk-text-muted">
+              No town found. Add it via “Add a town not listed” below.
+            </CommandEmpty>
+            {customerMatches.length > 0 && (
+              <CommandGroup heading="Customer towns (live)">
+                {customerMatches.map((tc) => (
+                  <CommandItem
+                    key={`cust-${tc.name}`}
+                    value={`cust-${tc.name}`}
+                    onSelect={() => {
+                      onChange(tc.name);
+                      setOpen(false);
+                    }}
+                    className="gap-2 text-[12.5px] text-dmk-text-primary"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{tc.name}</span>
+                    <span className="shrink-0 text-[10px] text-dmk-text-muted">
+                      {tc.customerCount > 0 ? `${tc.customerCount} shops` : ""}
+                    </span>
+                    {vKey === tc.name.toLowerCase() && <CheckCircle2 className="h-3.5 w-3.5 text-dmk-yellow" />}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {mhMatches.length > 0 && (
+              <CommandGroup heading="Maharashtra — all cities & towns">
+                {mhMatches.map((t) => (
+                  <CommandItem
+                    key={`mh-${t}`}
+                    value={`mh-${t}`}
+                    onSelect={() => {
+                      onChange(t);
+                      setOpen(false);
+                    }}
+                    className="gap-2 text-[12.5px] text-dmk-text-primary"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{t}</span>
+                    {vKey === t.toLowerCase() && <CheckCircle2 className="h-3.5 w-3.5 text-dmk-yellow" />}
+                  </CommandItem>
+                ))}
+                {(vKey ? mhMatches.length : COMBO_MH_CAP) >= COMBO_MH_CAP &&
+                  MAHARASHTRA_TOWNS.length > COMBO_MH_CAP && (
+                    <p className="px-3 py-2 text-[10.5px] text-dmk-text-muted">
+                      Showing first {COMBO_MH_CAP} of {MAHARASHTRA_TOWNS.length} towns — type to search.
+                    </p>
+                  )}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MANAGE ROUTES DIALOG (CRUD)
 // ═══════════════════════════════════════════════════════════════
 
@@ -1518,6 +1677,13 @@ function ManageRoutesDialog({
   const [customTowns, setCustomTowns] = React.useState<string[]>([]); // “add a town not listed” chips
   const [newTown, setNewTown] = React.useState("");
 
+  // Route-aware town suggestions — when Start & End both match a trade
+  // corridor, suggest ONLY the on-route towns by default; the owner can
+  // flip to the full Maharashtra catalog with the "All Maharashtra towns"
+  // toggle (English-only copy per owner instruction).
+  const [allTownsView, setAllTownsView] = React.useState(false);
+  const [townSearch, setTownSearch] = React.useState("");
+
   function openNew() {
     setEditOf(null);
     setName("");
@@ -1528,6 +1694,8 @@ function ManageRoutesDialog({
     setFormError(null);
     setCustomTowns([]);
     setNewTown("");
+    setAllTownsView(false);
+    setTownSearch("");
     setFormOpen(true);
   }
 
@@ -1541,11 +1709,13 @@ function ManageRoutesDialog({
     setFormError(null);
     setCustomTowns([]); // towns not in the catalog surface as 0-shop rows automatically
     setNewTown("");
+    setAllTownsView(false);
+    setTownSearch("");
     setFormOpen(true);
   }
 
   // Town catalog fetch — when the form dialog opens (not the manager),
-  // cached across opens; quiet failure → empty list (textarea fallback).
+  // cached across opens; quiet failure → empty list (counts stay “—”).
   React.useEffect(() => {
     if (!formOpen || !activeFirmId) return;
     let alive = true;
@@ -1581,6 +1751,72 @@ function ManageRoutesDialog({
     }
     return [...known.values()];
   }, [townCandidates, customTowns, townList]);
+
+  // ── Route-aware suggestions ──────────────────────────────────────
+  const startKey = startFrom.trim().toLowerCase();
+  const endKey = endTo.trim().toLowerCase();
+  const bothEndsSet = startKey !== "" && endKey !== "" && startKey !== endKey;
+
+  // Corridor match — only when Start & End both sit on the same mapped
+  // Maharashtra trade corridor (case-insensitive, direction-aware).
+  const corridor: CorridorMatch | null = React.useMemo(
+    () => corridorTownsBetween(startFrom, endTo),
+    [startFrom, endTo]
+  );
+
+  // Changing endpoints snaps back to the on-route suggestion view.
+  React.useEffect(() => {
+    setAllTownsView(false);
+    setTownSearch("");
+  }, [startFrom, endTo]);
+
+  /** Default view: on-route towns only. */
+  const showAllView = !bothEndsSet || !corridor || allTownsView;
+
+  // On-route rows in driving order; towns with no customers yet are
+  // synthesized as 0-shop rows so the full corridor is always visible.
+  // Already-selected towns that fall off-corridor stay listed (with a
+  // marker) so they can be un-checked.
+  const suggestedRows = React.useMemo(() => {
+    if (!corridor) return [];
+    const known = new Map(mergedTowns.map((tc) => [tc.name.toLowerCase(), tc]));
+    const rows: TownCandidate[] = [];
+    const seen = new Set<string>();
+    for (const name of corridor.towns) {
+      const k = name.toLowerCase();
+      if (k === startKey || k === endKey || seen.has(k)) continue;
+      rows.push(known.get(k) ?? { name, customerCount: 0, unassignedCount: 0, usedInRoutes: [] });
+      seen.add(k);
+    }
+    for (const tc of mergedTowns) {
+      const k = tc.name.toLowerCase();
+      if (!seen.has(k) && checkedTownKeys.has(k)) {
+        rows.push(tc);
+        seen.add(k);
+      }
+    }
+    return rows;
+  }, [corridor, mergedTowns, startKey, endKey, checkedTownKeys]);
+
+  const selectedOffRouteCount = React.useMemo(() => {
+    if (!corridor) return 0;
+    const onRoute = new Set(corridor.towns.map((x) => x.toLowerCase()));
+    return townList.filter((x) => !onRoute.has(x.toLowerCase())).length;
+  }, [corridor, townList]);
+
+  // All-towns view: full Maharashtra catalog overlaid with customer/shop
+  // counts, custom chips and existing selections, narrowed by search.
+  const allRows = React.useMemo(() => {
+    const byKey = new Map<string, TownCandidate>();
+    for (const name of MAHARASHTRA_TOWNS) {
+      byKey.set(name.toLowerCase(), { name, customerCount: 0, unassignedCount: 0, usedInRoutes: [] });
+    }
+    for (const tc of mergedTowns) byKey.set(tc.name.toLowerCase(), tc);
+    const q = townSearch.trim().toLowerCase();
+    const rows = [...byKey.values()];
+    return q ? rows.filter((tc) => tc.name.toLowerCase().includes(q)) : rows;
+  }, [mergedTowns, townSearch]);
+  // ─────────────────────────────────────────────────────────────────
 
   function toggleTown(name: string) {
     // Functional update — safe even if two toggles land in one React batch.
@@ -1757,139 +1993,180 @@ function ManageRoutesDialog({
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
                   {t("log.rt.startLabel")}
                 </label>
-                <Input
+                <TownCombobox
                   value={startFrom}
-                  onChange={(e) => setStartFrom(e.target.value)}
+                  onChange={setStartFrom}
+                  customerTowns={townCandidates}
                   placeholder={t("log.rt.startPh")}
-                  list="dmk-route-town-options"
-                  aria-label={t("log.rt.ariaStart")}
-                  className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
+                  ariaLabel={t("log.rt.ariaStart")}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
                   {t("log.rt.endLabel")}
                 </label>
-                <Input
+                <TownCombobox
                   value={endTo}
-                  onChange={(e) => setEndTo(e.target.value)}
+                  onChange={setEndTo}
+                  customerTowns={townCandidates}
                   placeholder={t("log.rt.endPh")}
-                  list="dmk-route-town-options"
-                  aria-label={t("log.rt.ariaEnd")}
-                  className="h-9 border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
+                  ariaLabel={t("log.rt.ariaEnd")}
                 />
               </div>
             </div>
-            <datalist id="dmk-route-town-options">
-              {mergedTowns.map((t) => (
-                <option key={t.name} value={t.name} />
-              ))}
-            </datalist>
 
-            {/* Towns on this route — checkbox grid once start & end are set.
-                No catalog at all → fall back to the free-text textarea. */}
-            {mergedTowns.length > 0 ? (
-              startFrom.trim() !== "" && endTo.trim() !== "" ? (
-                <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/50 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                      {t("log.rt.townsOnRoute")}
-                    </p>
-                    <span className="text-[10.5px] text-dmk-text-muted">
-                      {t("log.pl.selectedCount", { n: townList.length })}
+            {/* Town suggestions — once Start & End are set, default to ONLY
+                the towns lying on the matched Maharashtra trade corridor;
+                "All Maharashtra towns" flips to the full searchable catalog
+                (multi-select checkboxes throughout). */}
+            {!bothEndsSet ? (
+              <p className="text-[11px] text-dmk-text-muted">
+                {t("log.rt.pickTownsHint")}
+              </p>
+            ) : (
+              <div className="rounded-lg border border-dmk-border-subtle bg-dmk-input-well/50 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
+                    {showAllView ? "Towns — all Maharashtra" : t("log.rt.townsOnRoute")}
+                  </p>
+                  <span className="shrink-0 text-[10.5px] text-dmk-text-muted">
+                    {t("log.pl.selectedCount", { n: townList.length })}
+                  </span>
+                </div>
+
+                {/* Route context line */}
+                {corridor && !showAllView ? (
+                  <p className="mb-2 flex items-center gap-1.5 text-[10.5px] text-dmk-text-muted">
+                    <MapPin className="h-3 w-3 shrink-0 text-dmk-yellow" />
+                    <span className="min-w-0 truncate">
+                      {corridor.towns.length} towns en route · {corridor.corridor}
+                      {selectedOffRouteCount > 0
+                        ? ` · +${selectedOffRouteCount} selected off-route`
+                        : ""}
                     </span>
-                  </div>
-                  {townsLoading ? (
-                    <p className="py-3 text-center text-[11.5px] text-dmk-text-muted">{t("log.rt.loadingTowns")}</p>
-                  ) : (
-                    <>
-                      <div className="grid max-h-56 grid-cols-2 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-3">
-                        {mergedTowns
-                          .filter(
-                            (tc) =>
-                              tc.name.trim().toLowerCase() !== startFrom.trim().toLowerCase() &&
-                              tc.name.trim().toLowerCase() !== endTo.trim().toLowerCase()
-                          )
-                          .map((tc) => {
-                            const checked = checkedTownKeys.has(tc.name.toLowerCase());
-                            return (
-                              <label
-                                key={tc.name}
-                                className={cn(
-                                  "flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[12px] transition-colors",
-                                  checked
-                                    ? "border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)]"
-                                    : "border-dmk-border-subtle hover:bg-dmk-hover/60"
-                                )}
-                                aria-pressed={checked}
-                              >
-                                <Checkbox
-                                  aria-label={t("log.aria.includeTown", { town: tc.name })}
-                                  checked={checked}
-                                  onCheckedChange={() => toggleTown(tc.name)}
-                                  className="h-[15px] w-[15px] shrink-0 border-dmk-border-medium data-[state=checked]:border-dmk-yellow data-[state=checked]:bg-dmk-yellow data-[state=checked]:text-[#0A0F1D]"
-                                />
-                                <span className="min-w-0 flex-1 truncate font-medium text-dmk-text-primary">
-                                  {tc.name}
-                                </span>
-                                <span className="shrink-0 text-[10px] text-dmk-text-muted">
-                                  {tc.customerCount > 0 ? t("log.rt.shopCount", { n: tc.customerCount }) : "—"}
-                                </span>
-                              </label>
-                            );
-                          })}
-                      </div>
-                      {/* Add a town not listed */}
-                      <div className="mt-2 flex gap-2">
-                        <Input
-                          value={newTown}
-                          onChange={(e) => setNewTown(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              addCustomTown();
-                            }
-                          }}
-                          placeholder={t("log.rt.addTownPh")}
-                          aria-label={t("log.rt.ariaAddTownInput")}
-                          className="h-8 border-dmk-border-subtle bg-dmk-input-well text-[12px] text-dmk-text-primary dmk-input"
-                        />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          aria-label={t("log.rt.ariaAddTownBtn")}
-                          disabled={!newTown.trim()}
-                          className="h-8 w-8 shrink-0 border-dmk-border-subtle p-0 text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
-                          onClick={addCustomTown}
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      {townList.length > 0 && (
-                        <p className="mt-2 truncate text-[10.5px] text-dmk-text-muted">
-                          {t("log.rt.routeTownsColon", { towns: townList.join(", ") })}
-                        </p>
-                      )}
-                    </>
+                  </p>
+                ) : (
+                  <p className="mb-2 flex items-center gap-1.5 text-[10.5px] text-dmk-text-muted">
+                    <MapPin className="h-3 w-3 shrink-0 text-dmk-text-muted" />
+                    <span className="min-w-0 truncate">
+                      {corridor
+                        ? "Showing every city & town in Maharashtra."
+                        : `No mapped corridor between “${startFrom.trim()}” and “${endTo.trim()}” — showing all Maharashtra towns.`}
+                    </span>
+                  </p>
+                )}
+
+                {/* View toggle — on-route only ↔ full catalog */}
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    aria-label={showAllView ? "Show only on-route towns" : "Show all Maharashtra towns"}
+                    className="rounded text-[10.5px] font-semibold text-dmk-yellow hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-dmk-yellow"
+                    onClick={() => setAllTownsView((v) => !v)}
+                  >
+                    {showAllView
+                      ? "← Show only on-route towns"
+                      : `All Maharashtra towns (${MAHARASHTRA_TOWNS.length})`}
+                  </button>
+                  {showAllView && (
+                    <span className="shrink-0 text-[10.5px] text-dmk-text-muted">
+                      {allRows.length} listed
+                    </span>
                   )}
                 </div>
-              ) : (
-                <p className="text-[11px] text-dmk-text-muted">
-                  {t("log.rt.pickTownsHint")}
-                </p>
-              )
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">
-                  {t("log.rt.townsFallbackLabel")}
-                </label>
-                <Textarea
-                  value={towns}
-                  onChange={(e) => setTowns(e.target.value)}
-                  placeholder={t("log.rt.townsFallbackPh")}
-                  rows={3}
-                  className="border-dmk-border-subtle bg-dmk-input-well text-[13px] text-dmk-text-primary dmk-input"
-                />
+
+                {/* Search — all-towns view only */}
+                {showAllView && (
+                  <div className="relative mb-2">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-dmk-text-muted" />
+                    <Input
+                      value={townSearch}
+                      onChange={(e) => setTownSearch(e.target.value)}
+                      placeholder="Search Maharashtra towns…"
+                      aria-label="Search Maharashtra towns"
+                      className="h-8 border-dmk-border-subtle bg-dmk-input-well pl-8 text-[12px] text-dmk-text-primary dmk-input"
+                    />
+                  </div>
+                )}
+
+                <div className="grid max-h-56 grid-cols-2 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-3">
+                  {(showAllView ? allRows : suggestedRows)
+                    .filter(
+                      (tc) =>
+                        tc.name.trim().toLowerCase() !== startKey &&
+                        tc.name.trim().toLowerCase() !== endKey
+                    )
+                    .map((tc) => {
+                      const checked = checkedTownKeys.has(tc.name.toLowerCase());
+                      const offRoute =
+                        !showAllView &&
+                        corridor !== null &&
+                        !corridor.towns.some((x) => x.toLowerCase() === tc.name.toLowerCase());
+                      return (
+                        <label
+                          key={tc.name}
+                          className={cn(
+                            "flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[12px] transition-colors",
+                            checked
+                              ? "border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)]"
+                              : "border-dmk-border-subtle hover:bg-dmk-hover/60",
+                            offRoute && "opacity-75"
+                          )}
+                          aria-pressed={checked}
+                        >
+                          <Checkbox
+                            aria-label={t("log.aria.includeTown", { town: tc.name })}
+                            checked={checked}
+                            onCheckedChange={() => toggleTown(tc.name)}
+                            className="h-[15px] w-[15px] shrink-0 border-dmk-border-medium data-[state=checked]:border-dmk-yellow data-[state=checked]:bg-dmk-yellow data-[state=checked]:text-[#0A0F1D]"
+                          />
+                          <span className="min-w-0 flex-1 truncate font-medium text-dmk-text-primary">
+                            {tc.name}
+                          </span>
+                          <span className="shrink-0 text-[10px] text-dmk-text-muted">
+                            {tc.customerCount > 0 ? t("log.rt.shopCount", { n: tc.customerCount }) : "—"}
+                          </span>
+                        </label>
+                      );
+                    })}
+                </div>
+                {!showAllView && suggestedRows.length === 0 && (
+                  <p className="py-3 text-center text-[11.5px] text-dmk-text-muted">
+                    No intermediate towns on this corridor — direct {startFrom.trim()} → {endTo.trim()} run.
+                  </p>
+                )}
+
+                {/* Add a town not listed */}
+                <div className="mt-2 flex gap-2">
+                  <Input
+                    value={newTown}
+                    onChange={(e) => setNewTown(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addCustomTown();
+                      }
+                    }}
+                    placeholder={t("log.rt.addTownPh")}
+                    aria-label={t("log.rt.ariaAddTownInput")}
+                    className="h-8 border-dmk-border-subtle bg-dmk-input-well text-[12px] text-dmk-text-primary dmk-input"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label={t("log.rt.ariaAddTownBtn")}
+                    disabled={!newTown.trim()}
+                    className="h-8 w-8 shrink-0 border-dmk-border-subtle p-0 text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary"
+                    onClick={addCustomTown}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+                {townList.length > 0 && (
+                  <p className="mt-2 truncate text-[10.5px] text-dmk-text-muted">
+                    {t("log.rt.routeTownsColon", { towns: townList.join(", ") })}
+                  </p>
+                )}
               </div>
             )}
             <div className="flex items-center justify-between rounded-lg border border-dmk-border-subtle bg-dmk-input-well px-3 py-2.5">
