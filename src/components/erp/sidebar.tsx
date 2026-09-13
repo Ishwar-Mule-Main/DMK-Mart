@@ -125,6 +125,7 @@ const SECTIONS: NavSection[] = [
     label: "Finance & Accounting",
     labelKey: "nav.finance",
     items: [
+      { id: "finance/orders", label: "Order Book (Unbilled)", key: "nav.orderBook", icon: ClipboardList },
       { id: "finance/journals", label: "Journals", key: "nav.journals", icon: BookOpen },
       { id: "finance/coa", label: "Chart of Accounts", key: "nav.coa", icon: ListTree },
       { id: "finance/ledgers", label: "Party Ledgers", key: "nav.ledgers", icon: Landmark },

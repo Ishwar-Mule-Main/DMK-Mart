@@ -1873,3 +1873,22 @@ Stage Summary:
 - The Sundry Debtors / Creditors section is fully removed — nav, command palette, view registry, store type, view component and its 76 translation keys × 3 languages — with zero broken references.
 - Kept deliberately: the /finance/sundry API and GL account names, because Fast Billing's customer standing and New Purchase Order's vendor standing consume them (removal there would be a different feature decision).
 - Files touched: deleted views/sundry.tsx; edited app-shell.tsx, sidebar.tsx, command-palette.tsx, erp-store.ts, lib/i18n/dictionaries.ts, lib/i18n/dicts/batch-finance.ts.
+---
+Task ID: 68
+Agent: Z.ai Code (main)
+Task: Item B resolution — SO → Trip Planner → Financial & Accounting (owner chose Option 2: invoicing stays MANUAL; close the visibility gap in Finance). Item A ("npo" anomaly) closed by owner ("no npo now").
+
+Work Log:
+- Traced the full flow before coding: POST /api/v1/sales-orders books an SO (status BOOKED, no stock/journal impact); confirmOrder (_lib/salesOrder.ts) moves it to CONFIRMED (stock reserved + Delivery OTP + pushed to the Trip Planner pool); /api/v1/logistics/unassigned-orders ALREADY merges CONFIRMED SOs into the planner pool and convertSalesOrderToInvoice auto-bills at trip placement (posts stock/ledger/journals). CONCLUSION: SO → Trip Planner already works end-to-end — no logistics change needed.
+- The real gap: Finance had ZERO visibility of orders between booking and billing. Built the missing register:
+  - NEW /api/v1/finance/booked-orders (GET, read-only): BOOKED + CONFIRMED SOs with convertedInvoiceId=null, incl. customer (name/city/phone), salesMember, item count, estimatedTotal (post bill-discount), billDiscountPct/Amt, stockReserved; totals {count, booked, confirmed, estimatedAmount}.
+  - NEW views/order-book.tsx — "Order Book (Unbilled)" Finance view: PageHeader + search (word-wise client filter) + refresh; 4 KPI cards (Open orders / Booked / Confirmed (Trip Planner pool) / Committed value); scrollable sticky-header table (Order №, Date, Customer+sales member, Town, Items, Bill disc. %/₹, Est. total, Status badge — CONFIRMED gets a truck glyph); Σ of filtered rows in the card header; empty + no-match states; footer note stating manual billing (GL posts at bill time) and that CONFIRMED orders sit in the Trip Planner pool.
+  - Wiring: erp-store ViewId + "finance/orders"; app-shell VIEW_MAP; sidebar FIRST item in Finance & Accounting group (ClipboardList); command palette entry.
+  - i18n: 26 "ob.*" keys in batch-finance.ts (English strings in EN/HI/MR per the translation-deferred rule) + "nav.orderBook" in dictionaries.ts ×3.
+- lint ✅ tsc ✅
+- Browser QA (READ-ONLY — GETs only, zero writes to the production ledger): login Kunal → Finance & Accounting → Order Book (Unbilled) renders (sidebar click needed the JS pointerdown+click dispatch — collapsed-nav quirk); KPIs 0/0/0/₹0.00 with the correct empty state (production currently has no open SOs — every order already billed); footer note visible; GET /api/v1/finance/booked-orders 200 in dev.log; no new runtime errors.
+
+Stage Summary:
+- Owner decision implemented: invoicing stays MANUAL. The books still see nothing at booking — but Finance now has a live "committed pipeline" register (Order Book) instead of a blind spot.
+- Full order flow now visible end-to-end: BOOKED (Order Book) → CONFIRMED (Order Book + Trip Planner pool) → placed on truck (auto-invoice → GL + TripStop) → CONVERTED (leaves both pools).
+- Zero schema changes, zero writes during QA. Files: new api/v1/finance/booked-orders/route.ts + views/order-book.tsx; edited erp-store.ts, app-shell.tsx, sidebar.tsx, command-palette.tsx, dictionaries.ts, batch-finance.ts.

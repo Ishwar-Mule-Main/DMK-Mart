@@ -62,6 +62,7 @@ const NAV_GROUPS: Array<{ heading: string; items: NavItem[] }> = [
       { id: "finance/daybook", label: "Day Book", icon: CalendarDays },
       { id: "finance/aging", label: "AR / AP Aging", icon: Timer },
       { id: "finance/gstr2b", label: "GSTR-2B Recon", icon: GitCompareArrows },
+      { id: "finance/orders", label: "Order Book (Unbilled)", icon: ClipboardList },
       { id: "docs/invoices", label: "Tax Invoices (A4)", icon: FileCheck2 },
       { id: "docs/notes", label: "Credit / Debit Notes", icon: FileWarning },
       { id: "reports", label: "Reports & Exports", icon: BarChart3 },
