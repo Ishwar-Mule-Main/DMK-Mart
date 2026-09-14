@@ -733,6 +733,17 @@ export const enFinance = {
   "ob.noMatch": "No orders match this search.",
   "ob.footerGl": "Invoicing is manual — the GL sees each order only when it is billed (trip auto-bill or the Sales Orders action).",
   "ob.footerPool": "CONFIRMED orders already sit in the Trip Planner pool and convert to tax invoices when placed on a truck.",
+  "ob.colAction": "Bill",
+  "ob.billNow": "Bill now",
+  "ob.billAria": "Bill this order now",
+  "ob.billDialogTitle": "Create the tax invoice now?",
+  "ob.billDialogDesc": "This books a real tax invoice — it posts journals, decrements stock and marks the order CONVERTED. This cannot be undone.",
+  "ob.billPayMode": "Payment mode",
+  "ob.billCancel": "Cancel",
+  "ob.billConfirm": "Create invoice",
+  "ob.billConverting": "Creating…",
+  "ob.toastBilled": "Invoice {no} created",
+  "ob.toastBillFailed": "Billing failed",
 };
 
 export const hiFinance: Record<keyof typeof enFinance, string> = {
@@ -1461,6 +1472,17 @@ export const hiFinance: Record<keyof typeof enFinance, string> = {
   "ob.noMatch": "No orders match this search.",
   "ob.footerGl": "Invoicing is manual — the GL sees each order only when it is billed (trip auto-bill or the Sales Orders action).",
   "ob.footerPool": "CONFIRMED orders already sit in the Trip Planner pool and convert to tax invoices when placed on a truck.",
+  "ob.colAction": "Bill",
+  "ob.billNow": "Bill now",
+  "ob.billAria": "Bill this order now",
+  "ob.billDialogTitle": "Create the tax invoice now?",
+  "ob.billDialogDesc": "This books a real tax invoice — it posts journals, decrements stock and marks the order CONVERTED. This cannot be undone.",
+  "ob.billPayMode": "Payment mode",
+  "ob.billCancel": "Cancel",
+  "ob.billConfirm": "Create invoice",
+  "ob.billConverting": "Creating…",
+  "ob.toastBilled": "Invoice {no} created",
+  "ob.toastBillFailed": "Billing failed",
 };
 
 export const mrFinance: Record<keyof typeof enFinance, string> = {
@@ -2189,4 +2211,15 @@ export const mrFinance: Record<keyof typeof enFinance, string> = {
   "ob.noMatch": "No orders match this search.",
   "ob.footerGl": "Invoicing is manual — the GL sees each order only when it is billed (trip auto-bill or the Sales Orders action).",
   "ob.footerPool": "CONFIRMED orders already sit in the Trip Planner pool and convert to tax invoices when placed on a truck.",
+  "ob.colAction": "Bill",
+  "ob.billNow": "Bill now",
+  "ob.billAria": "Bill this order now",
+  "ob.billDialogTitle": "Create the tax invoice now?",
+  "ob.billDialogDesc": "This books a real tax invoice — it posts journals, decrements stock and marks the order CONVERTED. This cannot be undone.",
+  "ob.billPayMode": "Payment mode",
+  "ob.billCancel": "Cancel",
+  "ob.billConfirm": "Create invoice",
+  "ob.billConverting": "Creating…",
+  "ob.toastBilled": "Invoice {no} created",
+  "ob.toastBillFailed": "Billing failed",
 };

@@ -9,12 +9,23 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
-import { ClipboardList, RefreshCw, Search, Truck } from "lucide-react";
+import { ClipboardList, Loader2, ReceiptText, RefreshCw, Search, Truck } from "lucide-react";
 
 import { Badge, EmptyState, ErrorText, LoadingRows, PageHeader } from "../shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { apiGet } from "@/lib/api-client";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { apiGet, apiPost, ApiError } from "@/lib/api-client";
+import { useToast } from "@/hooks/use-toast";
 import { formatINR } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { useErpStore } from "@/store/erp-store";
@@ -47,6 +58,16 @@ interface BookedOrdersResponse {
   };
 }
 
+interface ConvertResult {
+  invoiceId: string;
+  invoiceNumber: string;
+  orderId: string;
+  orderNumber: string;
+}
+
+const PAY_MODES = ["CREDIT", "CASH", "UPI"] as const;
+type PayMode = (typeof PAY_MODES)[number];
+
 const STATUS_TONE: Record<string, "info" | "success"> = {
   BOOKED: "info",
   CONFIRMED: "success",
@@ -66,11 +87,15 @@ function KpiCard({ label, value, tone, money }: { label: string; value: number; 
 export default function OrderBookView() {
   const activeFirmId = useErpStore((s) => s.activeFirmId);
   const { t } = useT();
+  const { toast } = useToast();
   const [data, setData] = React.useState<BookedOrdersResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
   const [refreshTick, setRefreshTick] = React.useState(0);
+  const [billTarget, setBillTarget] = React.useState<BookedOrder | null>(null);
+  const [payMode, setPayMode] = React.useState<PayMode>("CREDIT");
+  const [converting, setConverting] = React.useState(false);
 
   React.useEffect(() => {
     if (!activeFirmId) return;
@@ -110,6 +135,32 @@ export default function OrderBookView() {
   }, [data, search]);
 
   const filteredTotal = React.useMemo(() => rows.reduce((s, o) => s + o.estimatedTotal, 0), [rows]);
+
+  // Office billing — same engine the truck auto-bill uses (convertSalesOrderToInvoice).
+  async function billNow() {
+    if (!billTarget || !activeFirmId) return;
+    setConverting(true);
+    try {
+      const res = await apiPost<ConvertResult>(`/api/v1/sales-orders/${billTarget.id}/convert`, {
+        firmId: activeFirmId,
+        paymentMode: payMode,
+      });
+      toast({
+        title: t("ob.toastBilled", { no: res.invoiceNumber || billTarget.orderNumber }),
+        description: `${billTarget.customerName} · ${formatINR(billTarget.estimatedTotal)} · ${payMode}`,
+      });
+      setBillTarget(null);
+      setRefreshTick((v) => v + 1); // order leaves the register (CONVERTED)
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: t("ob.toastBillFailed"),
+        description: e instanceof ApiError ? e.message : t("ob.errLoad"),
+      });
+    } finally {
+      setConverting(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -185,6 +236,7 @@ export default function OrderBookView() {
                       <th className="num text-right">{t("ob.colDiscount")}</th>
                       <th className="num text-right">{t("ob.colTotal")}</th>
                       <th>{t("ob.colStatus")}</th>
+                      <th className="num text-right">{t("ob.colAction")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -228,6 +280,20 @@ export default function OrderBookView() {
                             )}
                           </span>
                         </td>
+                        <td className="num text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1 border-dmk-border-subtle bg-dmk-input-well px-2 text-[11px] hover:bg-dmk-hover"
+                            onClick={() => {
+                              setPayMode("CREDIT");
+                              setBillTarget(o);
+                            }}
+                            aria-label={`${t("ob.billAria")} ${o.orderNumber}`}
+                          >
+                            <ReceiptText className="h-3 w-3" /> {t("ob.billNow")}
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -245,6 +311,55 @@ export default function OrderBookView() {
           </div>
         </>
       )}
+
+      {/* Bill now — office billing confirmation (writes a real invoice) */}
+      <AlertDialog open={!!billTarget} onOpenChange={(open) => { if (!open && !converting) setBillTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("ob.billDialogTitle")}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-1.5">
+                <span className="block font-money text-[13px] font-semibold text-dmk-text-primary">
+                  {billTarget?.orderNumber} · {billTarget?.customerName} · {formatINR(billTarget?.estimatedTotal ?? 0)}
+                </span>
+                <span className="block">{t("ob.billDialogDesc")}</span>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-dmk-text-muted">{t("ob.billPayMode")}</span>
+            <div className="flex items-center gap-1.5">
+              {PAY_MODES.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPayMode(m)}
+                  className={cn(
+                    "dmk-badge cursor-pointer",
+                    payMode === m ? "bg-dmk-gold/15 text-dmk-gold font-semibold" : "bg-dmk-input-well text-dmk-text-muted hover:text-dmk-text-secondary"
+                  )}
+                  aria-pressed={payMode === m}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={converting}>{t("ob.billCancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={converting}
+              onClick={(e) => {
+                e.preventDefault(); // keep the dialog open while the POST runs
+                void billNow();
+              }}
+            >
+              {converting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ReceiptText className="h-4 w-4" aria-hidden />}
+              {converting ? t("ob.billConverting") : t("ob.billConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

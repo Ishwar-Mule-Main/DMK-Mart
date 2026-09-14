@@ -1892,3 +1892,20 @@ Stage Summary:
 - Owner decision implemented: invoicing stays MANUAL. The books still see nothing at booking — but Finance now has a live "committed pipeline" register (Order Book) instead of a blind spot.
 - Full order flow now visible end-to-end: BOOKED (Order Book) → CONFIRMED (Order Book + Trip Planner pool) → placed on truck (auto-invoice → GL + TripStop) → CONVERTED (leaves both pools).
 - Zero schema changes, zero writes during QA. Files: new api/v1/finance/booked-orders/route.ts + views/order-book.tsx; edited erp-store.ts, app-shell.tsx, sidebar.tsx, command-palette.tsx, dictionaries.ts, batch-finance.ts.
+---
+Task ID: 69
+Agent: Z.ai Code (main)
+Task: Order Book — "Bill now" office billing (owner approved): convert a BOOKED/CONFIRMED SO to a tax invoice straight from the Finance register, without a truck.
+
+Work Log:
+- NEW POST /api/v1/sales-orders/[id]/convert — office-billing entry into the EXISTING convertSalesOrderToInvoice engine (identical path to trip-time auto-bill: tier-price snapshot carried, stock decrement, ledger + journals, OTP carried, order → CONVERTED). Body { firmId, paymentMode? }; paymentMode validated ∈ CREDIT|CASH|UPI, default CREDIT.
+- order-book.tsx: new "Bill" column — per-row "Bill now" button (aria-label per order); AlertDialog confirmation (order summary + ₹ + explicit "posts journals, decrements stock, cannot be undone" warning); CREDIT/CASH/UPI segmented toggle (default CREDIT, aria-pressed); Create-invoice action disabled + spinner while POSTing (e.preventDefault keeps dialog open during flight); success → toast "Invoice {no} created" + register auto-refresh (order leaves as CONVERTED); failure → destructive toast with ApiError message.
+- i18n: 11 more "ob.*" keys (colAction, billNow, billAria, billDialogTitle/Desc, billPayMode, billCancel, billConfirm, billConverting, toastBilled, toastBillFailed) — English in EN/HI/MR per the translation-deferred rule.
+- Sandbox reset #3 mid-session: dev.log wiped, server dead, .env reverted to the stale SQLite URL — restored Neon DATABASE_URL, restarted (setsid), re-verified.
+- lint ✅ tsc ✅
+- QA (READ-ONLY discipline held — zero writes to the production ledger): server probes POST .../xx-fake-id/convert → 404 "Sales order not found" and invalid paymentMode → 400 (engine rejects before any transaction; both visible in dev.log). Browser UI path exercised client-side only via a fetch stub (fake SO/STUB-001 row injected into the booked-orders response): CONFIRMED + BOOKED rows both render the Bill now button; dialog opens with correct summary; CASH toggle → aria-pressed true; Cancel → dialog closes clean; dev.log shows NO convert POST from the browser; stub removed afterwards.
+
+Stage Summary:
+- Office billing is now possible entirely from Finance: Order Book row → Bill now → payment mode → invoice. Truck auto-bill flow unchanged; both paths share one conversion engine so books stay consistent.
+- Register auto-refreshes after billing; the billed order disappears (CONVERTED) and appears in Invoice Register / ledgers immediately.
+- Files: new api/v1/sales-orders/[id]/convert/route.ts; edited views/order-book.tsx, batch-finance.ts.
