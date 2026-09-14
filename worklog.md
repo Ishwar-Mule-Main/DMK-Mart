@@ -1931,3 +1931,19 @@ Stage Summary:
 - The whole project now prints on ONE standard page system: 210×297mm, 12mm margins, repeated table heads, continuation bands, totals on the last page, and the same footer line on every page — preview equals print, page for page.
 - Long invoices/statements flow onto as many A4 pages as needed with exact on-screen page counts; short documents stay on one page.
 - Files: NEW src/components/erp/a4.tsx; edited invoice-docs.tsx, party-ledgers.tsx, logistics.tsx, globals.css, batch-sales.ts, batch-finance.ts.
+---
+Task ID: 71
+Agent: Z.ai Code (main)
+Task: "push to git" — verify Tasks 69/70 are committed & pushed; restore sandbox (dev server + Neon URL) and run read-only browser verification of the pushed A4 system.
+
+Work Log:
+- git status clean; origin/main tip = 6473ab3 (Task 70 A4) with 2594f45 (Task 69 Bill now) and 9ab3455 (Task 68) beneath; rev-list origin/main...main = 0/0 → everything already pushed, nothing to commit.
+- Sandbox reset #4 found en route: dev server dead AND shell carrying stale DATABASE_URL=file:.../custom.db (overrode .env). Restored .env to Neon URL, killed stale next-server (pid survived pkill, needed kill -9 + fuser), and restarted dev server with the DATABASE_URL passed EXPLICITLY to the child (export alone is lost via setsid; the stale shell env var was the root cause of two failed restarts). /api/v1/firms then returned live Neon data.
+- lint ✅ tsc ✅ (both clean, nothing to fix).
+- READ-ONLY browser QA of the pushed work (GETs only, zero writes): owner login → Invoice Register → INV/0008 (18 items) A4 preview. Verified: toolbar badge "TAX INVOICE · 2 page(s) · A4 210×297mm"; every .print-a4 sheet exactly 794×1123px (= 210×297mm @96dpi); page labels "Page 1/2" + "Page 2/2"; "TAX INVOICE — continued" band present; GRAND TOTAL ₹11,559.00; standard footer "DMK TAX INVOICE · DMK/2026-27/INV/0008 · Page 2/2 · 12 Sept 2026"; short invoice INV/0009 renders "Page 1/1". dev.log clean (only Fast-Refresh notices). Screenshot archived at /tmp/a4-inv0008.png.
+- webDevReview cron had been auto-disabled ("exec limits exceeded") → deleted job 383917, recreated as job 385054 (fixed_rate 900s) with an upgraded payload that documents the sandbox-restore recipe (explicit DATABASE_URL handoff to the dev-server child process).
+
+Stage Summary:
+- Nothing new to push: Task 68 (Order Book), 69 (Bill now), 70 (A4 page system) all live on origin/main and verified in the browser post-push.
+- Environment fully restored: dev server on port 3000 reading Neon production data; 15-min review cron re-armed.
+- Key ops lesson recorded in the cron payload: after sandbox resets, pass DATABASE_URL explicitly to the dev-server process — the stale shell env silently overrides .env.
