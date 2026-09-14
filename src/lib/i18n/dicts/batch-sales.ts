@@ -537,6 +537,10 @@ export const enSales = {
   "invd.bankLbl": "Bank",
   "invd.acLbl": "A/c",
   "invd.ifscLbl": "IFSC",
+  "invd.pagesExact": "{n} page(s) · A4 210×297mm",
+  "invd.contd": "continued",
+  "invd.pageOf": "Page {a} of {b}",
+  "invd.footerNote": "This is a computer-generated invoice under GST Rules — Rule 46",
 
   // ── rcpt.* — Customer Receipts ───────────────────────────────
   "rcpt.title": "Customer Receipts",
@@ -1509,6 +1513,10 @@ export const hiSales: Record<keyof typeof enSales, string> = {
   "invd.bankLbl": "बैंक",
   "invd.acLbl": "खाता",
   "invd.ifscLbl": "IFSC",
+  "invd.pagesExact": "{n} page(s) · A4 210×297mm",
+  "invd.contd": "continued",
+  "invd.pageOf": "Page {a} of {b}",
+  "invd.footerNote": "This is a computer-generated invoice under GST Rules — Rule 46",
 
   // ── rcpt.* — Customer Receipts ───────────────────────────────
   "rcpt.title": "ग्राहक प्राप्तियाँ",
@@ -2481,6 +2489,10 @@ export const mrSales: Record<keyof typeof enSales, string> = {
   "invd.bankLbl": "बँक",
   "invd.acLbl": "खाते",
   "invd.ifscLbl": "IFSC",
+  "invd.pagesExact": "{n} page(s) · A4 210×297mm",
+  "invd.contd": "continued",
+  "invd.pageOf": "Page {a} of {b}",
+  "invd.footerNote": "This is a computer-generated invoice under GST Rules — Rule 46",
 
   // ── rcpt.* — Customer Receipts ───────────────────────────────
   "rcpt.title": "ग्राहक पावत्या",

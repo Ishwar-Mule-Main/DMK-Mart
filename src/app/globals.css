@@ -305,24 +305,66 @@ body {
    The print copy lives as a direct child of <body> and is invisible
    everywhere EXCEPT while body carries .printing-a4 (set by printA4()).
    Every other body child is dropped from print layout, so the output
-   is exactly the document — from any view, with zero chrome leakage. */
+   is exactly the document — from any view, with zero chrome leakage.
+   Off-screen but LAYOUT-RENDERED (visibility, not display:none) so
+   paginated documents inside the print copy can measure their hidden
+   twins and compute identical page splits; flipped visible on print. */
 .dmk-print-root {
-  display: none;
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
+
+/* ─── Standard A4 page system (a4.tsx) ───
+   Screen: stacked paper pages with gaps. Print: plain block — each
+   paper page after the first starts on a fresh A4 sheet. */
+.dmk-page-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+@media print {
+  body.printing-a4 .dmk-page-stack {
+    display: block !important;
+  }
+  /* Two adjacent paper pages → second one starts a fresh sheet */
+  body.printing-a4 .print-a4 + .print-a4 {
+    page-break-before: always;
+    break-before: page;
+  }
+  /* Stacked paginated documents (batch print): first page of every
+     document that follows another paginated document */
+  body.printing-a4 .dmk-page-stack ~ .dmk-page-stack .print-a4:first-child {
+    page-break-before: always;
+    break-before: page;
+  }
+}
+
 @media print {
   body.printing-a4 > *:not(.dmk-print-root) {
     display: none !important;
   }
   body.printing-a4 .dmk-print-root {
     display: block !important;
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    visibility: visible !important;
     margin: 0 !important;
     padding: 0 !important;
   }
   body.printing-a4 .print-a4 {
     width: 100% !important;
+    /* Paginated sheets are pre-chunked to fit one page — the fixed
+       297mm screen height must never leak into the 273mm print box. */
+    height: auto !important;
     min-height: 0 !important;
     padding: 0 !important;
     margin: 0 !important;
+    overflow: visible !important;
   }
   /* Multi-page tables: keep rows intact and repeat headers */
   body.printing-a4 .print-a4 tr {

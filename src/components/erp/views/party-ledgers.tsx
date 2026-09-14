@@ -37,6 +37,15 @@ import { useErpStore } from "@/store/erp-store";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { A4PrintPortal, printA4 } from "@/components/erp/print-portal";
+import {
+  A4DocFooter,
+  A4MeasureTwin,
+  A4PageStack,
+  A4Replica,
+  A4Sheet,
+  useA4Paginate,
+  type A4PaginateRefs,
+} from "@/components/erp/a4";
 import { consumePendingLedgerParty, requestSettleCustomer, requestSettleVendor } from "@/lib/settle-bus";
 import type { Firm } from "@/types/erp";
 
@@ -899,35 +908,31 @@ function SettlementDialog({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// A4 STATEMENT OF ACCOUNT — print preview + chrome-free printing
+// A4 STATEMENT OF ACCOUNT — print preview + chrome-free printing.
+// Rendered as REAL paper pages via the shared A4 page system: a long
+// register flows onto continuation pages with a "(continued)" band
+// and a repeated table head; totals + closing balance sit on the
+// final page. Preview and print are page-for-page identical.
 // ═══════════════════════════════════════════════════════════════
 
-function StatementSheet({
+function StatementTopChrome({
   ledger,
   partyType,
   firm,
-  openingWords,
-  closingWords,
 }: {
   ledger: PartyLedgerResponse;
   partyType: "CUSTOMER" | "VENDOR";
   firm?: Firm;
-  openingWords: string | null;
-  closingWords: string | null;
 }) {
   const isCustomer = partyType === "CUSTOMER";
   const { t } = useT();
   const opening = balanceParts(ledger.opening, partyType);
-  const closing = balanceParts(ledger.closing, partyType);
   const totalDr = ledger.entries.reduce((s, r) => s + r.debitAmount, 0);
   const totalCr = ledger.entries.reduce((s, r) => s + r.creditAmount, 0);
   const mono = { fontFamily: "var(--font-jetbrains), monospace" };
 
   return (
-    <div
-      className="print-a4 bg-white text-gray-900 w-[794px] min-h-[1123px] px-10 py-8 flex flex-col shadow-lg"
-      style={{ fontFamily: "Inter, sans-serif" }}
-    >
+    <>
       {/* Letterhead */}
       <div className="flex items-start justify-between gap-6 border-b-2 border-gray-800 pb-4">
         <div className="min-w-0 flex">
@@ -1004,92 +1009,266 @@ function StatementSheet({
           <span className="font-semibold text-right">₹{totalCr.toFixed(2)}</span>
         </div>
       </div>
+    </>
+  );
+}
 
-      {/* Entries */}
-      <table className="w-full border-collapse mt-3 text-[10.5px]" style={mono}>
-        <thead>
-          <tr className="bg-gray-100">
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[72px]">{t("cmn.date")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[64px]">{t("pled.hVoucher")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[92px]">{t("pled.hNumber")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left">{t("pled.particulars")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[72px]">{t("pled.hDebitRs")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[72px]">{t("pled.hCreditRs")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[88px]">{t("pled.hBalance")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td className="border border-gray-300 px-1.5 py-1 font-semibold" colSpan={6}>
-              {t("pled.openingBalance")}
-            </td>
-            <td className="border border-gray-300 px-1.5 py-1 text-right font-semibold">
-              {opening.suffix ? `${opening.suffix} ${opening.amount.toFixed(2)}` : "0.00"}
-            </td>
-          </tr>
-          {ledger.entries.map((r) => {
-            const bal = balanceParts(r.balanceAfter, partyType);
-            return (
-              <tr key={r.id}>
-                <td className="border border-gray-300 px-1.5 py-1 whitespace-nowrap">{formatDate(r.entryDate)}</td>
-                <td className="border border-gray-300 px-1.5 py-1">{r.voucherType.replace("_", " ")}</td>
-                <td className="border border-gray-300 px-1.5 py-1">{r.voucherNo || "—"}</td>
-                <td className="border border-gray-300 px-1.5 py-1 truncate max-w-[220px]">{r.particulars || "—"}</td>
-                <td className="border border-gray-300 px-1.5 py-1 text-right">{r.debitAmount ? r.debitAmount.toFixed(2) : "—"}</td>
-                <td className="border border-gray-300 px-1.5 py-1 text-right">{r.creditAmount ? r.creditAmount.toFixed(2) : "—"}</td>
-                <td className="border border-gray-300 px-1.5 py-1 text-right font-semibold">
-                  {bal.suffix ? `${bal.suffix} ${bal.amount.toFixed(2)}` : "0.00"}
-                </td>
-              </tr>
-            );
-          })}
-          <tr className="bg-gray-100 font-bold">
-            <td className="border border-gray-300 px-1.5 py-1.5" colSpan={4}>
-              {t("pled.totals")}
-            </td>
-            <td className="border border-gray-300 px-1.5 py-1.5 text-right">{totalDr.toFixed(2)}</td>
-            <td className="border border-gray-300 px-1.5 py-1.5 text-right">{totalCr.toFixed(2)}</td>
-            <td className="border border-gray-300 px-1.5 py-1.5 text-right">
-              {closing.suffix ? `${closing.suffix} ${closing.amount.toFixed(2)}` : "0.00"}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* Closing balance block */}
-      <div className="mt-3 border border-gray-300 rounded p-3 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-500">
-            {closing.suffix ? t("pled.closingBalanceTag", { suffix: closing.suffix }) : t("pled.closingBalanceSettled")}
-          </p>
-          <p className="text-[15px] font-extrabold text-gray-900 mt-0.5" style={mono}>
-            ₹{(closing.suffix ? closing.amount : 0).toFixed(2)} {closing.suffix ?? ""}
-          </p>
-          {closingWords && (
-            <p className="text-[10.5px] text-gray-600 mt-1 leading-snug">
-              <span className="font-semibold text-gray-700">{t("pled.inWords")}</span> {closingWords}
-            </p>
-          )}
-          {openingWords && (
-            <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">
-              {t("pled.openingWas", { words: openingWords, suffix: opening.suffix ?? "" })}
-            </p>
-          )}
-        </div>
-        <div className="text-center shrink-0 pt-2">
-          <div className="w-40 border-t border-gray-400 pt-1 text-[9.5px] text-gray-500">
-            {t("pled.authorisedSignatory", { firm: firm?.firmName ?? "DMK Mart" })}
-          </div>
-        </div>
+function StatementContHeader({
+  ledger,
+  partyType,
+  page,
+  total,
+}: {
+  ledger: PartyLedgerResponse;
+  partyType: "CUSTOMER" | "VENDOR";
+  page: number;
+  total: number;
+}) {
+  const isCustomer = partyType === "CUSTOMER";
+  const { t } = useT();
+  return (
+    <div className="flex items-end justify-between gap-6 border-b-2 border-gray-800 pb-2">
+      <div className="min-w-0">
+        <p className="text-[15px] font-extrabold uppercase tracking-wide text-gray-900">
+          {t("pled.statementOfAccount")} <span className="font-semibold text-gray-500 normal-case">— {t("pled.contd")}</span>
+        </p>
+        <p className="mt-0.5 text-[10.5px] text-gray-600 truncate">
+          {isCustomer ? t("pled.billTo") : t("pled.supplier")}: {ledger.party.name}
+          {ledger.party.stateCode ? ` · ${ledger.party.stateCode}` : ""}
+        </p>
       </div>
-
-      <div className="mt-auto pt-4 border-t border-gray-200 text-[9px] text-gray-400 flex items-center justify-between">
-        <span>
-          {t("pled.sysGenerated", { note: isCustomer ? t("pled.creditPolicyNote") : t("pled.vendorTermsNote") })}
-        </span>
-        <span style={mono}>{t("pled.page1")} · {new Date().toLocaleDateString("en-IN")}</span>
+      <div className="shrink-0 text-right" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+        <p className="text-[9.5px] font-semibold uppercase tracking-wider text-gray-500">{t("pled.pageOf", { a: page, b: total })}</p>
       </div>
     </div>
+  );
+}
+
+function StatementTableHead() {
+  const { t } = useT();
+  return (
+    <thead>
+      <tr className="bg-gray-100">
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[72px]">{t("cmn.date")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[64px]">{t("pled.hVoucher")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left w-[92px]">{t("pled.hNumber")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-left">{t("pled.particulars")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[72px]">{t("pled.hDebitRs")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[72px]">{t("pled.hCreditRs")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[9.5px] font-bold uppercase text-gray-700 text-right w-[88px]">{t("pled.hBalance")}</th>
+      </tr>
+    </thead>
+  );
+}
+
+/** Rows list = opening balance row + one row per ledger entry. */
+function StatementRow({ ledger, partyType, index }: { ledger: PartyLedgerResponse; partyType: "CUSTOMER" | "VENDOR"; index: number }) {
+  const { t } = useT();
+  const opening = balanceParts(ledger.opening, partyType);
+  if (index === 0) {
+    return (
+      <tr>
+        <td className="border border-gray-300 px-1.5 py-1 font-semibold" colSpan={6}>
+          {t("pled.openingBalance")}
+        </td>
+        <td className="border border-gray-300 px-1.5 py-1 text-right font-semibold">
+          {opening.suffix ? `${opening.suffix} ${opening.amount.toFixed(2)}` : "0.00"}
+        </td>
+      </tr>
+    );
+  }
+  const r = ledger.entries[index - 1];
+  const bal = balanceParts(r.balanceAfter, partyType);
+  return (
+    <tr>
+      <td className="border border-gray-300 px-1.5 py-1 whitespace-nowrap">{formatDate(r.entryDate)}</td>
+      <td className="border border-gray-300 px-1.5 py-1">{r.voucherType.replace("_", " ")}</td>
+      <td className="border border-gray-300 px-1.5 py-1">{r.voucherNo || "—"}</td>
+      <td className="border border-gray-300 px-1.5 py-1 truncate max-w-[220px]">{r.particulars || "—"}</td>
+      <td className="border border-gray-300 px-1.5 py-1 text-right">{r.debitAmount ? r.debitAmount.toFixed(2) : "—"}</td>
+      <td className="border border-gray-300 px-1.5 py-1 text-right">{r.creditAmount ? r.creditAmount.toFixed(2) : "—"}</td>
+      <td className="border border-gray-300 px-1.5 py-1 text-right font-semibold">
+        {bal.suffix ? `${bal.suffix} ${bal.amount.toFixed(2)}` : "0.00"}
+      </td>
+    </tr>
+  );
+}
+
+function StatementTotalsRow({
+  ledger,
+  partyType,
+}: {
+  ledger: PartyLedgerResponse;
+  partyType: "CUSTOMER" | "VENDOR";
+}) {
+  const { t } = useT();
+  const closing = balanceParts(ledger.closing, partyType);
+  const totalDr = ledger.entries.reduce((s, r) => s + r.debitAmount, 0);
+  const totalCr = ledger.entries.reduce((s, r) => s + r.creditAmount, 0);
+  return (
+    <tr className="bg-gray-100 font-bold">
+      <td className="border border-gray-300 px-1.5 py-1.5" colSpan={4}>
+        {t("pled.totals")}
+      </td>
+      <td className="border border-gray-300 px-1.5 py-1.5 text-right">{totalDr.toFixed(2)}</td>
+      <td className="border border-gray-300 px-1.5 py-1.5 text-right">{totalCr.toFixed(2)}</td>
+      <td className="border border-gray-300 px-1.5 py-1.5 text-right">
+        {closing.suffix ? `${closing.suffix} ${closing.amount.toFixed(2)}` : "0.00"}
+      </td>
+    </tr>
+  );
+}
+
+/** Closing balance block — last page only. */
+function StatementClosingBlock({
+  ledger,
+  partyType,
+  firm,
+  openingWords,
+  closingWords,
+}: {
+  ledger: PartyLedgerResponse;
+  partyType: "CUSTOMER" | "VENDOR";
+  firm?: Firm;
+  openingWords: string | null;
+  closingWords: string | null;
+}) {
+  const isCustomer = partyType === "CUSTOMER";
+  const { t } = useT();
+  const closing = balanceParts(ledger.closing, partyType);
+  const opening = balanceParts(ledger.opening, partyType);
+  return (
+    <div className="mt-3 border border-gray-300 rounded p-3 flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-500">
+          {closing.suffix ? t("pled.closingBalanceTag", { suffix: closing.suffix }) : t("pled.closingBalanceSettled")}
+        </p>
+        <p className="text-[15px] font-extrabold text-gray-900 mt-0.5" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+          ₹{(closing.suffix ? closing.amount : 0).toFixed(2)} {closing.suffix ?? ""}
+        </p>
+        {closingWords && (
+          <p className="text-[10.5px] text-gray-600 mt-1 leading-snug">
+            <span className="font-semibold text-gray-700">{t("pled.inWords")}</span> {closingWords}
+          </p>
+        )}
+        {openingWords && (
+          <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">
+            {t("pled.openingWas", { words: openingWords, suffix: opening.suffix ?? "" })}
+          </p>
+        )}
+      </div>
+      <div className="text-center shrink-0 pt-2">
+        <div className="w-40 border-t border-gray-400 pt-1 text-[9.5px] text-gray-500">
+          {t("pled.authorisedSignatory", { firm: firm?.firmName ?? "DMK Mart" })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatementSheet({
+  ledger,
+  partyType,
+  firm,
+  openingWords,
+  closingWords,
+}: {
+  ledger: PartyLedgerResponse;
+  partyType: "CUSTOMER" | "VENDOR";
+  firm?: Firm;
+  openingWords: string | null;
+  closingWords: string | null;
+}) {
+  const { t } = useT();
+  const lang = useErpStore((s) => s.language);
+  const isCustomer = partyType === "CUSTOMER";
+  const mono = { fontFamily: "var(--font-jetbrains), monospace" };
+  const rowCount = 1 + ledger.entries.length;
+
+  const fullRef = React.useRef<HTMLDivElement>(null);
+  const firstRef = React.useRef<HTMLDivElement>(null);
+  const contRef = React.useRef<HTMLDivElement>(null);
+  const lastRef = React.useRef<HTMLDivElement>(null);
+  const refs: A4PaginateRefs = React.useMemo(
+    () => ({ full: fullRef, first: firstRef, cont: contRef, last: lastRef }),
+    []
+  );
+  const pages = useA4Paginate(rowCount, `${ledger.party.id}:${rowCount}:${partyType}:${lang}`, refs);
+
+  const footerNote = t("pled.sysGenerated", { note: isCustomer ? t("pled.creditPolicyNote") : t("pled.vendorTermsNote") });
+  const footerDoc = t("pled.statementOfAccount").toUpperCase();
+  const footerDate = new Date().toLocaleDateString("en-IN");
+  const footer = (page: number, totalPages: number) => (
+    <A4DocFooter className="mt-auto pt-2" note={footerNote} doc={footerDoc} page={page} totalPages={totalPages} date={footerDate} />
+  );
+  // Rows table for a page: chunk indices → opening (0) + entries (≥1).
+  const rowsTable = (idxs: number[], showTotals: boolean) => (
+    <table className="mt-3 w-full border-collapse text-[10.5px]" style={mono}>
+      <StatementTableHead />
+      <tbody data-a4-rows>
+        {idxs.map((idx) => (
+          <StatementRow key={idx === 0 ? "opening" : ledger.entries[idx - 1]?.id ?? idx} ledger={ledger} partyType={partyType} index={idx} />
+        ))}
+      </tbody>
+      {showTotals && (
+        <tfoot>
+          <StatementTotalsRow ledger={ledger} partyType={partyType} />
+        </tfoot>
+      )}
+    </table>
+  );
+
+  return (
+    <>
+      {/* Measurement twins — mirror the real pages 1:1, never printed */}
+      <A4MeasureTwin>
+        <A4Replica replicaRef={fullRef}>
+          <StatementTopChrome ledger={ledger} partyType={partyType} firm={firm} />
+          {rowsTable(Array.from({ length: rowCount }, (_, i) => i), true)}
+          <StatementClosingBlock ledger={ledger} partyType={partyType} firm={firm} openingWords={openingWords} closingWords={closingWords} />
+          {footer(1, 1)}
+        </A4Replica>
+        <A4Replica replicaRef={firstRef}>
+          <StatementTopChrome ledger={ledger} partyType={partyType} firm={firm} />
+          {rowsTable([], false)}
+          {footer(1, 1)}
+        </A4Replica>
+        <A4Replica replicaRef={contRef}>
+          <StatementContHeader ledger={ledger} partyType={partyType} page={1} total={1} />
+          {rowsTable([], false)}
+          {footer(1, 1)}
+        </A4Replica>
+        <A4Replica replicaRef={lastRef}>
+          <StatementContHeader ledger={ledger} partyType={partyType} page={1} total={1} />
+          {rowsTable([], true)}
+          <StatementClosingBlock ledger={ledger} partyType={partyType} firm={firm} openingWords={openingWords} closingWords={closingWords} />
+          {footer(1, 1)}
+        </A4Replica>
+      </A4MeasureTwin>
+
+      {/* Real paper pages */}
+      {pages && (
+        <A4PageStack>
+          {pages.map((idxs, p) => {
+            const isLast = p === pages.length - 1;
+            return (
+              <A4Sheet key={`${ledger.party.id}:${p}`}>
+                {p === 0 ? (
+                  <StatementTopChrome ledger={ledger} partyType={partyType} firm={firm} />
+                ) : (
+                  <StatementContHeader ledger={ledger} partyType={partyType} page={p + 1} total={pages.length} />
+                )}
+                {rowsTable(idxs, isLast)}
+                {isLast && (
+                  <StatementClosingBlock ledger={ledger} partyType={partyType} firm={firm} openingWords={openingWords} closingWords={closingWords} />
+                )}
+                {footer(p + 1, pages.length)}
+              </A4Sheet>
+            );
+          })}
+        </A4PageStack>
+      )}
+    </>
   );
 }
 
@@ -1124,7 +1303,7 @@ function StatementPrintDialog({
           </DialogHeader>
           <div className="flex-1 min-h-0 overflow-auto dmk-well rounded-lg p-3 flex justify-center">
             <div
-              className="overflow-hidden rounded-md border border-dmk-border-subtle shrink-0"
+              className="overflow-y-auto overflow-x-hidden rounded-md border border-dmk-border-subtle shrink-0"
               style={{ width: 794 * SCALE, height: 1123 * SCALE }}
             >
               <div style={{ transform: `scale(${SCALE})`, transformOrigin: "top left", width: 794 }}>

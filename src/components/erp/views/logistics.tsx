@@ -112,6 +112,7 @@ import {
 } from "@/lib/geo/maharashtra-towns";
 import { useToast } from "@/hooks/use-toast";
 import { A4PrintPortal, printA4 } from "@/components/erp/print-portal";
+import { A4DocFooter, A4Sheet } from "@/components/erp/a4";
 import { cn } from "@/lib/utils";
 import { useT, type TFn } from "@/lib/i18n";
 
@@ -3996,10 +3997,7 @@ function LoadingSheetSheet({ trip, rollup }: { trip: LogisticsTrip; rollup: Roll
   const totQty = rollup.reduce((s, r) => s + r.qty, 0);
   const totWeight = rollup.reduce((s, r) => s + r.weightKg, 0);
   return (
-    <div
-      className="print-a4 flex min-h-[1123px] w-[794px] flex-col bg-white px-10 py-8 text-gray-900"
-      style={{ fontFamily: "Inter, sans-serif" }}
-    >
+    <A4Sheet mode="flow">
       <SheetHeader
         title="Warehouse Loading Sheet"
         subtitle={`${trip.totalStops} stops · ${trip.routeName}`}
@@ -4059,21 +4057,24 @@ function LoadingSheetSheet({ trip, rollup }: { trip: LogisticsTrip; rollup: Roll
           </tr>
         </tfoot>
       </table>
-      <p className="mt-auto pt-8 text-[10.5px] text-gray-500">
+      <p className="mt-auto pt-6 text-[10.5px] text-gray-500">
         Tick items as loaded. Report any shortage to the warehouse supervisor before the truck leaves — the loading
         sheet must match the run-sheet totals.
       </p>
-    </div>
+      <A4DocFooter
+        className="mt-3"
+        note="Warehouse copy — tick items as loaded"
+        doc="WAREHOUSE LOADING SHEET"
+        date={new Date().toLocaleDateString("en-IN")}
+      />
+    </A4Sheet>
   );
 }
 
 function RunSheetSheet({ trip }: { trip: LogisticsTrip }) {
   const total = trip.stops.reduce((s, x) => s + x.amount, 0);
   return (
-    <div
-      className="print-a4 flex min-h-[1123px] w-[794px] flex-col bg-white px-10 py-8 text-gray-900"
-      style={{ fontFamily: "Inter, sans-serif" }}
-    >
+    <A4Sheet mode="flow">
       <SheetHeader
         title="Delivery Run-Sheet"
         subtitle={`${trip.stops.length} stops in drop order · collect on delivery`}
@@ -4120,7 +4121,13 @@ function RunSheetSheet({ trip }: { trip: LogisticsTrip }) {
         <span>Total to collect — {trip.stops.length} stops</span>
         <span className="font-money">{formatINR(total)}</span>
       </div>
-    </div>
+      <A4DocFooter
+        className="mt-auto pt-3"
+        note={`Trip ${trip.tripNumber} · ${trip.routeName} · collect on delivery`}
+        doc="DELIVERY RUN-SHEET"
+        date={new Date().toLocaleDateString("en-IN")}
+      />
+    </A4Sheet>
   );
 }
 
@@ -4129,10 +4136,7 @@ function BillSheet({ trip, stop }: { trip: LogisticsTrip; stop: TripStop }) {
   const otp = stopOtp(stop);
   const items = stop.items ?? [];
   return (
-    <div
-      className="print-a4 flex min-h-[1123px] w-[794px] flex-col bg-white px-10 py-8 text-gray-900"
-      style={{ fontFamily: "Inter, sans-serif" }}
-    >
+    <A4Sheet mode="flow">
       <div className="flex items-start justify-between border-b-2 border-gray-900 pb-3">
         <div>
           <p className="text-[20px] font-extrabold tracking-tight">DMK MART</p>
@@ -4204,9 +4208,12 @@ function BillSheet({ trip, stop }: { trip: LogisticsTrip; stop: TripStop }) {
         </p>
       </div>
 
-      <p className="pt-4 text-[10px] text-gray-500">
-        Driver keeps this cover until the stop is verified in the DMK Mart portal. Proof: OTP (fallback: signature).
-      </p>
-    </div>
+      <A4DocFooter
+        className="pt-3"
+        note="Driver keeps this cover until the stop is verified in the DMK Mart portal. Proof: OTP (fallback: signature)."
+        doc={`DELIVERY BILL · ${stop.invoiceNumber ?? stop.invoiceId}`}
+        date={new Date().toLocaleDateString("en-IN")}
+      />
+    </A4Sheet>
   );
 }

@@ -2,10 +2,14 @@
 
 // ═══════════════════════════════════════════════════════════════
 // DOCS — A4 TAX INVOICE PREVIEW (Rule 46, R16)
-// Left: invoice picker list. Right: A4 sheet (pure CSS, white for
-// print). Toolbar: print, zoom 80/100/125, page estimate.
-// `print-a4` on the sheet + `no-print` on chrome → globals print CSS
-// renders ONLY the document on window.print().
+// Left: invoice picker list. Right: the A4 document rendered as REAL
+// paper pages — a long invoice flows onto the next A4 page with a
+// "(continued)" band, a repeated table head and the totals/declaration
+// block on the final page. Toolbar: print, zoom 80/100/125, exact page
+// count. Built on the shared A4 page system (components/erp/a4.tsx):
+// the on-screen preview and the printed output are page-for-page
+// identical, and every document in the project shares the same
+// 210×297mm frame, 12mm margins and standard footer.
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
@@ -20,6 +24,15 @@ import { useToast } from "@/hooks/use-toast";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { A4PrintPortal, printA4 } from "@/components/erp/print-portal";
+import {
+  A4Sheet,
+  A4PageStack,
+  A4DocFooter,
+  A4MeasureTwin,
+  A4Replica,
+  useA4Paginate,
+  type A4PaginateRefs,
+} from "@/components/erp/a4";
 
 type InvoiceListRow = Omit<Invoice, "customer"> & {
   customer?: { id: string; partyName: string; customerType?: string; stateCode?: string } | null;
@@ -47,6 +60,7 @@ export default function InvoiceDocsView() {
   const [invoice, setInvoice] = React.useState<Invoice | null>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
   const [zoom, setZoom] = React.useState<(typeof ZOOMS)[number]>(1);
+  const [pageCount, setPageCount] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     if (!activeFirmId) return;
@@ -74,12 +88,18 @@ export default function InvoiceDocsView() {
   React.useEffect(() => {
     if (!selectedId) {
       setInvoice(null);
+      setPageCount(null);
       return;
     }
     let alive = true;
     setDetailLoading(true);
     apiGet<Invoice>(`/api/v1/invoices/${selectedId}`)
-      .then((res) => alive && setInvoice(res))
+      .then((res) => {
+        if (alive) {
+          setInvoice(res);
+          setPageCount(null);
+        }
+      })
       .catch((e) => {
         if (alive) {
           setInvoice(null);
@@ -92,11 +112,7 @@ export default function InvoiceDocsView() {
     };
   }, [selectedId, toast, t]);
 
-  const pageCount = React.useMemo(() => {
-    if (!invoice) return 0;
-    // ~12 line items fill a page under fixed chrome (header/billto/footers)
-    return Math.max(1, Math.ceil(invoice.lineItems.length / 12));
-  }, [invoice]);
+  const handlePageCount = React.useCallback((n: number) => setPageCount(n), []);
 
   if (!activeFirmId) {
     return <EmptyState icon={FileText} title={t("sale.noFirm")} hint={t("sale.noFirmHint")} />;
@@ -186,7 +202,7 @@ export default function InvoiceDocsView() {
               <div className="no-print flex items-center justify-between px-1 pb-2">
                 <div className="flex items-center gap-2">
                   <Badge tone="info">{t("invd.taxInvoiceBadge")}</Badge>
-                  <span className="text-[11.5px] text-dmk-text-muted">{t("invd.pages", { n: pageCount })}</span>
+                  <span className="text-[11.5px] text-dmk-text-muted">{t("invd.pagesExact", { n: pageCount ?? 1 })}</span>
                 </div>
                 <div className="sm:hidden flex items-center gap-1 dmk-well p-1">
                   <button aria-label={t("invd.zoomOut")} onClick={() => setZoom((z) => (z === 1.25 ? 1 : 0.8))} className="h-7 w-7 inline-flex items-center justify-center rounded-md text-dmk-text-muted hover:text-dmk-text-primary"><Minus className="h-3.5 w-3.5" /></button>
@@ -196,7 +212,7 @@ export default function InvoiceDocsView() {
               </div>
               <div className="overflow-x-auto pb-4">
                 <div style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }} className="print:transform-none inline-block">
-                  <A4TaxInvoice invoice={invoice} firm={firm} />
+                  <A4TaxInvoice invoice={invoice} firm={firm} onPageCount={handlePageCount} />
                 </div>
               </div>
             </>
@@ -215,30 +231,108 @@ export default function InvoiceDocsView() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// A4 sheet — pure CSS, white paper, print friendly
+// A4 tax invoice — real paper pages via the shared A4 page system.
+// Page 1: letterhead + bill-to + first rows. Continuations: band +
+// repeated table head + rows. Last page: totals/declaration + footer.
 // ═══════════════════════════════════════════════════════════════
-function A4TaxInvoice({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
+function A4TaxInvoice({
+  invoice,
+  firm,
+  onPageCount,
+}: {
+  invoice: Invoice;
+  firm?: Firm;
+  onPageCount?: (n: number) => void;
+}) {
+  const { t } = useT();
+  const lang = useErpStore((s) => s.language);
+  const items = invoice.lineItems as DetailLineItem[];
+  const buyerState = invoice.customer?.stateCode ?? "";
+  const intra = !!firm && !!buyerState && buyerState === firm.stateCode;
+  const buyerName = invoice.customer?.partyName || invoice.walkInName || t("invd.walkInCustomer");
+
+  const fullRef = React.useRef<HTMLDivElement>(null);
+  const firstRef = React.useRef<HTMLDivElement>(null);
+  const contRef = React.useRef<HTMLDivElement>(null);
+  const lastRef = React.useRef<HTMLDivElement>(null);
+  const refs: A4PaginateRefs = React.useMemo(
+    () => ({ full: fullRef, first: firstRef, cont: contRef, last: lastRef }),
+    []
+  );
+  const pages = useA4Paginate(items.length, `${invoice.id}:${items.length}:${lang}`, refs);
+
+  React.useEffect(() => {
+    if (pages) onPageCount?.(pages.length);
+  }, [pages, onPageCount]);
+
+  const total = pages?.length ?? 1;
+  const footerNote = `${t("invd.footerNote")}${firm?.firmCode ? ` · ${firm.firmCode}` : ""}`;
+  const footerDoc = `${t("invd.docTaxInvoice").toUpperCase()} · ${invoice.invoiceNumber}`;
+  const footerDate = formatDate(invoice.invoiceDate);
+
   return (
-    <div
-      className="print-a4 bg-white text-gray-900 w-[794px] min-h-[1123px] px-10 py-8 flex flex-col shadow-lg"
-      style={{ fontFamily: "Inter, sans-serif" }}
-    >
-      <InvoiceSheet invoice={invoice} firm={firm} />
-    </div>
+    <>
+      {/* Measurement twins — mirror the real pages 1:1, never printed */}
+      <A4MeasureTwin>
+        <A4Replica replicaRef={fullRef}>
+          <InvoiceTopChrome invoice={invoice} firm={firm} />
+          <InvoiceItemsTable items={items} offset={0} intra={intra} />
+          <InvoiceBottomChrome invoice={invoice} firm={firm} intra={intra} page={1} total={1} footerNote={footerNote} footerDoc={footerDoc} footerDate={footerDate} />
+        </A4Replica>
+        <A4Replica replicaRef={firstRef}>
+          <InvoiceTopChrome invoice={invoice} firm={firm} />
+          <InvoiceItemsTable items={[]} offset={0} intra={intra} />
+          <A4DocFooter className="mt-auto pt-2" note={footerNote} doc={footerDoc} page={1} totalPages={1} date={footerDate} />
+        </A4Replica>
+        <A4Replica replicaRef={contRef}>
+          <InvoiceContHeader invoice={invoice} firm={firm} buyerName={buyerName} page={1} total={1} />
+          <InvoiceItemsTable items={[]} offset={0} intra={intra} />
+          <A4DocFooter className="mt-auto pt-2" note={footerNote} doc={footerDoc} page={1} totalPages={1} date={footerDate} />
+        </A4Replica>
+        <A4Replica replicaRef={lastRef}>
+          <InvoiceContHeader invoice={invoice} firm={firm} buyerName={buyerName} page={1} total={1} />
+          <InvoiceItemsTable items={[]} offset={0} intra={intra} />
+          <InvoiceBottomChrome invoice={invoice} firm={firm} intra={intra} page={1} total={1} footerNote={footerNote} footerDoc={footerDoc} footerDate={footerDate} />
+        </A4Replica>
+      </A4MeasureTwin>
+
+      {/* Real paper pages */}
+      {pages && (
+        <A4PageStack>
+          {pages.map((idxs, p) => {
+            const isLast = p === pages.length - 1;
+            const chunk = idxs.map((i) => items[i]);
+            return (
+              <A4Sheet key={`${invoice.id}:${p}`}>
+                {p === 0 ? (
+                  <InvoiceTopChrome invoice={invoice} firm={firm} />
+                ) : (
+                  <InvoiceContHeader invoice={invoice} firm={firm} buyerName={buyerName} page={p + 1} total={pages.length} />
+                )}
+                <InvoiceItemsTable items={chunk} offset={idxs.length ? idxs[0] : 0} intra={intra} />
+                {isLast ? (
+                  <InvoiceBottomChrome invoice={invoice} firm={firm} intra={intra} page={p + 1} total={pages.length} footerNote={footerNote} footerDoc={footerDoc} footerDate={footerDate} />
+                ) : (
+                  <A4DocFooter className="mt-auto pt-2" note={footerNote} doc={footerDoc} page={p + 1} totalPages={pages.length} date={footerDate} />
+                )}
+              </A4Sheet>
+            );
+          })}
+        </A4PageStack>
+      )}
+    </>
   );
 }
 
-function InvoiceSheet({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
+// ── Page 1 chrome: letterhead + meta / bill-to ──────────────────
+
+function InvoiceTopChrome({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
   const { t } = useT();
-  const items = invoice.lineItems as DetailLineItem[];
   const isCounter = invoice.isCounterSale;
   const buyerName = invoice.customer?.partyName || invoice.walkInName || t("invd.walkInCustomer");
   const buyerGstin = invoice.customer?.gstin ?? "";
   const buyerState = invoice.customer?.stateCode ?? "";
   const placeOfSupply = buyerState || firm?.stateCode || "";
-  const intra = !!firm && !!buyerState && buyerState === firm.stateCode;
-  // Whole-bill discount actually deducted (pre-GST) — printed as its own row
-  const billDiscAmt = Math.max(0, Number(invoice.billDiscountAmt) || 0);
 
   return (
     <>
@@ -291,37 +385,120 @@ function InvoiceSheet({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
           <span className="font-semibold text-right">{placeOfSupply || "—"}</span>
         </div>
       </div>
+    </>
+  );
+}
 
-      {/* Line items */}
-      <table className="w-full border-collapse mt-3" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
-        <thead>
-          <tr className="bg-gray-100">
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-left w-8">#</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-left w-[86px]">SKU</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-left">{t("invd.colDescription")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-center w-14">HSN</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-10">{t("sale.qty")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-center w-11">{t("invd.colUnit")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-16">{t("invd.colRate")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-12">{t("invr.colDisc")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[74px]">{t("invd.colTaxable")}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[62px]">CGST</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[70px]">{intra ? "SGST" : "IGST"}</th>
-            <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[74px]">{t("invd.colAmount")}</th>
+// ── Continuation band (pages 2+) ────────────────────────────────
+
+function InvoiceContHeader({
+  invoice,
+  firm,
+  buyerName,
+  page,
+  total,
+}: {
+  invoice: Invoice;
+  firm?: Firm;
+  buyerName: string;
+  page: number;
+  total: number;
+}) {
+  const { t } = useT();
+  return (
+    <div className="flex items-end justify-between gap-6 border-b-2 border-gray-800 pb-2">
+      <div className="min-w-0">
+        <p className="text-[15px] font-extrabold uppercase tracking-wide text-gray-900">
+          {t("invd.docTaxInvoice")} <span className="font-semibold text-gray-500 normal-case">— {t("invd.contd")}</span>
+        </p>
+        <p className="mt-0.5 text-[10.5px] text-gray-600 truncate">
+          {firm?.firmName ?? "DMK Mart"} · {t("invd.billTo")} {buyerName} · {formatDate(invoice.invoiceDate)}
+        </p>
+      </div>
+      <div className="shrink-0 text-right">
+        <p className="text-[11.5px] font-bold text-gray-800" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+          {invoice.invoiceNumber}
+        </p>
+        <p className="text-[9.5px] font-semibold uppercase tracking-wider text-gray-500">{t("invd.pageOf", { a: page, b: total })}</p>
+      </div>
+    </div>
+  );
+}
+
+// ── Line items table (shared by pages and measurement twins) ────
+
+function InvoiceItemsTable({ items, offset, intra }: { items: DetailLineItem[]; offset: number; intra: boolean }) {
+  const { t } = useT();
+  return (
+    <table className="mt-3 w-full border-collapse" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+      <InvoiceTableHead intra={intra} />
+      <tbody data-a4-rows>
+        {items.map((li, k) => (
+          <InvoiceRow key={li.id ?? `row-${offset + k}`} li={li} idx={offset + k + 1} intra={intra} />
+        ))}
+        {items.length === 0 && (
+          <tr>
+            <td colSpan={12} className="border border-gray-300 px-2 py-4 text-center text-[11px] text-gray-500">{t("invd.noLines")}</td>
           </tr>
-        </thead>
-        <tbody>
-          {items.map((li, idx) => (
-            <InvoiceRow key={li.id ?? idx} li={li} idx={idx} intra={intra} />
-          ))}
-          {items.length === 0 && (
-            <tr>
-              <td colSpan={12} className="border border-gray-300 px-2 py-4 text-center text-[11px] text-gray-500">{t("invd.noLines")}</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+        )}
+      </tbody>
+    </table>
+  );
+}
 
+function InvoiceTableHead({ intra }: { intra: boolean }) {
+  const { t } = useT();
+  return (
+    <thead>
+      <tr className="bg-gray-100">
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-left w-8">#</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-left w-[86px]">SKU</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-left">{t("invd.colDescription")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-center w-14">HSN</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-10">{t("sale.qty")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-center w-11">{t("invd.colUnit")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-16">{t("invd.colRate")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-12">{t("invr.colDisc")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[74px]">{t("invd.colTaxable")}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[62px]">CGST</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[70px]">{intra ? "SGST" : "IGST"}</th>
+        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[74px]">{t("invd.colAmount")}</th>
+      </tr>
+    </thead>
+  );
+}
+
+// ── Bottom chrome: totals + words + bank + OTP + declaration ────
+// Rendered on the LAST page only. Fragment on purpose: its children
+// become direct flex children of the paper page (flex-1 totals grid
+// stretches, footer pins to the sheet bottom).
+
+function InvoiceBottomChrome({
+  invoice,
+  firm,
+  intra,
+  page,
+  total,
+  footerNote,
+  footerDoc,
+  footerDate,
+}: {
+  invoice: Invoice;
+  firm?: Firm;
+  intra: boolean;
+  page: number;
+  total: number;
+  footerNote: string;
+  footerDoc: string;
+  footerDate: string;
+}) {
+  const { t } = useT();
+  const items = invoice.lineItems as DetailLineItem[];
+  // Whole-bill discount actually deducted (pre-GST) — printed as its own row
+  const billDiscAmt = Math.max(0, Number(invoice.billDiscountAmt) || 0);
+
+  return (
+    <>
       {/* Totals + words */}
       <div className="grid grid-cols-2 gap-6 mt-3 flex-1">
         <div className="flex flex-col justify-between gap-3">
@@ -417,9 +594,8 @@ function InvoiceSheet({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
         </div>
       </div>
 
-      <p className="text-center text-[9px] text-gray-400 mt-3">
-        This is a computer-generated invoice under GST Rules — Rule 46 · {firm?.firmCode ?? ""} · {invoice.invoiceNumber}
-      </p>
+      {/* Standard document footer — every page in the project ends with this */}
+      <A4DocFooter className="mt-auto pt-2" note={footerNote} doc={footerDoc} page={page} totalPages={total} date={footerDate} />
     </>
   );
 }
@@ -434,7 +610,7 @@ function InvoiceRow({ li, idx, intra }: { li: DetailLineItem; idx: number; intra
   const effPct = base > 0 && unit < base ? Math.round(((base - unit) / base) * 1000) / 10 : 0;
   return (
     <tr>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-700">{idx + 1}</td>
+      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-700">{idx}</td>
       <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-800">{li.sku}</td>
       <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-900">{li.productName}</td>
       <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-700 text-center">{li.hsnCode}</td>

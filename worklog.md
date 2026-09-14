@@ -1909,3 +1909,25 @@ Stage Summary:
 - Office billing is now possible entirely from Finance: Order Book row → Bill now → payment mode → invoice. Truck auto-bill flow unchanged; both paths share one conversion engine so books stay consistent.
 - Register auto-refreshes after billing; the billed order disappears (CONVERTED) and appears in Invoice Register / ledgers immediately.
 - Files: new api/v1/sales-orders/[id]/convert/route.ts; edited views/order-book.tsx, batch-finance.ts.
+
+---
+Task ID: 70
+Agent: Z.ai Code (main)
+Task: Invoice A4 — real multi-page A4 documents (owner: "invoice a4 - in this A4 size pages should be there if the invoice is getting lengthy then the extra content should be on next page also make sure pages structure and alignment should be standard on whole project")
+
+Work Log:
+- Built the shared A4 page system (NEW src/components/erp/a4.tsx): A4Sheet (standard paper frame — exact 210×297mm with 12mm margins matching @page; mode "paged" = fixed-height paper page, mode "flow" = min-height for short operational docs), A4PageStack (screen gaps → print block), A4DocFooter (THE standard page footer every document ends with: note left, doc label · Page x/y · date right), A4MeasureTwin/A4Replica (hidden measurement twins at the 186mm printable width) and useA4Paginate — a measured pagination engine: renders 4 hidden replicas (full page / first / continuation / last skeletons with data-a4-rows rows boxes), measures REAL row offsetHeights + chrome, then returns the row indices that fit on each paper page (budget = 273mm − safety; greedy chunk; totals only on the last page).
+- invoice-docs.tsx reworked: the tax invoice is now REAL paper pages — page 1 = letterhead + bill-to + first rows; pages 2+ = "TAX INVOICE — continued" band (firm · buyer · date · invoice no · PAGE x OF y) + repeated table head + rows (# numbering continues); last page = totals/amount-in-words/bank/OTP + declaration + standard footer. Exact page count in the toolbar badge (invd.pagesExact). Single-page invoices render exactly as before. The print portal copy paginates identically to the preview.
+- party-ledgers.tsx: Statement of Account on the same engine — opening row + entries chunked; totals moved to tfoot on the last page; closing-balance block + footer on the last page; "(continued)" band + repeated head on continuation pages; statement preview dialog box now scrolls for multi-page; batch statement print (5 parties) verified — every sheet standard A4 with the shared footer.
+- logistics.tsx: Loading Sheet / Run-Sheet / Delivery Bill migrated to the standard A4Sheet frame (exact mm geometry, 12mm margins) + standard A4DocFooter (doc label · date; bill covers carry the invoice no) — all project documents now share one page structure.
+- globals.css: .dmk-page-stack (screen gaps; print block + page-break-before between adjacent sheets and between stacked documents in batch), print reset now forces height:auto/overflow:visible on .print-a4 (the fixed 297mm screen height must never leak into the 273mm print box).
+- CRITICAL FIX found in QA: .dmk-print-root was display:none on screen → the print copy's measurement twins measured 0 → portal printed a long invoice on ONE page. Changed to off-screen visibility:hidden (layout-rendered) and flipped visible/static only during printing-a4 — preview and print now page-for-page identical.
+- CRITICAL FIX #2 (client crash): switching to a shorter invoice rendered one commit with stale page indices → items[i] undefined → white screen. useA4Paginate now validates pages against the current rowCount (sum + bounds) and returns null for stale commits; language switch (EN↔HI) re-chunks via measureKey.
+- i18n: invd.pagesExact/contd/pageOf/footerNote + pled.contd/pageOf (English strings in all 3 blocks per the translation-deferred rule).
+- lint ✅ tsc ✅ dev.log clean (only the pre-fix Fast-Refresh notice) ✅
+- Browser QA (READ-ONLY — GETs only, zero writes to the production ledger): INV/0008 (18 items) → 2 paper pages (12+6 rows, each exactly 794×1123px, footers Page 1/2 & 2/2, GRAND TOTAL ₹11,559.00 only on last page, screenshot-verified letterhead/continued band/declaration); INV/0009 (3 items) → 1 page incl. totals ("Page 1/1"); rapid selection switches in both directions → no crash; batch statement portal → 5 stacks × 1 standard sheet with shared footers; Trip Planner view loads clean.
+
+Stage Summary:
+- The whole project now prints on ONE standard page system: 210×297mm, 12mm margins, repeated table heads, continuation bands, totals on the last page, and the same footer line on every page — preview equals print, page for page.
+- Long invoices/statements flow onto as many A4 pages as needed with exact on-screen page counts; short documents stay on one page.
+- Files: NEW src/components/erp/a4.tsx; edited invoice-docs.tsx, party-ledgers.tsx, logistics.tsx, globals.css, batch-sales.ts, batch-finance.ts.
