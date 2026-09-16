@@ -42,6 +42,7 @@ import CustomersView from "./views/customers";
 import ReceiptsView from "./views/receipts";
 import RecurringView from "./views/recurring";
 import InvoiceDocsView from "./views/invoice-docs";
+import EstimatesView from "./views/estimates";
 import CreditDebitNotesView from "./views/credit-debit-notes";
 import VendorsView from "./views/vendors";
 import PurchaseOrdersView from "./views/purchase-orders";
@@ -87,6 +88,7 @@ const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   "sales/receipts": ReceiptsView,
   "sales/recurring": RecurringView,
   "docs/invoices": InvoiceDocsView,
+  "docs/estimates": EstimatesView,
   "docs/notes": CreditDebitNotesView,
   "purchase/vendors": VendorsView,
   "purchase/orders": PurchaseOrdersView,

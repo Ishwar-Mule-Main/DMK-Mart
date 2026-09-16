@@ -70,6 +70,7 @@ model Firm {
   stockAdjustments  StockAdjustment[]
   recurringTemplates RecurringTemplate[]
   deletedRecords    DeletedRecord[]
+  estimates         Estimate[]
 }
 
 // ─── DELETED DATA (recycle bin) ──────────────────────────────────
@@ -1061,6 +1062,42 @@ enum PaymentSourceType {
   CASH_DRAWER
   BANK_CURRENT
   BANK_CC
+}
+
+// ─── ESTIMATES (GST-free quotation slips — no stock, no ledger) ──
+
+model Estimate {
+  id             String        @id @default(cuid())
+  firmId         String
+  firm           Firm          @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  estimateNumber String
+  estimateDate   DateTime      @default(now())
+  partyName      String
+  partyPhone     String        @default("")
+  partyCity      String        @default("")
+  totalQty       Float         @default(0)
+  totalAmount    Decimal       @db.Decimal(12, 2) @default(0)
+  notes          String        @default("")
+  status         String        @default("OPEN") // OPEN | CONVERTED (billed to invoice)
+  items          EstimateItem[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([firmId, estimateDate])
+}
+
+model EstimateItem {
+  id          String   @id @default(cuid())
+  estimateId  String
+  estimate    Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  slNo        Int
+  productName String
+  unit        String   @default("NOS")
+  quantity    Float
+  rate        Decimal  @db.Decimal(12, 2) @default(0)
+  amount      Decimal  @db.Decimal(12, 2) @default(0)
+
+  @@index([estimateId])
 }
 
 model ExpenseCategory {

@@ -1,15 +1,17 @@
 "use client";
 
 // ═══════════════════════════════════════════════════════════════
-// DOCS — A4 TAX INVOICE PREVIEW (Rule 46, R16)
-// Left: invoice picker list. Right: the A4 document rendered as REAL
-// paper pages — a long invoice flows onto the next A4 page with a
-// "(continued)" band, a repeated table head and the totals/declaration
-// block on the final page. Toolbar: print, zoom 80/100/125, exact page
-// count. Built on the shared A4 page system (components/erp/a4.tsx):
-// the on-screen preview and the printed output are page-for-page
-// identical, and every document in the project shares the same
-// 210×297mm frame, 12mm margins and standard footer.
+// DOCS — A4 TAX INVOICE PREVIEW (Tally/e-Invoice reference layout)
+// Classic GST structure the owner files for ITR: centered "Tax
+// Invoice" title + UPI QR, seller / Consignee (Ship to) / Buyer
+// (Bill to) block beside the Invoice No./Dated/Dispatch meta grid,
+// Sl | Description of Goods | HSN/SAC | Quantity | Rate | per |
+// Amount table with CGST/SGST sub-rows under every taxed item,
+// Total row, Amount Chargeable (in words) with E. & O.E., rate-wise
+// tax summary, Tax Amount in words, PAN / Declaration / Bank block,
+// signature row and the "Computer Generated Invoice" line.
+// Long invoices still flow onto real A4 pages (shared page system)
+// with a repeated table head and the totals block on the last page.
 // ═══════════════════════════════════════════════════════════════
 
 import * as React from "react";
@@ -47,6 +49,58 @@ const ZOOMS = [0.8, 1, 1.25] as const;
 
 /** Plain Indian-grouped number for A4 document cells (no ₹ symbol). */
 const money = (n: number | null | undefined) => formatINR(Number(n ?? 0), false);
+
+/** Indian-grouped quantity with 2 decimals (reference bills show 225.00 / 6.00). */
+const qtyFmt = (n: number | null | undefined) =>
+  Number(n ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** "… Rupees Only" (stored) → reference style "INR … Only". */
+const wordsINR = (stored: string | undefined, fallbackAmount: number) => {
+  const w = stored || amountInWords(fallbackAmount);
+  return `INR ${w.replace(/\s*Rupees? Only\.?$/i, "").trim()} Only`;
+};
+
+const pct = (r: number) => `${Number.isInteger(r) ? r : Number(r.toFixed(1))}%`;
+
+// ─── Table row plan: item rows + their CGST/SGST/IGST sub-rows ───
+
+type TrEntry =
+  | { kind: "main"; li: DetailLineItem; idx: number }
+  | { kind: "tax"; label: string; ratePct: number; amount: number };
+
+function buildTrPlan(items: DetailLineItem[], intra: boolean): TrEntry[] {
+  const plan: TrEntry[] = [];
+  items.forEach((li, i) => {
+    plan.push({ kind: "main", li, idx: i + 1 });
+    const r = Number(li.gstRate) || 0;
+    if (r <= 0) return;
+    if (intra) {
+      if (Number(li.cgstAmount) > 0) plan.push({ kind: "tax", label: `CGST ${pct(r / 2)}`, ratePct: r / 2, amount: Number(li.cgstAmount) });
+      if (Number(li.sgstAmount) > 0) plan.push({ kind: "tax", label: `SGST ${pct(r / 2)}`, ratePct: r / 2, amount: Number(li.sgstAmount) });
+    } else if (Number(li.igstAmount) > 0) {
+      plan.push({ kind: "tax", label: `IGST ${pct(r)}`, ratePct: r, amount: Number(li.igstAmount) });
+    }
+  });
+  return plan;
+}
+
+/** Rate-wise GST breakup for the summary table. */
+function rateWise(items: DetailLineItem[], intra: boolean) {
+  const map = new Map<number, { taxable: number; cgst: number; sgst: number; igst: number }>();
+  for (const li of items) {
+    const r = Number(li.gstRate) || 0;
+    const cur = map.get(r) ?? { taxable: 0, cgst: 0, sgst: 0, igst: 0 };
+    cur.taxable += Number(li.taxableAmount) || 0;
+    cur.cgst += Number(li.cgstAmount) || 0;
+    cur.sgst += Number(li.sgstAmount) || 0;
+    cur.igst += Number(li.igstAmount) || 0;
+    map.set(r, cur);
+  }
+  return [...map.entries()]
+    .filter(([r]) => r > 0)
+    .sort((a, b) => a[0] - b[0])
+    .map(([r, v]) => ({ rate: r, taxable: v.taxable, cgst: v.cgst, sgst: v.sgst, igst: v.igst, intra }));
+}
 
 export default function InvoiceDocsView() {
   const { toast } = useToast();
@@ -232,8 +286,9 @@ export default function InvoiceDocsView() {
 
 // ═══════════════════════════════════════════════════════════════
 // A4 tax invoice — real paper pages via the shared A4 page system.
-// Page 1: letterhead + bill-to + first rows. Continuations: band +
-// repeated table head + rows. Last page: totals/declaration + footer.
+// Page 1: title/QR + seller/buyer block + first rows. Continuations:
+// band + repeated table head + rows. Last page: Total row + words +
+// rate-wise tax summary + PAN/declaration/bank/sign block + footer.
 // ═══════════════════════════════════════════════════════════════
 function A4TaxInvoice({
   invoice,
@@ -251,6 +306,16 @@ function A4TaxInvoice({
   const intra = !!firm && !!buyerState && buyerState === firm.stateCode;
   const buyerName = invoice.customer?.partyName || invoice.walkInName || t("invd.walkInCustomer");
 
+  const trPlan = React.useMemo(() => buildTrPlan(items, intra), [items, intra]);
+  const groups = React.useMemo(() => {
+    const g: number[] = [];
+    for (const e of trPlan) {
+      if (e.kind === "main") g.push(1);
+      else g[g.length - 1] += 1;
+    }
+    return g;
+  }, [trPlan]);
+
   const fullRef = React.useRef<HTMLDivElement>(null);
   const firstRef = React.useRef<HTMLDivElement>(null);
   const contRef = React.useRef<HTMLDivElement>(null);
@@ -259,7 +324,7 @@ function A4TaxInvoice({
     () => ({ full: fullRef, first: firstRef, cont: contRef, last: lastRef }),
     []
   );
-  const pages = useA4Paginate(items.length, `${invoice.id}:${items.length}:${lang}`, refs);
+  const pages = useA4Paginate(trPlan.length, `${invoice.id}:${items.length}:${lang}:${intra ? "i" : "g"}`, refs, groups);
 
   React.useEffect(() => {
     if (pages) onPageCount?.(pages.length);
@@ -269,6 +334,11 @@ function A4TaxInvoice({
   const footerNote = `${t("invd.footerNote")}${firm?.firmCode ? ` · ${firm.firmCode}` : ""}`;
   const footerDoc = `${t("invd.docTaxInvoice").toUpperCase()} · ${invoice.invoiceNumber}`;
   const footerDate = formatDate(invoice.invoiceDate);
+  const totalQty = items.reduce((s, li) => s + (Number(li.quantity) || 0), 0);
+  const rowsUnit = items[0]?.product?.unit ?? "NOS";
+
+  const renderRows = (entries: TrEntry[]) =>
+    entries.map((e, k) => (e.kind === "main" ? <InvoiceRow key={`m-${k}-${e.idx}`} li={e.li} idx={e.idx} /> : <TaxRow key={`t-${k}-${e.label}`} entry={e} />));
 
   return (
     <>
@@ -276,23 +346,23 @@ function A4TaxInvoice({
       <A4MeasureTwin>
         <A4Replica replicaRef={fullRef}>
           <InvoiceTopChrome invoice={invoice} firm={firm} />
-          <InvoiceItemsTable items={items} offset={0} intra={intra} />
-          <InvoiceBottomChrome invoice={invoice} firm={firm} intra={intra} page={1} total={1} footerNote={footerNote} footerDoc={footerDoc} footerDate={footerDate} />
+          <InvoiceItemsTable rows={trPlan} totals={{ qty: totalQty, unit: rowsUnit, grand: Number(invoice.grandTotal) }} showTotalRow />
+          <InvoiceBottomChrome invoice={invoice} firm={firm} intra={intra} items={items} page={1} total={1} footerNote={footerNote} footerDoc={footerDoc} footerDate={footerDate} />
         </A4Replica>
         <A4Replica replicaRef={firstRef}>
           <InvoiceTopChrome invoice={invoice} firm={firm} />
-          <InvoiceItemsTable items={[]} offset={0} intra={intra} />
+          <InvoiceItemsTable rows={[]} />
           <A4DocFooter className="mt-auto pt-2" note={footerNote} doc={footerDoc} page={1} totalPages={1} date={footerDate} />
         </A4Replica>
         <A4Replica replicaRef={contRef}>
           <InvoiceContHeader invoice={invoice} firm={firm} buyerName={buyerName} page={1} total={1} />
-          <InvoiceItemsTable items={[]} offset={0} intra={intra} />
+          <InvoiceItemsTable rows={[]} />
           <A4DocFooter className="mt-auto pt-2" note={footerNote} doc={footerDoc} page={1} totalPages={1} date={footerDate} />
         </A4Replica>
         <A4Replica replicaRef={lastRef}>
           <InvoiceContHeader invoice={invoice} firm={firm} buyerName={buyerName} page={1} total={1} />
-          <InvoiceItemsTable items={[]} offset={0} intra={intra} />
-          <InvoiceBottomChrome invoice={invoice} firm={firm} intra={intra} page={1} total={1} footerNote={footerNote} footerDoc={footerDoc} footerDate={footerDate} />
+          <InvoiceItemsTable rows={[]} totals={{ qty: totalQty, unit: rowsUnit, grand: Number(invoice.grandTotal) }} showTotalRow />
+          <InvoiceBottomChrome invoice={invoice} firm={firm} intra={intra} items={items} page={1} total={1} footerNote={footerNote} footerDoc={footerDoc} footerDate={footerDate} />
         </A4Replica>
       </A4MeasureTwin>
 
@@ -301,7 +371,7 @@ function A4TaxInvoice({
         <A4PageStack>
           {pages.map((idxs, p) => {
             const isLast = p === pages.length - 1;
-            const chunk = idxs.map((i) => items[i]);
+            const chunk = idxs.map((i) => trPlan[i]);
             return (
               <A4Sheet key={`${invoice.id}:${p}`}>
                 {p === 0 ? (
@@ -309,9 +379,13 @@ function A4TaxInvoice({
                 ) : (
                   <InvoiceContHeader invoice={invoice} firm={firm} buyerName={buyerName} page={p + 1} total={pages.length} />
                 )}
-                <InvoiceItemsTable items={chunk} offset={idxs.length ? idxs[0] : 0} intra={intra} />
+                <InvoiceItemsTable
+                  rows={chunk}
+                  totals={isLast ? { qty: totalQty, unit: rowsUnit, grand: Number(invoice.grandTotal) } : undefined}
+                  showTotalRow={isLast}
+                />
                 {isLast ? (
-                  <InvoiceBottomChrome invoice={invoice} firm={firm} intra={intra} page={p + 1} total={pages.length} footerNote={footerNote} footerDoc={footerDoc} footerDate={footerDate} />
+                  <InvoiceBottomChrome invoice={invoice} firm={firm} intra={intra} items={items} page={p + 1} total={pages.length} footerNote={footerNote} footerDoc={footerDoc} footerDate={footerDate} />
                 ) : (
                   <A4DocFooter className="mt-auto pt-2" note={footerNote} doc={footerDoc} page={p + 1} totalPages={pages.length} date={footerDate} />
                 )}
@@ -324,7 +398,12 @@ function A4TaxInvoice({
   );
 }
 
-// ── Page 1 chrome: letterhead + meta / bill-to ──────────────────
+// ── Shared bordered-cell class helpers ──────────────────────────
+
+const CELL = "border border-gray-400 px-1.5 py-1";
+const HEAD = "border border-gray-500 px-1.5 py-1 text-[9px] font-bold uppercase text-gray-800 tracking-wide";
+
+// ── Page 1 chrome: title + QR + seller / consignee / buyer + meta ──
 
 function InvoiceTopChrome({ invoice, firm }: { invoice: Invoice; firm?: Firm }) {
   const { t } = useT();
@@ -332,57 +411,100 @@ function InvoiceTopChrome({ invoice, firm }: { invoice: Invoice; firm?: Firm }) 
   const buyerName = invoice.customer?.partyName || invoice.walkInName || t("invd.walkInCustomer");
   const buyerGstin = invoice.customer?.gstin ?? "";
   const buyerState = invoice.customer?.stateCode ?? "";
-  const placeOfSupply = buyerState || firm?.stateCode || "";
+  const buyerPhone = invoice.customer?.phone ?? invoice.walkInPhone ?? "";
+  const buyerCity = invoice.customer?.city ?? "";
+
+  const metaPairs: Array<[string, string, boolean?]> = [
+    [t("invd.invoiceNo"), invoice.invoiceNumber, true],
+    [t("invd.dated"), formatDate(invoice.invoiceDate), true],
+    [t("invd.deliveryNote"), "—"],
+    [t("invd.modeTerms"), invoice.paymentMode, true],
+    [t("invd.refNoDate"), "—"],
+    [t("invd.otherRefs"), "—"],
+    [t("invd.buyerOrderNo"), "—"],
+    [t("invd.dated"), "—"],
+    [t("invd.dispatchDoc"), "—"],
+    [t("invd.dnDate"), "—"],
+    [t("invd.dispatchThrough"), "—"],
+    [t("invd.destination"), buyerCity || "—", buyerCity !== ""],
+  ];
 
   return (
     <>
-      <div className="flex items-start justify-between gap-6 border-b-2 border-gray-800 pb-4">
-        <div className="min-w-0 flex items-start gap-3">
-          <img src={firm?.logoUrl ?? "/dmk-logo.png"} alt={`${firm?.firmName ?? "DMK Mart"} logo`} width={56} height={56} className="rounded-full shrink-0" />
-          <div className="min-w-0">
-            <h2 className="text-[22px] font-bold leading-tight text-gray-900">{firm?.firmName ?? "DMK Mart"}</h2>
-            <p className="text-[11px] text-gray-600 mt-1 whitespace-pre-line leading-snug">{firm?.address ?? ""}</p>
-            <div className="text-[11px] text-gray-700 mt-1.5 space-x-3">
-              <span>GSTIN: <span className="font-semibold" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>{firm?.gstin ?? "—"}</span></span>
-              {firm?.phone && <span>Ph: {firm.phone}</span>}
-            </div>
-            {firm?.email && <p className="text-[11px] text-gray-600">{firm.email}</p>}
-          </div>
-        </div>
-        <div className="text-right shrink-0">
-          <p className="text-[20px] font-extrabold tracking-wide text-gray-900 uppercase">{t("invd.docTaxInvoice")}</p>
-          <p className="text-[10.5px] text-gray-500 mt-1">{t("invd.originalRecipient")}</p>
+      {/* Title band — centered, QR parked on the right like the e-Invoice slip */}
+      <div className="relative flex items-start justify-between pb-2">
+        <div className="w-24 shrink-0" />
+        <div className="text-center">
+          <h2 className="text-[18px] font-extrabold uppercase tracking-[0.08em] text-gray-900">{t("invd.docTaxInvoice")}</h2>
+          <p className="text-[9.5px] text-gray-500 mt-0.5">{t("invd.originalRecipient")}</p>
           {isCounter && (
-            <span className="inline-block mt-2 text-[10px] font-bold uppercase tracking-wider text-gray-700 border border-gray-400 rounded px-2 py-0.5">
+            <span className="inline-block mt-1.5 text-[9px] font-bold uppercase tracking-wider text-gray-700 border border-gray-400 rounded px-2 py-0.5">
               {t("invd.counterSale")}
             </span>
           )}
         </div>
+        {firm?.upiQrUrl ? (
+          <div className="w-24 shrink-0 text-center">
+            { }
+            <img src={firm.upiQrUrl} alt="UPI QR" className="h-20 w-20 object-cover border border-gray-400 inline-block bg-white" />
+            <p className="text-[7.5px] font-semibold uppercase tracking-wider text-gray-500 mt-0.5">{t("invd.scanPay")}</p>
+          </div>
+        ) : (
+          <div className="w-24 shrink-0" />
+        )}
       </div>
 
-      {/* Meta + Bill To */}
-      <div className="grid grid-cols-2 gap-6 border-b border-gray-300 py-3">
-        <div>
-          <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-500 mb-1">{t("invd.billTo")}</p>
-          <p className="text-[13.5px] font-bold text-gray-900 leading-snug">{buyerName}</p>
-          {/* Faint invoice number under the party name (A4 doc, ~50% opacity) */}
-          <p className="text-[10.5px] font-normal text-gray-800 opacity-50 leading-tight" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
-            {invoice.invoiceNumber}
-          </p>
-          {invoice.customer?.address && <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">{invoice.customer.address}</p>}
-          {invoice.customer?.city && <p className="text-[11px] text-gray-600">{invoice.customer.city}</p>}
-          <p className="text-[11px] text-gray-700 mt-1">
-            GSTIN: <span className="font-semibold" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>{buyerGstin || t("invd.urp")}</span>
-          </p>
-          {invoice.walkInPhone && <p className="text-[11px] text-gray-600">Ph: {invoice.walkInPhone}</p>}
+      {/* Seller / Consignee / Buyer | Invoice meta — the classic bordered grid */}
+      <div className="grid grid-cols-[1.15fr_1fr] border border-gray-800 text-gray-900">
+        {/* LEFT — seller, ship-to, bill-to */}
+        <div className="border-r border-gray-800 min-w-0">
+          <div className="p-2.5">
+            <p className="text-[13px] font-extrabold leading-tight">{firm?.firmName ?? "DMK Mart"}</p>
+            <p className="text-[10px] text-gray-700 mt-0.5 whitespace-pre-line leading-snug">{firm?.address ?? ""}</p>
+            <div className="text-[9.5px] mt-1 space-y-px" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+              <p>GSTIN/UIN : <span className="font-bold">{firm?.gstin || "—"}</span></p>
+              <p>State Name : {firm?.state ?? "—"}, Code : {firm?.stateCode || "—"}</p>
+            </div>
+            <div className="text-[9.5px] text-gray-700 mt-0.5">
+              {firm?.phone && <p>Ph : {firm.phone}</p>}
+              {firm?.email && <p>E-Mail : {firm.email}</p>}
+            </div>
+          </div>
+          <div className="p-2.5 border-t border-gray-500">
+            <p className="text-[8.5px] font-bold uppercase tracking-wider text-gray-500">{t("invd.consignee")}</p>
+            <p className="text-[12px] font-bold leading-snug mt-0.5">{buyerName}</p>
+            {buyerCity && <p className="text-[10px] text-gray-700">{buyerCity}</p>}
+            <div className="text-[9.5px] mt-0.5 space-y-px" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+              <p>GSTIN/UIN : <span className="font-bold">{buyerGstin || t("invd.urp")}</span></p>
+              <p>State Name : {invoice.customer?.stateCode ? `${firm?.state ?? ""}, Code : ${buyerState}` : `${firm?.state ?? "—"}, Code : ${firm?.stateCode || "—"}`}</p>
+            </div>
+          </div>
+          <div className="p-2.5 border-t border-gray-500">
+            <p className="text-[8.5px] font-bold uppercase tracking-wider text-gray-500">{t("invd.buyer")}</p>
+            <p className="text-[12px] font-bold leading-snug mt-0.5">{buyerName}</p>
+            {buyerCity && <p className="text-[10px] text-gray-700">{buyerCity}</p>}
+            <div className="text-[9.5px] mt-0.5 space-y-px" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+              <p>GSTIN/UIN : <span className="font-bold">{buyerGstin || t("invd.urp")}</span></p>
+              <p>State Name : {invoice.customer?.stateCode ? `${firm?.state ?? ""}, Code : ${buyerState}` : `${firm?.state ?? "—"}, Code : ${firm?.stateCode || "—"}`}</p>
+            </div>
+            {buyerPhone && <p className="text-[9.5px] text-gray-700 mt-0.5">Ph : {buyerPhone}</p>}
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11.5px] content-start">
-          <span className="text-gray-500">{t("invd.date")}</span>
-          <span className="font-semibold text-right">{formatDate(invoice.invoiceDate)}</span>
-          <span className="text-gray-500">{t("invd.paymentMode")}</span>
-          <span className="font-semibold text-right">{invoice.paymentMode}</span>
-          <span className="text-gray-500">{t("invd.placeOfSupply")}</span>
-          <span className="font-semibold text-right">{placeOfSupply || "—"}</span>
+
+        {/* RIGHT — invoice meta cells */}
+        <div className="grid grid-cols-2 content-start">
+          {metaPairs.map(([label, value, strong], i) => (
+            <div key={`${label}-${i}`} className={cn("px-2 py-1 border-b border-gray-400 min-h-[26px]", i % 2 === 0 && "border-r border-gray-400")}>
+              <p className="text-[8px] font-semibold uppercase tracking-wide text-gray-500 leading-tight">{label}</p>
+              <p className={cn("text-[10px] leading-tight mt-0.5 truncate", strong ? "font-bold" : "text-gray-600")} style={strong ? { fontFamily: "var(--font-jetbrains), monospace" } : undefined}>
+                {value}
+              </p>
+            </div>
+          ))}
+          <div className="px-2 py-1 col-span-2 border-b border-gray-400 min-h-[26px]">
+            <p className="text-[8px] font-semibold uppercase tracking-wide text-gray-500 leading-tight">{t("invd.termsDelivery")}</p>
+            <p className="text-[10px] text-gray-600 leading-tight mt-0.5">—</p>
+          </div>
         </div>
       </div>
     </>
@@ -412,7 +534,7 @@ function InvoiceContHeader({
           {t("invd.docTaxInvoice")} <span className="font-semibold text-gray-500 normal-case">— {t("invd.contd")}</span>
         </p>
         <p className="mt-0.5 text-[10.5px] text-gray-600 truncate">
-          {firm?.firmName ?? "DMK Mart"} · {t("invd.billTo")} {buyerName} · {formatDate(invoice.invoiceDate)}
+          {firm?.firmName ?? "DMK Mart"} · {t("invd.buyer")} {buyerName} · {formatDate(invoice.invoiceDate)}
         </p>
       </div>
       <div className="shrink-0 text-right">
@@ -425,20 +547,51 @@ function InvoiceContHeader({
   );
 }
 
-// ── Line items table (shared by pages and measurement twins) ────
+// ── Line items table (Sl | Goods | HSN | Qty | Rate | per | Amount) ──
 
-function InvoiceItemsTable({ items, offset, intra }: { items: DetailLineItem[]; offset: number; intra: boolean }) {
+function InvoiceItemsTable({
+  rows,
+  totals,
+  showTotalRow,
+}: {
+  rows: TrEntry[];
+  totals?: { qty: number; unit: string; grand: number };
+  showTotalRow?: boolean;
+}) {
   const { t } = useT();
   return (
-    <table className="mt-3 w-full border-collapse" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
-      <InvoiceTableHead intra={intra} />
+    <table className="mt-2 w-full border-collapse" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+      <thead>
+        <tr className="bg-gray-100">
+          <th className={cn(HEAD, "text-left w-8")}>{t("invd.slNo")}</th>
+          <th className={cn(HEAD, "text-left")}>{t("invd.descGoods")}</th>
+          <th className={cn(HEAD, "text-center w-14")}>{t("invd.hsnSac")}</th>
+          <th className={cn(HEAD, "text-right w-16")}>{t("invd.quantityCol")}</th>
+          <th className={cn(HEAD, "text-right w-16")}>{t("invd.colRate")}</th>
+          <th className={cn(HEAD, "text-center w-10")}>{t("invd.per")}</th>
+          <th className={cn(HEAD, "text-right w-[84px]")}>{t("invd.colAmount")}</th>
+        </tr>
+      </thead>
       <tbody data-a4-rows>
-        {items.map((li, k) => (
-          <InvoiceRow key={li.id ?? `row-${offset + k}`} li={li} idx={offset + k + 1} intra={intra} />
-        ))}
-        {items.length === 0 && (
+        {rows.length === 0 && !showTotalRow && (
           <tr>
-            <td colSpan={12} className="border border-gray-300 px-2 py-4 text-center text-[11px] text-gray-500">{t("invd.noLines")}</td>
+            <td colSpan={7} className="border border-gray-400 px-2 py-4 text-center text-[11px] text-gray-500" style={{ fontFamily: "var(--font-inter), sans-serif" }}>{t("invd.noLines")}</td>
+          </tr>
+        )}
+        {rows.map((e, k) =>
+          e.kind === "main" ? (
+            <InvoiceRow key={`m-${k}-${e.idx}`} li={e.li} idx={e.idx} />
+          ) : (
+            <TaxRow key={`t-${k}-${e.label}`} entry={e} />
+          )
+        )}
+        {showTotalRow && totals && (
+          <tr className="bg-gray-50">
+            <td colSpan={3} className={cn(CELL, "text-right font-bold text-[11px] text-gray-900")}>{t("invd.grandTotal")}</td>
+            <td className={cn(CELL, "text-right font-bold text-[10.5px]")}>{qtyFmt(totals.qty)}</td>
+            <td className={CELL}>&nbsp;</td>
+            <td className={CELL}>&nbsp;</td>
+            <td className={cn(CELL, "text-right font-extrabold text-[11.5px] text-gray-900")}>₹ {money(totals.grand)}</td>
           </tr>
         )}
       </tbody>
@@ -446,37 +599,13 @@ function InvoiceItemsTable({ items, offset, intra }: { items: DetailLineItem[]; 
   );
 }
 
-function InvoiceTableHead({ intra }: { intra: boolean }) {
-  const { t } = useT();
-  return (
-    <thead>
-      <tr className="bg-gray-100">
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-left w-8">#</th>
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-left w-[86px]">SKU</th>
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-left">{t("invd.colDescription")}</th>
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-center w-14">HSN</th>
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-10">{t("sale.qty")}</th>
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-center w-11">{t("invd.colUnit")}</th>
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-16">{t("invd.colRate")}</th>
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-12">{t("invr.colDisc")}</th>
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[74px]">{t("invd.colTaxable")}</th>
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[62px]">CGST</th>
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[70px]">{intra ? "SGST" : "IGST"}</th>
-        <th className="border border-gray-300 px-1.5 py-1.5 text-[10px] font-bold uppercase text-gray-700 text-right w-[74px]">{t("invd.colAmount")}</th>
-      </tr>
-    </thead>
-  );
-}
-
-// ── Bottom chrome: totals + words + bank + OTP + declaration ────
-// Rendered on the LAST page only. Fragment on purpose: its children
-// become direct flex children of the paper page (flex-1 totals grid
-// stretches, footer pins to the sheet bottom).
+// ── Bottom chrome: words + rate-wise tax + PAN/declaration/bank/sign ──
 
 function InvoiceBottomChrome({
   invoice,
   firm,
   intra,
+  items,
   page,
   total,
   footerNote,
@@ -486,6 +615,7 @@ function InvoiceBottomChrome({
   invoice: Invoice;
   firm?: Firm;
   intra: boolean;
+  items: DetailLineItem[];
   page: number;
   total: number;
   footerNote: string;
@@ -493,106 +623,146 @@ function InvoiceBottomChrome({
   footerDate: string;
 }) {
   const { t } = useT();
-  const items = invoice.lineItems as DetailLineItem[];
-  // Whole-bill discount actually deducted (pre-GST) — printed as its own row
   const billDiscAmt = Math.max(0, Number(invoice.billDiscountAmt) || 0);
+  const taxTotal = Number(invoice.totalCgst) + Number(invoice.totalSgst) + Number(invoice.totalIgst);
+  const gstRows = rateWise(items, intra);
+  const pan = firm?.gstin && firm.gstin.length >= 12 ? firm.gstin.slice(2, 12) : "—";
 
   return (
     <>
-      {/* Totals + words */}
-      <div className="grid grid-cols-2 gap-6 mt-3 flex-1">
-        <div className="flex flex-col justify-between gap-3">
-          <div>
-            <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-500 mb-1">{t("invd.words")}</p>
-            <p className="text-[11.5px] italic text-gray-800 leading-snug">
-              {invoice.amountInWords || amountInWords(Number(invoice.grandTotal))}
-            </p>
-          </div>
-          <div className="border border-gray-300 rounded p-2.5">
-            <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-500 mb-1">{t("invd.bankDetails")}</p>
-            <div className="text-[10.5px] text-gray-700 space-y-0.5" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
-              <p>{t("invd.bankLbl")}: {firm?.bankName || "—"}</p>
-              <p>{t("invd.acLbl")}: {firm?.bankAccount || "—"}</p>
-              <p>{t("invd.ifscLbl")}: {firm?.ifsc || "—"}</p>
-            </div>
-          </div>
-          {!invoice.isCounterSale && invoice.deliveryOtp ? (
-            <div className="border-2 border-gray-900 rounded p-2.5 bg-gray-50">
-              <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-600 mb-0.5">{t("invd.otpTitle")}</p>
-              <p className="text-[19px] font-black tracking-[0.45em] text-gray-900 leading-tight text-center" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
-                [{invoice.deliveryOtp.split("").join(" ")}]
-              </p>
-              <p className="text-[8.5px] text-gray-600 leading-snug mt-0.5">
-                {t("invd.otpHint")}
-              </p>
-            </div>
-          ) : null}
-        </div>
-        <div className="justify-self-end w-full max-w-[300px]">
-          <table className="w-full text-[11.5px]">
-            <tbody>
-              <tr>
-                <td className="py-1 text-gray-600">{t("invd.taxableValue")}</td>
-                <td className="py-1 text-right font-semibold">{money(invoice.subtotal + billDiscAmt)}</td>
-              </tr>
-              {billDiscAmt > 0 && (
-                <tr>
-                  <td className="py-1 text-gray-600">
-                    {t("invd.billDiscount")}
-                    {Number(invoice.billDiscountPct) > 0 ? ` (${Number(invoice.billDiscountPct)}%)` : ""}
-                  </td>
-                  <td className="py-1 text-right font-semibold text-gray-900">−{money(billDiscAmt)}</td>
-                </tr>
-              )}
-              <tr>
-                <td className="py-1 text-gray-600">{t("invd.taxableAfterDisc")}</td>
-                <td className="py-1 text-right font-semibold">{money(invoice.subtotal)}</td>
-              </tr>
-              {Number(invoice.totalCgst) > 0 && (
-                <tr>
-                  <td className="py-1 text-gray-600">CGST</td>
-                  <td className="py-1 text-right font-semibold">{money(invoice.totalCgst)}</td>
-                </tr>
-              )}
-              {Number(invoice.totalSgst) > 0 && (
-                <tr>
-                  <td className="py-1 text-gray-600">SGST</td>
-                  <td className="py-1 text-right font-semibold">{money(invoice.totalSgst)}</td>
-                </tr>
-              )}
-              {Number(invoice.totalIgst) > 0 && (
-                <tr>
-                  <td className="py-1 text-gray-600">IGST</td>
-                  <td className="py-1 text-right font-semibold">{money(invoice.totalIgst)}</td>
-                </tr>
-              )}
-              <tr>
-                <td className="py-1 text-gray-600">{t("invd.roundOff")}</td>
-                <td className="py-1 text-right font-semibold">{money(invoice.roundOff)}</td>
-              </tr>
-              <tr className="bg-gray-100 border-t-2 border-gray-800">
-                <td className="py-1.5 px-1 font-bold text-gray-900 text-[12.5px]">{t("invd.grandTotal")}</td>
-                <td className="py-1.5 px-1 text-right font-bold text-[14px]">{money(invoice.grandTotal)}</td>
-              </tr>
-            </tbody>
-          </table>
+      {/* Amount Chargeable (in words) */}
+      <div className="border border-t-2 border-gray-800 mt-2">
+        <p className="text-[8.5px] font-semibold uppercase tracking-wider text-gray-500 px-2 pt-1">{t("invd.chargeableWords")}</p>
+        <div className="flex items-baseline justify-between gap-4 px-2 pb-1.5 pt-0.5">
+          <p className="text-[11.5px] font-bold text-gray-900 leading-snug">{wordsINR(invoice.amountInWords, Number(invoice.grandTotal))}</p>
+          <p className="text-[10px] italic text-gray-500 shrink-0">{t("invd.eoe")}</p>
         </div>
       </div>
 
-      {/* Declaration + authorisation */}
-      <div className="grid grid-cols-2 gap-6 border-t border-gray-300 mt-4 pt-3">
-        <div>
-          <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-500 mb-1">{t("invd.declaration")}</p>
-          <p className="text-[10px] text-gray-600 leading-snug">
-            {t("invd.declarationBody")}
+      {/* Rate-wise tax summary + tax words (only when the bill carries GST) */}
+      {taxTotal > 0 && gstRows.length > 0 && (
+        <>
+          <table className="w-full border-collapse text-[10px]" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+            <thead>
+              <tr className="bg-gray-100">
+                <th className={cn(HEAD, "text-left")}>&nbsp;</th>
+                <th className={cn(HEAD, "text-right w-[86px]")}>{t("invd.colTaxable")}</th>
+                {intra ? (
+                  <>
+                    <th className={cn(HEAD, "text-right w-12")}>CGST</th>
+                    <th className={cn(HEAD, "text-right w-[70px]")}>{t("invd.colAmount")}</th>
+                    <th className={cn(HEAD, "text-right w-12")}>SGST</th>
+                    <th className={cn(HEAD, "text-right w-[70px]")}>{t("invd.colAmount")}</th>
+                  </>
+                ) : (
+                  <>
+                    <th className={cn(HEAD, "text-right w-12")}>IGST</th>
+                    <th className={cn(HEAD, "text-right w-[70px]")}>{t("invd.colAmount")}</th>
+                  </>
+                )}
+                <th className={cn(HEAD, "text-right w-[84px]")}>{t("invd.totalTaxAmt")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gstRows.map((r) => (
+                <tr key={r.rate}>
+                  <td className={cn(CELL, "font-semibold text-gray-800")} style={{ fontFamily: "var(--font-inter), sans-serif" }}>{intra ? `GST ${pct(r.rate)}` : `IGST ${pct(r.rate)}`}</td>
+                  <td className={cn(CELL, "text-right")}>{money(r.taxable)}</td>
+                  {intra ? (
+                    <>
+                      <td className={cn(CELL, "text-right")}>{pct(r.rate / 2)}</td>
+                      <td className={cn(CELL, "text-right")}>{money(r.cgst)}</td>
+                      <td className={cn(CELL, "text-right")}>{pct(r.rate / 2)}</td>
+                      <td className={cn(CELL, "text-right")}>{money(r.sgst)}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className={cn(CELL, "text-right")}>{pct(r.rate)}</td>
+                      <td className={cn(CELL, "text-right")}>{money(r.igst)}</td>
+                    </>
+                  )}
+                  <td className={cn(CELL, "text-right font-semibold")}>{money(intra ? r.cgst + r.sgst : r.igst)}</td>
+                </tr>
+              ))}
+              <tr className="bg-gray-50 font-bold">
+                <td className={cn(CELL, "text-right text-gray-900")} style={{ fontFamily: "var(--font-inter), sans-serif" }}>{t("invd.grandTotal")}:</td>
+                <td className={cn(CELL, "text-right")}>{money(gstRows.reduce((s, r) => s + r.taxable, 0))}</td>
+                {intra ? (
+                  <>
+                    <td className={CELL}>&nbsp;</td>
+                    <td className={cn(CELL, "text-right")}>{money(invoice.totalCgst)}</td>
+                    <td className={CELL}>&nbsp;</td>
+                    <td className={cn(CELL, "text-right")}>{money(invoice.totalSgst)}</td>
+                  </>
+                ) : (
+                  <>
+                    <td className={CELL}>&nbsp;</td>
+                    <td className={cn(CELL, "text-right")}>{money(invoice.totalIgst)}</td>
+                  </>
+                )}
+                <td className={cn(CELL, "text-right")}>{money(taxTotal)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div className="border border-t-0 border-gray-800 px-2 py-1">
+            <p className="text-[10.5px] text-gray-800">
+              <span className="font-semibold">{t("invd.taxWords")} :</span>{" "}
+              <span className="font-bold">{wordsINR(undefined, taxTotal)}</span>
+            </p>
+          </div>
+        </>
+      )}
+
+      {/* Delivery OTP — kept from the DMK flow, slim strip under tax words */}
+      {!invoice.isCounterSale && invoice.deliveryOtp ? (
+        <div className="border border-dashed border-gray-500 rounded-sm px-2 py-1 mt-1.5 flex items-center gap-3">
+          <div className="min-w-0">
+            <p className="text-[8.5px] font-bold uppercase tracking-wider text-gray-600">{t("invd.otpTitle")}</p>
+            <p className="text-[8px] text-gray-500 leading-snug">{t("invd.otpHint")}</p>
+          </div>
+          <p className="ml-auto text-[16px] font-black tracking-[0.4em] text-gray-900 shrink-0" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+            [{invoice.deliveryOtp.split("").join(" ")}]
           </p>
-          <p className="text-[10px] text-gray-600 mt-1.5">{t("invd.jurisdiction", { place: firm?.state ? firm.state : t("invd.local") })}</p>
         </div>
-        <div className="text-right flex flex-col justify-end">
-          <p className="text-[10px] text-gray-600 mb-10">{t("invd.forFirm")} <span className="font-bold text-gray-800">{firm?.firmName ?? "DMK Mart"}</span></p>
-          <p className="text-[10.5px] text-gray-700 border-t border-gray-400 inline-block pt-1 ml-auto w-40">{t("invd.signatory")}</p>
+      ) : null}
+
+      {/* PAN + Declaration | Bank details + signatures */}
+      <div className="border border-gray-800 mt-2">
+        <div className="px-2 py-1 border-b border-gray-800">
+          <p className="text-[10.5px] text-gray-900">
+            <span className="font-semibold">{t("invd.pan")}</span> : <span className="font-bold" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>{pan}</span>
+          </p>
+        </div>
+        <div className="grid grid-cols-2">
+          <div className="p-2 border-r border-gray-800">
+            <p className="text-[9px] font-bold uppercase tracking-wider text-gray-500 underline underline-offset-2">{t("invd.declaration")}</p>
+            <p className="text-[9.5px] text-gray-700 leading-snug mt-1">{t("invd.declarationBody")}</p>
+            <p className="text-[9px] text-gray-600 mt-1">{t("invd.jurisdiction", { place: firm?.state ? firm.state : t("invd.local") })}</p>
+            {billDiscAmt > 0 && (
+              <p className="text-[9px] text-gray-600 mt-1">
+                {t("invd.billDiscount")}: {Number(invoice.billDiscountPct) > 0 ? `${Number(invoice.billDiscountPct)}% ` : ""}− {money(billDiscAmt)}
+              </p>
+            )}
+          </div>
+          <div className="p-2 flex flex-col">
+            <p className="text-[9px] font-bold uppercase tracking-wider text-gray-500">{t("invd.bankDetails")}</p>
+            <div className="text-[9.5px] text-gray-800 mt-1 space-y-0.5" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+              <p>{t("invd.bankLbl")} : {firm?.bankName || "—"}</p>
+              <p>{t("invd.acLbl")} : {firm?.bankAccount || "—"}</p>
+              <p>{t("invd.ifscLbl")} : {firm?.ifsc || "—"}</p>
+            </div>
+            <p className="text-[10px] text-gray-800 mt-auto pt-3 text-right">
+              {t("invd.forFirm")} <span className="font-bold">{firm?.firmName ?? "DMK Mart"}</span>
+            </p>
+          </div>
+        </div>
+        <div className="border-t border-gray-800 grid grid-cols-2 px-2 py-1.5 items-end">
+          <p className="text-[9.5px] text-gray-700">{t("invd.sealSignature")}</p>
+          <p className="text-[9.5px] text-gray-700 text-right">{t("invd.signatory")}</p>
         </div>
       </div>
+
+      <p className="text-center text-[9px] uppercase tracking-wide text-gray-500 pt-1.5">{t("invd.computerGenerated")}</p>
 
       {/* Standard document footer — every page in the project ends with this */}
       <A4DocFooter className="mt-auto pt-2" note={footerNote} doc={footerDoc} page={page} totalPages={total} date={footerDate} />
@@ -600,39 +770,45 @@ function InvoiceBottomChrome({
   );
 }
 
-function InvoiceRow({ li, idx, intra }: { li: DetailLineItem; idx: number; intra: boolean }) {
-  const money = (n: number | string) => formatINR(Number(n));
+// ── Row renderers ───────────────────────────────────────────────
+
+function InvoiceRow({ li, idx }: { li: DetailLineItem; idx: number }) {
   // Effective per-line discount vs the tier base price — covers packaging
-  // bulk discounts AND booked-price overrides, so the printed bill shows
-  // exactly which products got a discount and which did not.
+  // bulk discounts AND booked-price overrides.
   const base = Number(li.baseTierPrice) || 0;
-  const unit = Number(li.unitPrice) || 0;
-  const effPct = base > 0 && unit < base ? Math.round(((base - unit) / base) * 1000) / 10 : 0;
+  const unitPrice = Number(li.unitPrice) || 0;
+  const effPct = base > 0 && unitPrice < base ? Math.round(((base - unitPrice) / base) * 1000) / 10 : 0;
   return (
     <tr>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-700">{idx}</td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-800">{li.sku}</td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-900">{li.productName}</td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-700 text-center">{li.hsnCode}</td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-900 text-right">{li.quantity}</td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10px] text-gray-600 text-center">{li.product?.unit ?? "PCS"}</td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-900 text-right">
+      <td className={cn(CELL, "text-[10px] text-gray-700 text-center align-top")}>{idx}</td>
+      <td className={cn(CELL, "text-[10.5px] text-gray-900 font-medium align-top")} style={{ fontFamily: "var(--font-inter), sans-serif" }}>
+        {li.productName}
+        <span className="block text-[8px] text-gray-400 leading-tight">{li.sku}</span>
+      </td>
+      <td className={cn(CELL, "text-[10px] text-gray-700 text-center align-top")}>{li.hsnCode}</td>
+      <td className={cn(CELL, "text-[10.5px] text-gray-900 text-right align-top")}>{qtyFmt(li.quantity)}</td>
+      <td className={cn(CELL, "text-[10.5px] text-gray-900 text-right align-top")}>
         {money(li.unitPrice)}
-        {effPct > 0 && Number(li.baseTierPrice) > 0 && (
-          <span className="block text-[8px] text-gray-400 line-through text-right leading-tight">{money(li.baseTierPrice)}</span>
+        {effPct > 0 && base > 0 && (
+          <span className="block text-[8px] text-gray-400 line-through leading-tight">{money(base)}</span>
         )}
       </td>
-      <td className={"border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-right " + (effPct > 0 ? "text-gray-900 font-semibold" : "text-gray-400")}>
-        {effPct > 0 ? `${effPct}%` : "—"}
-      </td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-900 text-right">{money(li.taxableAmount)}</td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-800 text-right">
-        {intra ? money(li.cgstAmount) : "—"}
-      </td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-800 text-right">
-        {intra ? money(li.sgstAmount) : money(li.igstAmount)}
-      </td>
-      <td className="border border-gray-300 px-1.5 py-1.5 text-[10.5px] text-gray-900 text-right font-semibold">{money(li.totalAmount)}</td>
+      <td className={cn(CELL, "text-[9.5px] text-gray-600 text-center align-top")}>{li.product?.unit ?? "NOS"}</td>
+      <td className={cn(CELL, "text-[10.5px] text-gray-900 text-right font-semibold align-top")}>{money(li.totalAmount)}</td>
+    </tr>
+  );
+}
+
+function TaxRow({ entry }: { entry: Extract<TrEntry, { kind: "tax" }> }) {
+  return (
+    <tr className="bg-gray-50/60">
+      <td className={CELL}>&nbsp;</td>
+      <td className={cn(CELL, "text-[10px] font-semibold text-gray-800 text-right italic")} style={{ fontFamily: "var(--font-inter), sans-serif" }}>{entry.label}</td>
+      <td className={CELL}>&nbsp;</td>
+      <td className={CELL}>&nbsp;</td>
+      <td className={cn(CELL, "text-[10px] text-gray-700 text-right")}>{pct(entry.ratePct)}</td>
+      <td className={CELL}>&nbsp;</td>
+      <td className={cn(CELL, "text-[10.5px] text-gray-900 text-right")}>{money(entry.amount)}</td>
     </tr>
   );
 }

@@ -46,6 +46,7 @@ export type ViewId =
   | "finance/gstr2b"
   | "finance/orders"
   | "docs/invoices"
+  | "docs/estimates"
   | "docs/notes"
   | "reports"
   | "ai"

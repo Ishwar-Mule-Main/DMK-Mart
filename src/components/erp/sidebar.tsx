@@ -36,6 +36,7 @@ import {
   CalendarClock,
   Timer,
   FileCheck2,
+  Calculator,
   FileWarning,
   ClipboardCheck,
   PackagePlus,
@@ -140,6 +141,7 @@ const SECTIONS: NavSection[] = [
     labelKey: "nav.documents",
     items: [
       { id: "docs/invoices", label: "Tax Invoices (A4)", key: "nav.taxInvoices", icon: FileCheck2 },
+      { id: "docs/estimates", label: "Estimates", key: "nav.estimates", icon: Calculator },
       { id: "docs/notes", label: "Credit / Debit Notes", key: "nav.notes", icon: FileWarning },
     ],
   },

@@ -712,3 +712,45 @@ export type CopilotChart =
       centerValue: number;
       slices: Array<{ label: string; value: number; color?: string }>;
     };
+
+// ─── ESTIMATES (GST-free quotation slips — no stock, no ledger) ──
+
+export interface EstimateItemRow {
+  id?: string;
+  slNo?: number;
+  productName: string;
+  unit: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+}
+
+export interface Estimate {
+  id: string;
+  firmId: string;
+  estimateNumber: string;
+  estimateDate: string;
+  partyName: string;
+  partyPhone: string;
+  partyCity: string;
+  totalQty: number;
+  totalAmount: number;
+  notes: string;
+  status: string;
+  items: EstimateItemRow[];
+  createdAt?: string;
+}
+
+export interface EstimateListRow {
+  id: string;
+  estimateNumber: string;
+  estimateDate: string;
+  partyName: string;
+  partyPhone: string;
+  partyCity: string;
+  totalQty: number;
+  totalAmount: number;
+  notes: string;
+  status: string;
+  itemCount: number;
+}

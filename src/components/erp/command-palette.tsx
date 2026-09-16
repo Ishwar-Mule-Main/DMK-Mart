@@ -12,7 +12,7 @@ import {
   ClipboardList, UndoIcon, Banknote, Truck, Package, Boxes, ArrowLeftRight,
   MapPinned, Route as RouteIcon, IdCard,
   FileText, AlertTriangle, BookOpen, ListTree, Landmark, PieChart,
-  CalendarDays, CalendarClock, Timer, FileCheck2, FileWarning, BarChart3, Bot, Settings,
+  CalendarDays, CalendarClock, Timer, FileCheck2, Calculator, FileWarning, BarChart3, Bot, Settings,
   Plus, Building2, Search, CornerDownLeft, RefreshCw, GitCompareArrows, Trash2,
   UsersRound, Wallet,
 } from "lucide-react";
@@ -64,6 +64,7 @@ const NAV_GROUPS: Array<{ heading: string; items: NavItem[] }> = [
       { id: "finance/gstr2b", label: "GSTR-2B Recon", icon: GitCompareArrows },
       { id: "finance/orders", label: "Order Book (Unbilled)", icon: ClipboardList },
       { id: "docs/invoices", label: "Tax Invoices (A4)", icon: FileCheck2 },
+      { id: "docs/estimates", label: "Estimates", icon: Calculator },
       { id: "docs/notes", label: "Credit / Debit Notes", icon: FileWarning },
       { id: "reports", label: "Reports & Exports", icon: BarChart3 },
       { id: "ai", label: "AI Copilot", icon: Bot, shortcut: "G A" },

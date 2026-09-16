@@ -156,11 +156,17 @@ export interface A4PaginateRefs {
  *
  * Returns the row indices that fit on every page, or null until the
  * first measurement lands. Row numbering offsets are the caller's job.
+ *
+ * `groups` (optional): sizes of atomic row clusters (e.g. an item row
+ * plus its CGST/SGST sub-rows = one group). A group is NEVER split
+ * across pages — it moves whole to the next page. Sum(groups) must
+ * equal rowCount.
  */
 export function useA4Paginate(
   rowCount: number,
   measureKey: string,
-  refs: A4PaginateRefs
+  refs: A4PaginateRefs,
+  groups?: number[]
 ): number[][] | null {
   const [pages, setPages] = React.useState<number[][] | null>(null);
   const { full, first, cont, last } = refs;
@@ -199,21 +205,34 @@ export function useA4Paginate(
     const capMid = capOf(contEl);
     const capLast = capOf(lastEl);
 
+    // Group expansion: heights of atomic clusters. A cluster of size 1
+    // is a plain row. With no groups every row is its own cluster.
+    const sizes =
+      groups && groups.length > 0 && groups.reduce((s, g) => s + g, 0) === rowCount
+        ? groups
+        : heights.map(() => 1);
+    const clusters = sizes.map((size, gi) => ({
+      size,
+      h: heights.slice(cumPrev(sizes, gi), cumPrev(sizes, gi) + size).reduce((s, h) => s + h, 0),
+      start: cumPrev(sizes, gi),
+    }));
+
     const out: number[][] = [];
     // Page 1 — full letterhead, no bottom chrome.
     let i = 0;
     let used = 0;
     const p1: number[] = [];
-    while (i < rowCount && (p1.length === 0 || used + heights[i] <= capFirst)) {
-      p1.push(i);
-      used += heights[i];
-      i++;
+    for (const c of clusters) {
+      if (p1.length > 0 && used + c.h > capFirst) break;
+      for (let k = 0; k < c.size; k++) p1.push(c.start + k);
+      used += c.h;
     }
+    i = p1.length;
     out.push(p1);
     // Middle / last pages.
     while (i < rowCount) {
-      const sumRest = heights.slice(i).reduce((s, h) => s + h, 0);
-      if (sumRest <= capLast) {
+      const restH = clusters.slice(clusterIndexOf(i, sizes)).reduce((s, c) => s + c.h, 0);
+      if (restH <= capLast) {
         // Everything remaining fits the last-page skeleton (band + bottom chrome).
         out.push(Array.from({ length: rowCount - i }, (_, k) => i + k));
         i = rowCount;
@@ -221,15 +240,19 @@ export function useA4Paginate(
       }
       const p: number[] = [];
       let u = 0;
-      while (i < rowCount && (p.length === 0 || u + heights[i] <= capMid)) {
-        p.push(i);
-        u += heights[i];
-        i++;
+      let gi = clusterIndexOf(i, sizes);
+      while (gi < clusters.length) {
+        const c = clusters[gi];
+        if (p.length > 0 && u + c.h > capMid) break;
+        for (let k = 0; k < c.size; k++) p.push(c.start + k);
+        u += c.h;
+        gi++;
       }
       out.push(p);
+      i += p.length;
     }
     setPages(out);
-  }, [full, first, cont, last, rowCount]);
+  }, [full, first, cont, last, rowCount, groups]);
 
   React.useLayoutEffect(() => {
     lastKeyRef.current = measureKey;
@@ -254,4 +277,21 @@ export function useA4Paginate(
     pages.reduce((s, p) => s + p.length, 0) === rowCount &&
     pages.every((p) => p.every((i) => i >= 0 && i < rowCount));
   return valid ? pages : null;
+}
+
+/** Prefix-sum helper: first row index of cluster gi. */
+function cumPrev(sizes: number[], gi: number): number {
+  let s = 0;
+  for (let k = 0; k < gi; k++) s += sizes[k];
+  return s;
+}
+
+/** Cluster index that owns row offset i. */
+function clusterIndexOf(i: number, sizes: number[]): number {
+  let acc = 0;
+  for (let gi = 0; gi < sizes.length; gi++) {
+    acc += sizes[gi];
+    if (i < acc) return gi;
+  }
+  return sizes.length;
 }
