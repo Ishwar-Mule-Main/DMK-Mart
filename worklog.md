@@ -1979,3 +1979,22 @@ Stage Summary:
 - The printable GST invoice now follows the owner's Tally/e-Invoice reference: seller/ship-to/bill-to + meta grid, HSN table with per-item CGST/SGST lines, total row, chargeable-words + E.&O.E., rate-wise tax summary, tax words, PAN/declaration/bank/signature block, computer-generated footer — multi-page A4 behavior preserved with atomic tax-row clustering (ITR-filing shape).
 - New Estimates section delivers the owner's second reference: GST-free A4 slips (company → buyer → Particulars/Nos/Rate/Amount → total numeric + in words → thank-you), with creation, numbering (EST/FY/NNNN), deletion, and multi-page printing — no stock or ledger impact.
 - Files: NEW api/v1/estimates/route.ts + [id]/route.ts + views/estimates.tsx; edited a4.tsx (groups), invoice-docs.tsx (rewritten), journal.ts (ESTIMATE numbering), erp-store.ts, app-shell.tsx, sidebar.tsx, command-palette.tsx, types/erp.ts, batch-sales.ts, dictionaries.ts, prisma/schema.prisma.
+
+---
+Task ID: 72-fix
+Agent: main (Z.ai Code)
+Task: User reported "preview is not working" — diagnose and restore the preview.
+
+Work Log:
+- Diagnosed: sandbox reset again — dev server dead (no process, empty dev.log) and .env DATABASE_URL fell back to SQLite (file:/home/z/my-project/db/). Project source intact (git clean except untracked tooling files); Task 72 deliverables (views/estimates.tsx, views/invoice-docs.tsx, api/v1/estimates/*, a4.tsx) all present.
+- Restored .env DATABASE_URL to the Neon pooler URL (same credentials as before).
+- Cleared port 3000 and restarted dev server with explicit env pass-through: (setsid env DATABASE_URL="$NEON_URL" bun run dev > dev.log 2>&1 &) — the known stale-shell-env trap avoided.
+- Verified Neon connectivity: GET /api/v1/firms returns DMK Mart (gstin 27ABCDE1234F1Z5, FY 2026-27) — production ledger, not SQLite.
+- Read-only browser QA via agent-browser: login gate renders → signed in as Kunal → owner dashboard renders (Executive cockpit, FY 2026-27, AI Copilot live) → navigated via command palette to Estimates view ("GST-free quotation slips — print-ready A4 estimates", empty state renders correctly). No writes performed.
+- dev.log clean: no errors/unhandled/failures after full session.
+- Recreated wiped cron job as 393147 (fixed_rate 900s, webDevReview) with updated payload including the sandbox-reset recovery recipe and read-only QA constraints.
+
+Stage Summary:
+- Preview restored and verified end-to-end: server up on :3000, Neon ledger connected, login + dashboard + Estimates view all render, zero runtime errors.
+- Root cause was sandbox reset #5 (server death + .env fallback to SQLite), not an app bug — no code changes needed.
+- Screenshots: /tmp/preview-fix-1.png (login), /tmp/preview-fix-estimates.png (Estimates view).
