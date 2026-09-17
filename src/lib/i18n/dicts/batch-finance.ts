@@ -746,6 +746,7 @@ export const enFinance = {
   "ob.billConverting": "Creating…",
   "ob.toastBilled": "Invoice {no} created",
   "ob.toastBillFailed": "Billing failed",
+  "ob.toastEstimateLinked": "Estimate {no} auto-created",
 };
 
 export const hiFinance: Record<keyof typeof enFinance, string> = {
@@ -1487,6 +1488,7 @@ export const hiFinance: Record<keyof typeof enFinance, string> = {
   "ob.billConverting": "Creating…",
   "ob.toastBilled": "Invoice {no} created",
   "ob.toastBillFailed": "Billing failed",
+  "ob.toastEstimateLinked": "Estimate {no} auto-created",
 };
 
 export const mrFinance: Record<keyof typeof enFinance, string> = {
@@ -2228,4 +2230,5 @@ export const mrFinance: Record<keyof typeof enFinance, string> = {
   "ob.billConverting": "Creating…",
   "ob.toastBilled": "Invoice {no} created",
   "ob.toastBillFailed": "Billing failed",
+  "ob.toastEstimateLinked": "Estimate {no} auto-created",
 };

@@ -75,7 +75,6 @@ export async function createFirmWithBooks(input: FirmSetupInput) {
       financialYear: input.financialYear?.trim() || "2025-26",
       invoicePrefix: input.invoicePrefix?.trim() || input.firmCode,
       logoUrl: input.logoUrl?.trim() || DEFAULT_LOGO_URL,
-      loginPassword: input.loginPassword?.trim() || "1234",
       openingCash,
       openingBank,
     },

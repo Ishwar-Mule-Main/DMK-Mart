@@ -63,6 +63,7 @@ interface ConvertResult {
   invoiceNumber: string;
   orderId: string;
   orderNumber: string;
+  estimateNumber?: string;
 }
 
 const PAY_MODES = ["CREDIT", "CASH", "UPI"] as const;
@@ -147,7 +148,7 @@ export default function OrderBookView() {
       });
       toast({
         title: t("ob.toastBilled", { no: res.invoiceNumber || billTarget.orderNumber }),
-        description: `${billTarget.customerName} · ${formatINR(billTarget.estimatedTotal)} · ${payMode}`,
+        description: `${billTarget.customerName} · ${formatINR(billTarget.estimatedTotal)} · ${payMode}${res.estimateNumber ? ` · ${t("ob.toastEstimateLinked", { no: res.estimateNumber })}` : ""}`,
       });
       setBillTarget(null);
       setRefreshTick((v) => v + 1); // order leaves the register (CONVERTED)

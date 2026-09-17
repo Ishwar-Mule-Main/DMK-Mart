@@ -46,6 +46,10 @@ const money = (n: number | null | undefined) => formatINR(Number(n ?? 0), false)
 const qtyFmt = (n: number | null | undefined) =>
   Number(n ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/** "… Rupees Only" → "INR … Only" — same words style the tax invoice prints. */
+const wordsINR = (amt: number) =>
+  `INR ${amountInWords(amt).replace(/\s*Rupees? Only\.?$/i, "").trim()} Only`;
+
 interface DraftRow {
   key: string;
   productName: string;
@@ -496,14 +500,13 @@ function A4EstimateSlip({
   const footerDoc = `${t("est.badge")} · ${estimate.estimateNumber}`;
   const footerDate = formatDate(estimate.estimateDate);
   const totalQty = items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
-  const rowsUnit = items[0]?.unit ?? "NOS";
 
   return (
     <>
       <A4MeasureTwin>
         <A4Replica replicaRef={fullRef}>
           <EstTopChrome estimate={estimate} firm={firm} />
-          <EstItemsTable items={items} totals={{ qty: totalQty, unit: rowsUnit, grand: Number(estimate.totalAmount) }} showTotalRow />
+          <EstItemsTable items={items} totals={{ qty: totalQty, grand: Number(estimate.totalAmount) }} showTotalRow />
           <EstBottomChrome estimate={estimate} firm={firm} page={1} total={1} footerNote={footerNote} footerDoc={footerDoc} footerDate={footerDate} />
         </A4Replica>
         <A4Replica replicaRef={firstRef}>
@@ -518,7 +521,7 @@ function A4EstimateSlip({
         </A4Replica>
         <A4Replica replicaRef={lastRef}>
           <EstContHeader estimate={estimate} firm={firm} page={1} total={1} />
-          <EstItemsTable items={[]} totals={{ qty: totalQty, unit: rowsUnit, grand: Number(estimate.totalAmount) }} showTotalRow />
+          <EstItemsTable items={[]} totals={{ qty: totalQty, grand: Number(estimate.totalAmount) }} showTotalRow />
           <EstBottomChrome estimate={estimate} firm={firm} page={1} total={1} footerNote={footerNote} footerDoc={footerDoc} footerDate={footerDate} />
         </A4Replica>
       </A4MeasureTwin>
@@ -538,7 +541,7 @@ function A4EstimateSlip({
                 <EstItemsTable
                   items={chunk}
                   offset={idxs.length ? idxs[0] : 0}
-                  totals={isLast ? { qty: totalQty, unit: rowsUnit, grand: Number(estimate.totalAmount) } : undefined}
+                  totals={isLast ? { qty: totalQty, grand: Number(estimate.totalAmount) } : undefined}
                   showTotalRow={isLast}
                 />
                 {isLast ? (
@@ -562,45 +565,78 @@ const EST_HEAD = "border border-gray-500 px-1.5 py-1 text-[9.5px] font-bold uppe
 
 function EstTopChrome({ estimate, firm }: { estimate: Estimate; firm?: Firm }) {
   const { t } = useT();
+
+  const metaPairs: Array<[string, string, boolean?]> = [
+    [t("est.estimateNo"), estimate.estimateNumber, true],
+    [t("est.date"), formatDate(estimate.estimateDate), true],
+    [t("invd.deliveryNote"), "—"],
+    [t("invd.modeTerms"), "—"],
+    [t("invd.refNoDate"), "—"],
+    [t("invd.otherRefs"), "—"],
+    [t("invd.buyerOrderNo"), "—"],
+    [t("invd.dated"), "—"],
+    [t("invd.dispatchDoc"), "—"],
+    [t("invd.dnDate"), "—"],
+    [t("invd.dispatchThrough"), "—"],
+    [t("invd.destination"), estimate.partyCity || "—", estimate.partyCity !== ""],
+  ];
+
   return (
     <>
-      {/* Company name block — centered, like the classic slip header */}
-      <div className="text-center border-b-2 border-gray-800 pb-3">
-        <div className="flex items-center justify-center gap-3">
-          { }
-          <img src={firm?.logoUrl ?? "/dmk-logo.png"} alt={`${firm?.firmName ?? "DMK Mart"} logo`} width={44} height={44} className="rounded-full shrink-0" />
-          <div className="text-left">
-            <h2 className="text-[20px] font-extrabold leading-tight text-gray-900 tracking-wide">{firm?.firmName ?? "DMK Mart"}</h2>
-            <p className="text-[10.5px] text-gray-600 leading-snug">
-              {firm?.address ?? ""}
-              {firm?.phone ? ` · Ph: ${firm.phone}` : ""}
-            </p>
+      {/* Title band — identical geometry to the tax invoice (QR slot left empty) */}
+      <div className="relative flex items-start justify-between pb-2">
+        <div className="w-24 shrink-0" />
+        <div className="text-center">
+          <h2 className="text-[18px] font-extrabold uppercase tracking-[0.08em] text-gray-900">{t("est.docTitle")}</h2>
+          <p className="text-[9.5px] text-gray-500 mt-0.5">{t("est.docSubtitle")}</p>
+        </div>
+        <div className="w-24 shrink-0" />
+      </div>
+
+      {/* Seller / Ship-to / Bill-to | estimate meta — the same bordered grid as the tax invoice */}
+      <div className="grid grid-cols-[1.15fr_1fr] border border-gray-800 text-gray-900">
+        {/* LEFT — seller, ship-to, bill-to */}
+        <div className="border-r border-gray-800 min-w-0">
+          <div className="p-2.5">
+            <p className="text-[13px] font-extrabold leading-tight">{firm?.firmName ?? "DMK Mart"}</p>
+            <p className="text-[10px] text-gray-700 mt-0.5 whitespace-pre-line leading-snug">{firm?.address ?? ""}</p>
+            <div className="text-[9.5px] mt-1 space-y-px" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+              <p>GSTIN/UIN : <span className="font-bold">{firm?.gstin || "—"}</span></p>
+              <p>State Name : {firm?.state ?? "—"}, Code : {firm?.stateCode || "—"}</p>
+            </div>
+            <div className="text-[9.5px] text-gray-700 mt-0.5">
+              {firm?.phone && <p>Ph : {firm.phone}</p>}
+              {firm?.email && <p>E-Mail : {firm.email}</p>}
+            </div>
+          </div>
+          <div className="p-2.5 border-t border-gray-500">
+            <p className="text-[8.5px] font-bold uppercase tracking-wider text-gray-500">{t("invd.consignee")}</p>
+            <p className="text-[12px] font-bold leading-snug mt-0.5">{estimate.partyName}</p>
+            {estimate.partyCity && <p className="text-[10px] text-gray-700">{estimate.partyCity}</p>}
+            {estimate.partyPhone && <p className="text-[9.5px] text-gray-700 mt-0.5">Ph : {estimate.partyPhone}</p>}
+          </div>
+          <div className="p-2.5 border-t border-gray-500">
+            <p className="text-[8.5px] font-bold uppercase tracking-wider text-gray-500">{t("invd.buyer")}</p>
+            <p className="text-[12px] font-bold leading-snug mt-0.5">{estimate.partyName}</p>
+            {estimate.partyCity && <p className="text-[10px] text-gray-700">{estimate.partyCity}</p>}
+            {estimate.partyPhone && <p className="text-[9.5px] text-gray-700 mt-0.5">Ph : {estimate.partyPhone}</p>}
           </div>
         </div>
-        <p className="mt-2 inline-block text-[13px] font-extrabold uppercase tracking-[0.35em] text-gray-900 border-y-2 border-gray-800 px-4 py-0.5">
-          {t("est.docTitle")}
-        </p>
-      </div>
 
-      {/* Estimate meta row */}
-      <div className="flex items-center justify-between gap-4 pt-2 pb-1.5 text-[11px]" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
-        <span className="text-gray-700">
-          {t("est.estimateNo")}: <span className="font-bold text-gray-900">{estimate.estimateNumber}</span>
-        </span>
-        <span className="text-gray-700">
-          {t("est.date")}: <span className="font-bold text-gray-900">{formatDate(estimate.estimateDate)}</span>
-        </span>
-      </div>
-
-      {/* Buyer block */}
-      <div className="border border-gray-800 px-2.5 py-2 flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-[8.5px] font-bold uppercase tracking-wider text-gray-500">{t("est.buyer")}</p>
-          <p className="text-[13px] font-bold text-gray-900 leading-snug truncate">{estimate.partyName}</p>
-        </div>
-        <div className="text-right text-[10px] text-gray-700 shrink-0">
-          {estimate.partyPhone && <p>Ph: {estimate.partyPhone}</p>}
-          {estimate.partyCity && <p>{estimate.partyCity}</p>}
+        {/* RIGHT — estimate meta cells (same grid as the invoice) */}
+        <div className="grid grid-cols-2 content-start">
+          {metaPairs.map(([label, value, strong], i) => (
+            <div key={`${label}-${i}`} className={cn("px-2 py-1 border-b border-gray-400 min-h-[26px]", i % 2 === 0 && "border-r border-gray-400")}>
+              <p className="text-[8px] font-semibold uppercase tracking-wide text-gray-500 leading-tight">{label}</p>
+              <p className={cn("text-[10px] leading-tight mt-0.5 truncate", strong ? "font-bold" : "text-gray-600")} style={strong ? { fontFamily: "var(--font-jetbrains), monospace" } : undefined}>
+                {value}
+              </p>
+            </div>
+          ))}
+          <div className="px-2 py-1 col-span-2 border-b border-gray-400 min-h-[26px]">
+            <p className="text-[8px] font-semibold uppercase tracking-wide text-gray-500 leading-tight">{t("invd.termsDelivery")}</p>
+            <p className="text-[10px] text-gray-600 leading-tight mt-0.5">—</p>
+          </div>
         </div>
       </div>
     </>
@@ -618,7 +654,7 @@ function EstContHeader({ estimate, firm, page, total }: { estimate: Estimate; fi
           {t("est.docTitle")} <span className="font-semibold text-gray-500 normal-case">— {t("est.contd")}</span>
         </p>
         <p className="mt-0.5 text-[10.5px] text-gray-600 truncate">
-          {firm?.firmName ?? "DMK Mart"} · {t("est.buyer")} {estimate.partyName}
+          {firm?.firmName ?? "DMK Mart"} · {t("est.buyer")} {estimate.partyName} · {formatDate(estimate.estimateDate)}
         </p>
       </div>
       <div className="shrink-0 text-right">
@@ -631,7 +667,8 @@ function EstContHeader({ estimate, firm, page, total }: { estimate: Estimate; fi
   );
 }
 
-// ── Items table: # | Particulars | Nos | Rate | Amount ──────────
+// ── Items table: Sl | Description of Goods | Quantity | Rate | per | Amount
+// (the tax invoice's table minus HSN/SAC and minus every GST row)
 
 function EstItemsTable({
   items,
@@ -641,7 +678,7 @@ function EstItemsTable({
 }: {
   items: EstimateItemRow[];
   offset?: number;
-  totals?: { qty: number; unit: string; grand: number };
+  totals?: { qty: number; grand: number };
   showTotalRow?: boolean;
 }) {
   const { t } = useT();
@@ -649,44 +686,39 @@ function EstItemsTable({
     <table className="mt-2 w-full border-collapse" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
       <thead>
         <tr className="bg-gray-100">
-          <th className={cn(EST_HEAD, "text-left w-8")}>#</th>
-          <th className={cn(EST_HEAD, "text-left")}>{t("est.colParticulars")}</th>
-          <th className={cn(EST_HEAD, "text-right w-20")}>{t("est.colNos")}</th>
-          <th className={cn(EST_HEAD, "text-right w-20")}>{t("est.colRate")}</th>
-          <th className={cn(EST_HEAD, "text-right w-[90px]")}>{t("est.colAmount")}</th>
+          <th className={cn(EST_HEAD, "text-left w-8")}>{t("invd.slNo")}</th>
+          <th className={cn(EST_HEAD, "text-left")}>{t("invd.descGoods")}</th>
+          <th className={cn(EST_HEAD, "text-right w-16")}>{t("invd.quantityCol")}</th>
+          <th className={cn(EST_HEAD, "text-right w-16")}>{t("est.colRate")}</th>
+          <th className={cn(EST_HEAD, "text-center w-10")}>{t("invd.per")}</th>
+          <th className={cn(EST_HEAD, "text-right w-[84px]")}>{t("est.colAmount")}</th>
         </tr>
       </thead>
       <tbody data-a4-rows>
         {items.length === 0 && !showTotalRow && (
           <tr>
-            <td colSpan={5} className="border border-gray-400 px-2 py-4 text-center text-[11px] text-gray-500" style={{ fontFamily: "var(--font-inter), sans-serif" }}>{t("est.noLines")}</td>
+            <td colSpan={6} className="border border-gray-400 px-2 py-4 text-center text-[11px] text-gray-500" style={{ fontFamily: "var(--font-inter), sans-serif" }}>{t("est.noLines")}</td>
           </tr>
         )}
         {items.map((it, k) => (
           <tr key={it.id ?? `row-${offset + k}`}>
-            <td className={cn(EST_CELL, "text-[10.5px] text-gray-700 text-center align-top")}>{offset + k + 1}</td>
-            <td className={cn(EST_CELL, "text-[11px] text-gray-900 font-medium align-top")} style={{ fontFamily: "var(--font-inter), sans-serif" }}>
+            <td className={cn(EST_CELL, "text-[10px] text-gray-700 text-center align-top")}>{offset + k + 1}</td>
+            <td className={cn(EST_CELL, "text-[10.5px] text-gray-900 font-medium align-top")} style={{ fontFamily: "var(--font-inter), sans-serif" }}>
               {it.productName}
             </td>
-            <td className={cn(EST_CELL, "text-[10.5px] text-gray-900 text-right align-top")}>
-              {qtyFmt(it.quantity)}
-              <span className="block text-[8px] text-gray-400 leading-tight">{it.unit}</span>
-            </td>
+            <td className={cn(EST_CELL, "text-[10.5px] text-gray-900 text-right align-top")}>{qtyFmt(it.quantity)}</td>
             <td className={cn(EST_CELL, "text-[10.5px] text-gray-900 text-right align-top")}>{money(it.rate)}</td>
+            <td className={cn(EST_CELL, "text-[9.5px] text-gray-600 text-center align-top")}>{it.unit}</td>
             <td className={cn(EST_CELL, "text-[10.5px] text-gray-900 text-right font-semibold align-top")}>{money(it.amount)}</td>
           </tr>
         ))}
         {showTotalRow && totals && (
-          <tr className="bg-gray-100">
-            <td colSpan={2} className={cn(EST_CELL, "text-right font-bold text-[11px] text-gray-900")} style={{ fontFamily: "var(--font-inter), sans-serif" }}>
-              {t("est.total")}
-            </td>
-            <td className={cn(EST_CELL, "text-right font-bold text-[10.5px]")}>
-              {qtyFmt(totals.qty)}
-              <span className="block text-[8px] text-gray-500 leading-tight">{totals.unit}</span>
-            </td>
+          <tr className="bg-gray-50">
+            <td colSpan={2} className={cn(EST_CELL, "text-right font-bold text-[11px] text-gray-900")}>{t("invd.grandTotal")}</td>
+            <td className={cn(EST_CELL, "text-right font-bold text-[10.5px]")}>{qtyFmt(totals.qty)}</td>
             <td className={EST_CELL}>&nbsp;</td>
-            <td className={cn(EST_CELL, "text-right font-extrabold text-[12px] text-gray-900")}>₹ {money(totals.grand)}</td>
+            <td className={EST_CELL}>&nbsp;</td>
+            <td className={cn(EST_CELL, "text-right font-extrabold text-[11.5px] text-gray-900")}>₹ {money(totals.grand)}</td>
           </tr>
         )}
       </tbody>
@@ -694,7 +726,7 @@ function EstItemsTable({
   );
 }
 
-// ── Bottom chrome: total in words + thank you ───────────────────
+// ── Bottom chrome: total in words + declaration/bank + thank you ──
 
 function EstBottomChrome({
   estimate,
@@ -716,13 +748,16 @@ function EstBottomChrome({
   const { t } = useT();
   return (
     <>
-      {/* Total in words — bordered band like the reference slip */}
+      {/* Total (in words) — the invoice's chargeable-words band, GST-free number */}
       <div className="border border-t-2 border-gray-800 mt-2">
         <p className="text-[8.5px] font-semibold uppercase tracking-wider text-gray-500 px-2 pt-1">{t("est.totalWords")}</p>
-        <p className="text-[11.5px] font-bold text-gray-900 px-2 pb-1.5 pt-0.5 leading-snug">{amountInWords(Number(estimate.totalAmount))}</p>
+        <div className="flex items-baseline justify-between gap-4 px-2 pb-1.5 pt-0.5">
+          <p className="text-[11.5px] font-bold text-gray-900 leading-snug">{wordsINR(Number(estimate.totalAmount))}</p>
+          <p className="text-[10px] italic text-gray-500 shrink-0">{t("invd.eoe")}</p>
+        </div>
       </div>
 
-      {/* Notes */}
+      {/* Notes — the auto-generated origin stamp lands here */}
       {estimate.notes && (
         <div className="border border-gray-400 px-2 py-1.5 mt-1.5">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-gray-500">{t("est.notes")}</p>
@@ -730,16 +765,40 @@ function EstBottomChrome({
         </div>
       )}
 
+      {/* Declaration | Bank details + signatures — invoice's block, minus PAN (no tax identity) */}
+      <div className="border border-gray-800 mt-2">
+        <div className="grid grid-cols-2">
+          <div className="p-2 border-r border-gray-800">
+            <p className="text-[9px] font-bold uppercase tracking-wider text-gray-500 underline underline-offset-2">{t("invd.declaration")}</p>
+            <p className="text-[9.5px] text-gray-700 leading-snug mt-1">{t("est.declarationBody")}</p>
+            <p className="text-[9px] text-gray-600 mt-1">{t("invd.jurisdiction", { place: firm?.state ? firm.state : t("invd.local") })}</p>
+          </div>
+          <div className="p-2 flex flex-col">
+            <p className="text-[9px] font-bold uppercase tracking-wider text-gray-500">{t("invd.bankDetails")}</p>
+            <div className="text-[9.5px] text-gray-800 mt-1 space-y-0.5" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+              <p>{t("invd.bankLbl")} : {firm?.bankName || "—"}</p>
+              <p>{t("invd.acLbl")} : {firm?.bankAccount || "—"}</p>
+              <p>{t("invd.ifscLbl")} : {firm?.ifsc || "—"}</p>
+            </div>
+            <p className="text-[10px] text-gray-800 mt-auto pt-3 text-right">
+              {t("invd.forFirm")} <span className="font-bold">{firm?.firmName ?? "DMK Mart"}</span>
+            </p>
+          </div>
+        </div>
+        <div className="border-t border-gray-800 grid grid-cols-2 px-2 py-1.5 items-end">
+          <p className="text-[9.5px] text-gray-700">{t("invd.sealSignature")}</p>
+          <p className="text-[9.5px] text-gray-700 text-right">{t("invd.signatory")}</p>
+        </div>
+      </div>
+
       {/* Thank-you note */}
-      <div className="flex-1 flex items-center justify-center py-5">
+      <div className="flex-1 flex items-center justify-center py-4">
         <p className="inline-block border-y-2 border-gray-800 px-6 py-1 text-[13px] font-extrabold uppercase tracking-[0.18em] text-gray-900" style={{ fontFamily: "var(--font-inter), sans-serif" }}>
           {t("est.thanks")}
         </p>
       </div>
 
-      <p className="text-center text-[9px] uppercase tracking-wide text-gray-500 pb-0.5">
-        {firm?.firmName ?? "DMK Mart"}{firm?.phone ? ` · ${firm.phone}` : ""}
-      </p>
+      <p className="text-center text-[9px] uppercase tracking-wide text-gray-500 pb-0.5">{t("est.computerGenerated")}</p>
 
       {/* Standard document footer */}
       <A4DocFooter className="mt-auto pt-2" note={footerNote} doc={footerDoc} page={page} totalPages={total} date={footerDate} />

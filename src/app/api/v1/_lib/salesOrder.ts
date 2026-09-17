@@ -298,6 +298,68 @@ export async function releaseOrderReservationOnCancel(orderId: string): Promise<
 }
 
 /**
+ * Auto-mirror estimate: the moment an order becomes a tax invoice, a
+ * GST-free estimation slip is born with the SAME products and customer
+ * (owner's rule — every billed order prints two documents: the tax
+ * invoice for the books and the estimate slip for the customer).
+ * Amounts mirror the invoice line by line: rate = quoted unit price,
+ * amount = post-discount taxable value, so the slip's total equals the
+ * invoice's taxable subtotal (the grand total minus GST).
+ * Failures are logged and swallowed — billing must never break because
+ * the mirror slip could not be written.
+ */
+async function createMirrorEstimate(
+  firm: FirmRow,
+  order: { orderNumber: string; customerId: string | null; items: Array<{ productId: string; unit: string }> },
+  invoice: { id: string; invoiceNumber: string; invoiceDate: Date; lineItems: Array<{ productId: string; productName: string; quantity: number; unitPrice: number; taxableAmount: number }> }
+): Promise<string> {
+  try {
+    const customer = order.customerId
+      ? await db.customer.findUnique({
+          where: { id: order.customerId },
+          select: { partyName: true, phone: true, city: true },
+        })
+      : null;
+
+    const unitByProduct = new Map(order.items.map((i) => [i.productId, i.unit]));
+    const items = invoice.lineItems
+      .filter((l) => l.quantity > 0)
+      .map((l, i) => ({
+        slNo: i + 1,
+        productName: l.productName,
+        unit: (unitByProduct.get(l.productId) ?? "NOS").toUpperCase().slice(0, 8),
+        quantity: l.quantity,
+        rate: round2(l.unitPrice),
+        amount: round2(l.taxableAmount),
+      }));
+    if (items.length === 0) return "";
+
+    return await dbTx(async (tx) => {
+      const estimateNumber = await nextDocNumber("ESTIMATE", firm.id, firm.invoicePrefix, fyLabelForDate(invoice.invoiceDate));
+      await tx.estimate.create({
+        data: {
+          firmId: firm.id,
+          estimateNumber,
+          estimateDate: invoice.invoiceDate,
+          partyName: customer?.partyName || "Walk-in Customer",
+          partyPhone: customer?.phone ?? "",
+          partyCity: customer?.city ?? "",
+          totalQty: round2(items.reduce((s, it) => s + it.quantity, 0)),
+          totalAmount: round2(items.reduce((s, it) => s + it.amount, 0)),
+          notes: `Auto-generated from Sales Order ${order.orderNumber} · Tax Invoice ${invoice.invoiceNumber}`,
+          status: "OPEN",
+          items: { create: items },
+        },
+      });
+      return estimateNumber;
+    });
+  } catch (err) {
+    console.error(`[estimate-mirror] slip for invoice ${invoice.invoiceNumber} failed:`, err);
+    return "";
+  }
+}
+
+/**
  * Trip-planner auto-billing: convert a BOOKED/CONFIRMED sales order
  * into a real tax invoice through the standard engine (tier pricing,
  * stock decrement, ledger, journals), carry the SO's Delivery OTP,
@@ -307,7 +369,7 @@ export async function convertSalesOrderToInvoice(
   firm: FirmRow,
   salesOrderId: string,
   options?: { paymentMode?: string; invoiceDate?: Date }
-): Promise<{ invoiceId: string; invoiceNumber: string; orderId: string; orderNumber: string }> {
+): Promise<{ invoiceId: string; invoiceNumber: string; orderId: string; orderNumber: string; estimateNumber: string }> {
   const order = await db.salesOrder.findFirst({
     where: { id: salesOrderId, firmId: firm.id },
     include: { items: true },
@@ -319,6 +381,7 @@ export async function convertSalesOrderToInvoice(
       invoiceNumber: "",
       orderId: order.id,
       orderNumber: order.orderNumber,
+      estimateNumber: "",
     };
   }
   if (order.status === "CANCELLED") {
@@ -362,10 +425,15 @@ export async function convertSalesOrderToInvoice(
     });
   });
 
+  // The owner's pair: every billed order also carries a GST-free
+  // estimation slip with the same products + customer, ready to print.
+  const estimateNumber = await createMirrorEstimate(firm, order, invoice!);
+
   return {
     invoiceId: invoice!.id,
     invoiceNumber: invoice!.invoiceNumber,
     orderId: order.id,
     orderNumber: order.orderNumber,
+    estimateNumber,
   };
 }

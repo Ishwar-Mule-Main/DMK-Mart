@@ -573,7 +573,7 @@ export const enSales = {
 
   // ── est.* — Estimates (GST-free slips) ───────────────────────
   "est.title": "Estimates",
-  "est.subtitle": "GST-free quotation slips — print-ready A4 estimates",
+  "est.subtitle": "GST-free slips — same layout as the tax invoice, minus GST",
   "est.new": "New Estimate",
   "est.searchPh": "Search estimate # or buyer…",
   "est.empty": "No estimates yet",
@@ -624,6 +624,9 @@ export const enSales = {
   "est.itemsRequired": "Add at least one item with a name and a quantity",
   "est.pagesExact": "{n} page(s) · A4 210×297mm",
   "est.footerNote": "Estimate only — not a tax invoice; no GST charged.",
+  "est.docSubtitle": "Not a Tax Invoice — No GST Charged",
+  "est.declarationBody": "We declare that this estimate shows the actual price of the goods described and that all particulars are true and correct. This estimate carries no GST and is not a tax invoice.",
+  "est.computerGenerated": "This is a Computer Generated Estimate",
 
   // ── rcpt.* — Customer Receipts ───────────────────────────────
   "rcpt.title": "Customer Receipts",
@@ -1632,7 +1635,7 @@ export const hiSales: Record<keyof typeof enSales, string> = {
 
   // ── est.* — Estimates (GST-free slips) ───────────────────────
   "est.title": "Estimates",
-  "est.subtitle": "GST-free quotation slips — print-ready A4 estimates",
+  "est.subtitle": "GST-free slips — same layout as the tax invoice, minus GST",
   "est.new": "New Estimate",
   "est.searchPh": "Search estimate # or buyer…",
   "est.empty": "No estimates yet",
@@ -1683,6 +1686,9 @@ export const hiSales: Record<keyof typeof enSales, string> = {
   "est.itemsRequired": "Add at least one item with a name and a quantity",
   "est.pagesExact": "{n} page(s) · A4 210×297mm",
   "est.footerNote": "Estimate only — not a tax invoice; no GST charged.",
+  "est.docSubtitle": "Not a Tax Invoice — No GST Charged",
+  "est.declarationBody": "We declare that this estimate shows the actual price of the goods described and that all particulars are true and correct. This estimate carries no GST and is not a tax invoice.",
+  "est.computerGenerated": "This is a Computer Generated Estimate",
 
   // ── rcpt.* — Customer Receipts ───────────────────────────────
   "rcpt.title": "ग्राहक प्राप्तियाँ",
@@ -2691,7 +2697,7 @@ export const mrSales: Record<keyof typeof enSales, string> = {
 
   // ── est.* — Estimates (GST-free slips) ───────────────────────
   "est.title": "Estimates",
-  "est.subtitle": "GST-free quotation slips — print-ready A4 estimates",
+  "est.subtitle": "GST-free slips — same layout as the tax invoice, minus GST",
   "est.new": "New Estimate",
   "est.searchPh": "Search estimate # or buyer…",
   "est.empty": "No estimates yet",
@@ -2742,6 +2748,9 @@ export const mrSales: Record<keyof typeof enSales, string> = {
   "est.itemsRequired": "Add at least one item with a name and a quantity",
   "est.pagesExact": "{n} page(s) · A4 210×297mm",
   "est.footerNote": "Estimate only — not a tax invoice; no GST charged.",
+  "est.docSubtitle": "Not a Tax Invoice — No GST Charged",
+  "est.declarationBody": "We declare that this estimate shows the actual price of the goods described and that all particulars are true and correct. This estimate carries no GST and is not a tax invoice.",
+  "est.computerGenerated": "This is a Computer Generated Estimate",
 
   // ── rcpt.* — Customer Receipts ───────────────────────────────
   "rcpt.title": "ग्राहक पावत्या",
