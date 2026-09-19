@@ -116,7 +116,8 @@ export interface MovementInput {
     | "PURCHASE_RETURN_DAMAGE"
     | "STOCK_ADJUSTMENT"
     | "WRITE_OFF"
-    | "OPENING";
+    | "OPENING"
+    | "WAREHOUSE_TRANSFER";
   quantity: number;
   targetPool: "SELLABLE" | "DAMAGED";
   direction: "IN" | "OUT";

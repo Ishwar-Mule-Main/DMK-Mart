@@ -71,6 +71,13 @@ model Firm {
   recurringTemplates RecurringTemplate[]
   deletedRecords    DeletedRecord[]
   estimates         Estimate[]
+
+  // ── Universal Inventory Management (dedicated /inventory portal) ──
+  warehouses            Warehouse[]
+  integrationPortals    IntegrationPortal[]
+  inventorySyncLogs     SyncLog[]
+  inventorySyncSetting  InventorySyncSetting?
+  inventoryAuth         InventoryAuth?
 }
 
 // ─── DELETED DATA (recycle bin) ──────────────────────────────────
@@ -144,6 +151,11 @@ model Product {
   piecesPerBox      Int      @default(1) // logistics: units per full box (boxes/loose split on trip planner)
   barcode           String?
   photoUrl          String? // live Cloudinary WebP product image (inventory PHOTO column)
+  imageFileName     String  @default("") // canonical file name — "Brand Name + Product Name" slug (universal inventory naming standard)
+  imageVerified     String  @default("PENDING") // PENDING | NO_IMAGE | MATCHED | MISMATCH — AI image-vs-name check
+  imageMatchName    String  @default("") // product name read off the image by the AI verifier
+  imageVerifiedAt   DateTime?
+  sourcePortal      String  @default("ERP") // which platform created it: ERP | INVENTORY | <portal name> — universal sync attribution
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -157,6 +169,7 @@ model Product {
   recurringTemplateItems RecurringTemplateItem[]
   salesOrderItems       SalesOrderItem[]
   stagedItems           StagedItem[]
+  warehouseStocks       WarehouseStock[]
 
   @@unique([firmId, sku])
   @@index([firmId, name])
@@ -1148,4 +1161,131 @@ model ExpenseVoucher {
 
   @@index([firmId, expenseDate])
   @@index([firmId, categoryId])
+}
+
+// ══════════════════════════════════════════════════════════════════
+// UNIVERSAL INVENTORY MANAGEMENT — dedicated /inventory portal
+// One product catalog + warehouse stocking shared by every DMK
+// platform (ERP · B2B store · Franchise/B2C). External platforms
+// integrate over the /api/universal/v1 API with their portal API
+// key and only ever see TOTAL stock — warehouse placement stays
+// private to this portal.
+// ══════════════════════════════════════════════════════════════════
+
+model Warehouse {
+  id        String   @id @default(cuid())
+  firmId    String
+  firm      Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  code      String // WH-MAIN, WH-NORTH …
+  name      String
+  type      String   @default("MAIN") // MAIN | SATELLITE | TRANSIT | QC_DAMAGED | FRANCHISE
+  address   String   @default("")
+  city      String   @default("")
+  manager   String   @default("")
+  phone     String   @default("")
+  isDefault Boolean  @default(false) // default receiving warehouse for ERP/universal stock changes
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stocks WarehouseStock[]
+
+  @@unique([firmId, code])
+  @@index([firmId, isActive])
+}
+
+// Per-warehouse stock rows. Invariant enforced by every stock touch:
+// Σ(warehouseStock.quantity) == Product.stockQuantity  (the total is
+// the only number other portals can see — never the breakdown).
+model WarehouseStock {
+  id          String    @id @default(cuid())
+  firmId      String
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity    Float     @default(0) // sellable in this warehouse
+  reservedQty Float     @default(0) // held for confirmed orders (part of quantity)
+  damagedQty  Float     @default(0) // quarantined in this warehouse
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([warehouseId, productId])
+  @@index([firmId, productId])
+}
+
+// A registered external platform that shares this inventory:
+// DMK Mart ERP · B2B ecommerce platform · Franchise & B2C software.
+model IntegrationPortal {
+  id              String    @id @default(cuid())
+  firmId          String
+  firm            Firm      @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  name            String
+  kind            String    @default("ERP") // ERP | B2B_STORE | FRANCHISE_B2C
+  apiKey          String    @unique // sent as X-API-Key on /api/universal/v1/*
+  baseUrl         String    @default("") // where the platform lives (informational + webhook hint)
+  webhookUrl      String    @default("") // POST target for outbound sync pushes (new/updated products)
+  contactEmail    String    @default("")
+  status          String    @default("ACTIVE") // ACTIVE | SUSPENDED | REVOKED
+  autoSync        Boolean   @default(true) // included in the automatic 30/60-min reconciliation
+  lastSyncAt      DateTime?
+  lastSyncStatus  String    @default("") // OK | ERROR | PARTIAL
+  lastSyncMessage String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  syncLogs SyncLog[]
+
+  @@unique([firmId, name])
+  @@index([firmId, status])
+}
+
+// Durable audit trail of every sync/reconciliation pass (manual,
+// automatic and per-portal health checks).
+model SyncLog {
+  id            String             @id @default(cuid())
+  firmId        String
+  firm          Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  portalId      String?
+  portal        IntegrationPortal? @relation(fields: [portalId], references: [id], onDelete: SetNull)
+  portalName    String             @default("") // snapshot — survives portal deletion
+  trigger       String             @default("AUTO") // AUTO | MANUAL | API
+  direction     String             @default("RECONCILE") // INBOUND | OUTBOUND | RECONCILE
+  action        String // FULL_RECONCILE | PUSH_PRODUCTS | HEALTH_PING | BULK_IMPORT | STOCK_ROLLUP
+  productsSeen  Int                @default(0)
+  created       Int                @default(0)
+  updated       Int                @default(0)
+  skipped       Int                @default(0)
+  status        String             @default("OK") // RUNNING | OK | PARTIAL | ERROR
+  message       String             @default("")
+  startedAt     DateTime           @default(now())
+  finishedAt    DateTime?
+  durationMs    Int?
+  @@index([firmId, startedAt])
+  @@index([firmId, portalId])
+}
+
+// Singleton per firm — the 30/60-minute universal re-check cadence.
+model InventorySyncSetting {
+  id           String    @id @default(cuid())
+  firmId       String    @unique
+  firm         Firm      @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  intervalMin  Int       @default(30) // 30 or 60
+  autoSync     Boolean   @default(true)
+  pushWebhook  Boolean   @default(true) // push catalog changes to portals' webhookUrl
+  lastRunAt    DateTime?
+  nextRunAt    DateTime?
+  updatedAt    DateTime  @updatedAt
+}
+
+// /inventory portal credentials — password stored as pbkdf2-sha256
+// (100k iterations, per-row salt). Never a plain string at rest.
+model InventoryAuth {
+  id           String   @id @default(cuid())
+  firmId       String   @unique
+  firm         Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  username     String   @default("Kunal")
+  passwordHash String // pbkdf2$<iterations>$<salt>$<hash>
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }

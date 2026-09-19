@@ -48,11 +48,6 @@ const NAV_GROUPS: Array<{ heading: string; items: NavItem[] }> = [
       { id: "purchase/returns", label: "Purchase Returns", icon: UndoIcon },
       { id: "purchase/payments", label: "Vendor Payments", icon: Banknote },
       { id: "purchase/vendors", label: "Vendors", icon: Truck },
-      { id: "inventory/products", label: "Products", icon: Package },
-      { id: "inventory/stock", label: "Stock Levels", icon: Boxes },
-      { id: "inventory/movements", label: "Stock Movements", icon: ArrowLeftRight },
-      { id: "inventory/bulk-upload", label: "Bulk Upload", icon: FileText },
-      { id: "inventory/low-stock", label: "Low Stock Alerts", icon: AlertTriangle },
       { id: "finance/journals", label: "Journals", icon: BookOpen },
       { id: "finance/coa", label: "Chart of Accounts", icon: ListTree },
       { id: "finance/expense-record", label: "Record Expense", icon: Wallet },
@@ -82,7 +77,6 @@ const ACTIONS: Array<{ id: string; label: string; icon: React.ElementType; view:
   { id: "act-receipt", label: "Record Customer Receipt", icon: Receipt, view: "sales/receipts", hint: "Collect receivable" },
   { id: "act-recurring", label: "New Recurring Template", icon: Plus, view: "sales/recurring", hint: "Standing-order auto billing" },
   { id: "act-payment", label: "Record Vendor Payment", icon: Banknote, view: "purchase/payments", hint: "Pay payable" },
-  { id: "act-product", label: "Add Product", icon: Package, view: "inventory/products", hint: "5-tier pricing master" },
   { id: "act-firm", label: "Create / Switch Firm", icon: Building2, view: "settings", hint: "Owner workspace" },
 ];
 
@@ -201,18 +195,7 @@ export function CommandPalette() {
           </CommandGroup>
         )}
 
-        {hits.products.length > 0 && (
-          <CommandGroup heading="Products">
-            {hits.products.map((p) => (
-              <CommandItem key={p.id} value={`product-${p.sku}-${p.name}`} onSelect={() => go("inventory/products")} className="gap-2.5">
-                <Package className="h-4 w-4 text-dmk-info" strokeWidth={1.75} />
-                <span className="font-mono text-[11px] text-dmk-text-muted">{p.sku}</span>
-                <span className="text-[13px] truncate">{p.name}</span>
-                <span className="ml-auto font-money text-[11.5px] text-dmk-text-secondary">stock {p.stockQuantity}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
+        {/* Product search results moved to the Universal Inventory portal (its own deep search at /inventory). */}
 
         {hits.customers.length > 0 && (
           <CommandGroup heading="Parties">

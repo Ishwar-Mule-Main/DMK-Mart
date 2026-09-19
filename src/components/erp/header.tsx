@@ -171,7 +171,7 @@ export function Header() {
         kind: "stock",
         title: `${a.name} ${t("hdr.belowThreshold")}`,
         detail: `${a.sku} · ${t("pal.stock")} ${a.stockQuantity} ≤ ${a.lowStockThreshold}`,
-        view: "inventory/low-stock",
+        view: "dashboard",
         severity: "warning",
       });
     }
@@ -181,7 +181,7 @@ export function Header() {
         kind: "stock",
         title: `${alerts.length - 4} ${t("hdr.moreLow")}`,
         detail: t("hdr.openLowStock"),
-        view: "inventory/low-stock",
+        view: "dashboard",
         severity: "warning",
       });
     }
@@ -190,6 +190,12 @@ export function Header() {
 
   function openNotification(n: NotificationItem) {
     if (n.agingTab) requestAgingTab(n.agingTab);
+    // Stock alerts live in the dedicated Universal Inventory portal now.
+    if (n.kind === "stock") {
+      window.open("/inventory", "_blank", "noopener");
+      setBellOpen(false);
+      return;
+    }
     setView(n.view);
     setBellOpen(false);
   }

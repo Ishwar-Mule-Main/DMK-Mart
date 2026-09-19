@@ -383,7 +383,7 @@ export default function DashboardView() {
               tone="default"
               sub={t("dash.subDamaged", { amt: formatINR(data.damagedValue) })}
               icon={Boxes}
-              onClick={() => setView("inventory/stock")}
+              onClick={() => window.open("/inventory", "_blank", "noopener")}
               drillHint={t("nav.stock")}
             />
           </div>
@@ -586,7 +586,7 @@ export default function DashboardView() {
                         variant="outline"
                         size="sm"
                         className="h-7 px-2.5 text-[11.5px] border-dmk-border-subtle bg-dmk-input-well hover:bg-dmk-hover"
-                        onClick={() => setView("inventory/low-stock")}
+                        onClick={() => window.open("/inventory", "_blank", "noopener")}
                       >
                         {t("dash.reorder")}
                       </Button>
@@ -596,7 +596,7 @@ export default function DashboardView() {
               )}
               {lowStock.length > 5 && (
                 <button
-                  onClick={() => setView("inventory/low-stock")}
+                  onClick={() => window.open("/inventory", "_blank", "noopener")}
                   className="mt-3 self-start text-[12px] font-medium text-dmk-blue hover:underline"
                 >
                   {t("dash.viewAllAlerts", { n: lowStock.length })}

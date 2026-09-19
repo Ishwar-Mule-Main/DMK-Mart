@@ -1,12 +1,13 @@
 // ═══════════════════════════════════════════════════════════════
 // Next.js instrumentation hook — boots the recurring auto-post
-// scheduler exactly once per server process (nodejs runtime only,
-// never during build / edge middleware).
-// Kill switch: DMK_SCHEDULER=off
+// scheduler AND the universal-inventory auto-sync scheduler exactly
+// once per server process (nodejs runtime only, never during build
+// / edge middleware).
+// Kill switches: DMK_SCHEDULER=off · DMK_SYNC_SCHEDULER=off
 // Vercel: serverless functions are ephemeral, so the in-process
-// interval cannot run there. It is skipped automatically (VERCEL=1)
-// and replaced by Vercel Cron pinging GET /api/v1/recurring/generate
-// (see vercel.json) — same engine, same idempotent catch-up.
+// intervals cannot run there. They are skipped automatically
+// (VERCEL=1) and replaced by Vercel Cron pinging GET
+// /api/v1/recurring/generate (see vercel.json).
 // ═══════════════════════════════════════════════════════════════
 
 export async function register() {
@@ -21,5 +22,11 @@ export async function register() {
     startScheduler();
   } catch (e) {
     console.error("[scheduler] failed to start:", e);
+  }
+  try {
+    const { startSyncScheduler } = await import("./lib/inventory-sync-scheduler");
+    startSyncScheduler();
+  } catch (e) {
+    console.error("[inventory-sync] failed to start:", e);
   }
 }

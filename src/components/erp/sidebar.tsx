@@ -5,9 +5,7 @@ import {
   LayoutDashboard,
   ShoppingCart,
   Store,
-  Package,
   Landmark,
-  FileText,
   BarChart3,
   Bot,
   Settings,
@@ -23,12 +21,9 @@ import {
   Banknote,
   Truck,
   UndoIcon,
-  Boxes,
   MapPinned,
   Route as RouteIcon,
   IdCard,
-  ArrowLeftRight,
-  AlertTriangle,
   BookOpen,
   ListTree,
   PieChart,
@@ -43,6 +38,7 @@ import {
   Trash2,
   UsersRound,
   Wallet,
+  Warehouse,
 } from "lucide-react";
 import { useErpStore, type ViewId } from "@/store/erp-store";
 import { useT } from "@/lib/i18n";
@@ -101,17 +97,6 @@ const SECTIONS: NavSection[] = [
       { id: "purchase/returns", label: "Purchase Returns", key: "nav.poReturns", icon: UndoIcon },
       { id: "purchase/payments", label: "Vendor Payments", key: "nav.vendorPayments", icon: Banknote },
       { id: "purchase/vendors", label: "Vendors", key: "nav.vendors", icon: Truck },
-    ],
-  },
-  {
-    label: "Inventory",
-    labelKey: "nav.inventory",
-    items: [
-      { id: "inventory/products", label: "Products", key: "nav.products", icon: Package },
-      { id: "inventory/stock", label: "Stock Levels", key: "nav.stock", icon: Boxes },
-      { id: "inventory/movements", label: "Stock Movements", key: "nav.movements", icon: ArrowLeftRight },
-      { id: "inventory/bulk-upload", label: "Bulk Upload", key: "nav.bulkUpload", icon: FileText },
-      { id: "inventory/low-stock", label: "Low Stock Alerts", key: "nav.lowStock", icon: AlertTriangle },
     ],
   },
   {
@@ -297,6 +282,21 @@ export function Sidebar() {
               </div>
             );
           })}
+
+          {/* Universal Inventory — a SEPARATE product at its own address. */}
+          <div className="pt-2 mt-2 border-t border-dmk-border-subtle/60">
+            <a
+              href="/inventory"
+              title="Universal Inventory portal (opens its own login)"
+              className={cn(
+                "group w-full flex items-center gap-2.5 h-10 px-2.5 rounded-lg text-[13px] font-medium text-dmk-text-secondary hover:bg-dmk-hover hover:text-dmk-text-primary transition-colors",
+                !expanded && "lg:justify-center lg:px-0"
+              )}
+            >
+              <Warehouse className={cn("h-[18px] w-[18px] shrink-0 text-dmk-text-muted group-hover:text-dmk-yellow", !expanded && "hidden")} strokeWidth={1.75} />
+              <span className={cn("truncate", !expanded && "lg:hidden")}>Universal Inventory ↗</span>
+            </a>
+          </div>
         </nav>
         <div className="border-t border-dmk-border-subtle p-3">
           <div className={cn("dmk-well px-3 py-2.5", !expanded && "lg:hidden")}>

@@ -125,7 +125,6 @@ export const G_CHORDS: Record<string, string> = {
   b: "sales/billing",
   c: "sales/b2c",
   i: "sales/invoices",
-  p: "inventory/products",
   o: "purchase/orders",
   v: "purchase/vendors",
   a: "ai",

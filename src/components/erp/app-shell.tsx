@@ -28,11 +28,6 @@ import { FyGate } from "./fy-gate";
  */
 
 import DashboardView from "./views/dashboard";
-import ProductsView from "./views/products";
-import StockLevelsView from "./views/stock-levels";
-import StockMovementsView from "./views/stock-movements";
-import BulkUploadView from "./views/bulk-upload";
-import LowStockView from "./views/low-stock";
 import BillingView from "./views/billing";
 import B2CCounterView from "./views/b2c-counter";
 import InvoiceRegisterView from "./views/invoice-register";
@@ -74,11 +69,6 @@ import SalesTeamView from "./views/sales-team";
 
 const VIEW_MAP: Record<ViewId, React.ComponentType> = {
   dashboard: DashboardView,
-  "inventory/products": ProductsView,
-  "inventory/stock": StockLevelsView,
-  "inventory/movements": StockMovementsView,
-  "inventory/bulk-upload": BulkUploadView,
-  "inventory/low-stock": LowStockView,
   "sales/billing": BillingView,
   "sales/b2c": B2CCounterView,
   "sales/orders": SalesOrdersView,

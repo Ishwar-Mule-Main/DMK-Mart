@@ -282,7 +282,7 @@ function StockAlertsPanel({ firmId, t }: { firmId: string | null; t: TFn }) {
           {syncing ? t("cop.syncingNow") : t("cop.autoSync")}
         </span>
         <button
-          onClick={() => setView("inventory/low-stock")}
+          onClick={() => window.open("/inventory", "_blank", "noopener")}
           className="text-[10.5px] font-semibold text-dmk-blue hover:underline shrink-0 inline-flex items-center gap-0.5"
         >
           {t("cop.openInventory")} <ArrowRight className="h-3 w-3" />
